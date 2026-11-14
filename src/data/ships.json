@@ -1,0 +1,5 @@
+[
+  { "id": "coaster", "name": "Old coaster", "capacity": 3000, "speedKn": 10, "fuelPerDay": 8,
+    "bunkerCapacity": 260, "dailyCost": 1500, "sizeFactor": 1.0, "repairCostPerPoint": 900,
+    "cargoClasses": ["bulk", "general"] }
+]

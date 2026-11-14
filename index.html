@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0a1626" />
+    <title>Deadweight</title>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">Deadweight<span>shipping company</span></div>
+      <div class="clock"><span class="lbl">Date</span><span id="date"></span></div>
+      <div class="money">
+        <span class="lbl">Cash</span><span id="cash"></span>
+        <div class="goal"><div class="goal-track"><div id="goal-bar"></div></div><span id="goal-text"></span></div>
+      </div>
+    </header>
+    <main class="layout">
+      <section class="map-wrap">
+        <div id="map"></div>
+        <div id="ship-strip" class="ship-strip"></div>
+      </section>
+      <aside class="panel">
+        <nav id="tabs" class="tabs" role="tablist"></nav>
+        <div id="panel-body" class="panel-body"></div>
+      </aside>
+    </main>
+    <div id="modal" class="modal" hidden><div id="modal-body" class="modal-body" role="dialog" aria-modal="true"></div></div>
+    <div id="toasts" class="toasts" aria-live="polite"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

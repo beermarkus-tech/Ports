@@ -1,0 +1,16 @@
+[
+  { "id": "grain",       "name": "Grain",       "cargoClass": "bulk",    "freightRate": 5,  "lotMin": 1500, "lotMax": 6000 },
+  { "id": "coal",        "name": "Coal",        "cargoClass": "bulk",    "freightRate": 4,  "lotMin": 1500, "lotMax": 6000 },
+  { "id": "ironore",     "name": "Iron ore",    "cargoClass": "bulk",    "freightRate": 3.5,  "lotMin": 1500, "lotMax": 7000 },
+  { "id": "copper",      "name": "Copper",      "cargoClass": "bulk",    "freightRate": 7, "lotMin": 800,  "lotMax": 3000 },
+  { "id": "fertilizer",  "name": "Fertilizer",  "cargoClass": "bulk",    "freightRate": 5.5, "lotMin": 1000, "lotMax": 4000 },
+  { "id": "timber",      "name": "Timber",      "cargoClass": "general", "freightRate": 5.5, "lotMin": 800,  "lotMax": 3000 },
+  { "id": "steel",       "name": "Steel",       "cargoClass": "general", "freightRate": 6, "lotMin": 800,  "lotMax": 3500 },
+  { "id": "machinery",   "name": "Machinery",   "cargoClass": "general", "freightRate": 10, "lotMin": 200,  "lotMax": 1500 },
+  { "id": "electronics", "name": "Electronics", "cargoClass": "general", "freightRate": 13, "lotMin": 100,  "lotMax": 900 },
+  { "id": "textiles",    "name": "Textiles",    "cargoClass": "general", "freightRate": 8, "lotMin": 300,  "lotMax": 1800 },
+  { "id": "coffee",      "name": "Coffee",      "cargoClass": "general", "freightRate": 8.5, "lotMin": 300,  "lotMax": 2000 },
+  { "id": "cocoa",       "name": "Cocoa",       "cargoClass": "general", "freightRate": 8, "lotMin": 300,  "lotMax": 2000 },
+  { "id": "wine",        "name": "Wine",        "cargoClass": "general", "freightRate": 12, "lotMin": 200,  "lotMax": 1200 },
+  { "id": "cars",        "name": "Cars",        "cargoClass": "general", "freightRate": 11, "lotMin": 200,  "lotMax": 1200 }
+]
