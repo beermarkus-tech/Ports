@@ -19,6 +19,25 @@ npm run balance -- 30 200   # 30 legs × 200 seeds
 npm run build      # type-check and production build into dist/
 ```
 
+## Play online / install
+
+The game deploys to GitHub Pages: **https://beermarkus-tech.github.io/Ports/**
+
+It's an installable PWA that runs fully offline once loaded:
+- **Android (Chrome):** menu ⋮ → *Install app* (or the install prompt).
+- **iPad / iPhone (Safari):** Share → *Add to Home Screen*.
+- **Desktop (Chrome/Edge):** the install icon in the address bar.
+
+Saves live in the browser on that device. New versions are picked up
+automatically on the next launch.
+
+### Deployment
+
+`.github/workflows/deploy.yml` runs the tests, builds, and deploys `dist/` to
+Pages on every push to `main` or the development branch (or manually from the
+Actions tab). One-time setup: **Settings → Pages → Build and deployment →
+Source: GitHub Actions**.
+
 ## How to play
 
 1. **Contracts:** load cargo offered in your port. You can carry lots for
