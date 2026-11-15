@@ -91,7 +91,8 @@ describe('standing orders', () => {
 
   it('stops and asks when it cannot pay for fuel, and can resume', () => {
     let g = newGame(5);
-    const lot = { id: 9999, good: 'machinery', tons: 100, origin: 'rotterdam', dest: 'genoa', pay: 20_000, deadline: 200, postedDay: 0 };
+    // A lot worth sailing for at once, so the ship doesn't wait for more cargo first.
+    const lot = { id: 9999, good: 'machinery', tons: 100, origin: 'rotterdam', dest: 'genoa', pay: 900_000, deadline: 200, postedDay: 0 };
     g = { ...g, cash: -10_000_000, fleet: [{ ...ship(g), fuel: 0, cargo: [lot] }] };
     g = setOrders(g, ship(g).id, ['rotterdam', 'genoa'], 50);
     expect(ship(g).orders?.halted).toMatch(/fuel/);
@@ -108,6 +109,30 @@ describe('standing orders', () => {
     expect(ship(g).orders?.halted).toMatch(/range/);
     g = setOrders(g, ship(g).id, ['rotterdam', 'auckland'], 50);
     expect(ship(g).orders?.halted).toMatch(/reached/);
+  });
+
+  it('waits rather than sail a losing leg, but not for ever', () => {
+    let g = newGame(5);
+    // Only a tiny lot for Istanbul, and no regular trade to draw bookings.
+    const lot = { id: 9998, good: 'machinery', tons: 100, origin: 'rotterdam', dest: 'istanbul', pay: 1_000, deadline: 300, postedDay: 0 };
+    g = { ...g, ports: { ...g.ports, rotterdam: { ...g.ports.rotterdam, board: [lot] } } };
+    g = setOrders(g, ship(g).id, ['rotterdam', 'istanbul'], 50);
+    expect(ship(g).voyage).toBeUndefined();
+    expect(ship(g).waitUntil).toBeGreaterThan(g.day);
+    for (let d = 0; d < 8 && !ship(g).voyage; d++) g = advance(g, 1);
+    expect(ship(g).voyage?.to).toBe('istanbul');
+  });
+
+  it('fills spare space with cargo for later ports on its route', () => {
+    let g = newGame(5);
+    const toNY = { id: 9001, good: 'machinery', tons: 500, origin: 'rotterdam', dest: 'newyork', pay: 500_000, deadline: 60, postedDay: 0 };
+    const toLagos = { id: 9002, good: 'cars', tons: 500, origin: 'rotterdam', dest: 'lagos', pay: 300_000, deadline: 120, postedDay: 0 };
+    g = { ...g, ports: { ...g.ports, rotterdam: { ...g.ports.rotterdam, board: [toNY, toLagos] } } };
+    g = setOrders(g, ship(g).id, ['rotterdam', 'newyork', 'lagos'], 50);
+    expect(ship(g).voyage?.to).toBe('newyork');
+    const ids = ship(g).cargo.map((c) => c.id);
+    expect(ids).toContain(9001);
+    expect(ids).toContain(9002);
   });
 
   it('refuses a route without two different ports', () => {

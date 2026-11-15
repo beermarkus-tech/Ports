@@ -92,8 +92,13 @@ close the app. The game saves after every action, so reloading is always safe.
    Either way it loads, bunkers, docks for repairs below a threshold you pick and
    casts off by itself, without stopping the clock; arrivals show as a toast.
    A ship on a regular route draws bookings for its other ports (only goods that
-   really move on those legs). With an empty hold it waits up to 3 days for
-   cargo. It stops and asks only when stuck (no money for fuel or repairs, a
+   really move on those legs). In best-pay mode it picks the port whose cargo
+   adds most over waiting per day (revenue less fuel, fees and dues, less late
+   pay it would cause for cargo aboard), then fills spare space with cargo for
+   the route's other ports that can make it in time. A leg that doesn't pay its
+   share of upkeep isn't sailed at once: the ship waits up to 5 days for better
+   offers (never making cargo late), then sails anyway. It fills its tank where
+   fuel is cheapest on the route. It stops and asks only when stuck (no money for fuel or repairs, a
    port out of range). The editor shows what trade runs between your ports.
 10. **Port view:** when a ship needs orders (or you tap a ship in port or dry
    dock), the map gives way to a side view of it at the quay, drawn to one true

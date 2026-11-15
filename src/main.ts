@@ -1024,7 +1024,7 @@ class App {
       <div class="repair-pick"><span>Sail</span>${modes}</div>
       <p class="hint">${best
         ? 'At each call it sails to whichever of these ports pays best right now, loading cargo to match. Four or more ports with trade between them work best.'
-        : 'It visits the ports in this order, then back to the first and round again. Only legs with regular cargo pay their way.'}
+        : 'It visits the ports in this order, then back to the first and round again. This usually earns less than "Wherever pays best": only legs with regular cargo pay their way.'}
         Tap ports below or on the map to add them.</p>
       <ol class="route-stops">${rows}</ol>
       <div class="repair-pick"><span>Dry dock below</span>${pct}</div>

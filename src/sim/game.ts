@@ -462,8 +462,20 @@ export const ORDERS = {
   deadlineMargin: 1,
   /** Results kept per ship for the fleet overview, in days. */
   earningsDays: 90,
-  /** With nothing to load, wait up to this many days for offers before sailing empty. */
-  maxIdleDays: 3,
+  /** With nothing worth carrying, wait up to this many days for offers before sailing anyway. */
+  maxIdleDays: 5,
+  /**
+   * A leg is worth sailing now if what it adds over waiting (revenue less fuel, fees
+   * and canal dues, per day) at least pays this share of the ship's daily upkeep.
+   * Below that the ship waits for better offers (a soft rule: see maxIdleDays).
+   */
+  worthUpkeepShare: 1,
+  /** Fill spare space with cargo for later ports on the route (best-pay mode). */
+  loadLater: true,
+  /** Extra days of slack required for cargo loaded for a later port. */
+  laterMargin: 4,
+  /** Fill the tank where fuel is within this margin of the cheapest port on the route. */
+  cheapFuelMargin: 0.03,
 };
 
 /** Give a ship a round trip to sail by itself, starting now if it is in port. */
@@ -558,23 +570,38 @@ function runOrders(state: GameState, shipId: number, world: World): GameState {
       g = w;
     }
     let idx: number;
+    const t = typeOf(start, world);
+    const worthPerDay = ORDERS.worthUpkeepShare * t.dailyCost;
+    const canWait = (o.idleDays ?? 0) < ORDERS.maxIdleDays && cargoKeepsADay(g, shipId, world);
     if (o.mode === 'best') {
       const pick = bestStop(g, shipId, world);
       if (!pick) return halt('none of its ports can be reached from here with a full tank.');
+      // Not worth it yet: wait for better offers (a few days at most, and never making cargo late).
+      if (pick.score < worthPerDay && canWait) return idle(g);
       idx = pick.idx;
       for (const id of pick.load) g = acceptContract(g, shipId, id, world);
-      if (pick.score <= 0 && !getShip(g, shipId).cargo.length && (o.idleDays ?? 0) < ORDERS.maxIdleDays) return idle(g);
     } else {
       idx = nextStop(o, start.location);
+      const reach = legCost(g, start, start.location, o.stops[idx], world);
+      // Waiting won't bring a port into range: say so straight away.
+      if (reach && !reach.inRange) {
+        return halt(`${world.ports[o.stops[idx]].name} is beyond its range (${reach.fuel} t of fuel needed, bunkers hold ${t.bunkerCapacity} t).`);
+      }
       g = loadForRoute(g, shipId, world);
-      if (!getShip(g, shipId).cargo.length && (o.idleDays ?? 0) < ORDERS.maxIdleDays) return idle(g);
+      const leg = legValue(g, getShip(g, shipId), start.location, o.stops[idx], getShip(g, shipId).cargo, world);
+      if (leg && leg.gain / leg.days < worthPerDay && canWait) {
+        // Hand back what was just loaded and wait for more.
+        const fresh = getShip(g, shipId).cargo.filter((c) => !start.cargo.some((x) => x.id === c.id));
+        for (const c of fresh) g = unloadContract(g, shipId, c.id, world);
+        return idle(g);
+      }
     }
     const dest = o.stops[idx];
     const plan = planVoyage(g, shipId, dest, world);
     if (!plan) return halt(`no sea route to ${world.ports[dest].name}.`);
     const type = typeOf(start, world);
     if (!plan.inRange) return halt(`${world.ports[dest].name} is beyond its range (${plan.fuelNeeded} t of fuel needed, bunkers hold ${type.bunkerCapacity} t).`);
-    const want = Math.min(type.bunkerCapacity, Math.ceil(plan.fuelNeeded * ORDERS.fuelReserve)) - getShip(g, shipId).fuel;
+    const want = fuelToBuy(g, getShip(g, shipId), plan.fuelNeeded, world);
     if (want >= 1) {
       try { g = buyFuel(g, shipId, want, world); } catch { /* checked just below */ }
     }
@@ -590,35 +617,117 @@ function runOrders(state: GameState, shipId: number, world: World): GameState {
   }
 }
 
+/** Rough cost of a leg for this ship from one port to another (it need not be there yet). */
+function legCost(g: GameState, ship: ShipState, from: string, to: string, world: World) {
+  const route = routeFor(world, g, from, to);
+  if (!route) return null;
+  const type = typeOf(ship, world);
+  const days = route.nm / (effectiveSpeed(type, ship) * 24);
+  const fuel = Math.ceil(days * type.fuelPerDay * consumptionFactor(ship));
+  const canal = route.canals.reduce((s, c) => s + Math.round(world.canals[c].fee * type.sizeFactor), 0);
+  const strikeDays = strikeAt(g, to) ? ECONOMY.strike.extraDays : 0;
+  return {
+    days: days + RULES.portDays + strikeDays,
+    seaDays: days,
+    fuel,
+    inRange: fuel <= type.bunkerCapacity,
+    /** Fuel valued at the price where the leg starts. */
+    costs: fuel * fuelPrice(g, from, world) + portFee(g, ship, to, world) + canal,
+  };
+}
+
+/** What a leg adds over waiting: revenue for `cargo` delivered at `to`, less fuel, fees and dues. */
+function legValue(g: GameState, ship: ShipState, from: string, to: string, cargo: Contract[], world: World) {
+  const leg = legCost(g, ship, from, to, world);
+  if (!leg) return null;
+  const arrive = g.day + leg.seaDays;
+  const revenue = cargo.filter((c) => c.dest === to).reduce((s, c) => s + c.pay * latePayFactor(arrive - c.deadline), 0);
+  return { ...leg, gain: revenue - leg.costs };
+}
+
+/** Pick lots from a board for `dest` that fit and arrive in time, best pay per ton first. */
+function pickLots(board: Contract[], dest: string, free: number, arriveDay: number, type: ShipTypeDef, world: World, taken = new Set<number>()) {
+  const lots: Contract[] = [];
+  for (const c of board
+    .filter((c) => c.dest === dest && !taken.has(c.id) && type.cargoClasses.includes(world.goods[c.good].cargoClass)
+      && arriveDay + ORDERS.deadlineMargin <= c.deadline)
+    .sort((a, b) => b.pay / b.tons - a.pay / a.tons)) {
+    if (c.tons <= free) { lots.push(c); free -= c.tons; }
+  }
+  return lots;
+}
+
 /**
- * For 'best' mode: the stop that pays best per day right now, counting cargo
- * aboard for it and the best lots on the quay that fit and arrive in time.
+ * For 'best' mode: where to go next, and what to load. Each stop is scored by what
+ * it adds over waiting, per day: cargo aboard and on the quay for it, less fuel,
+ * fees and dues, less the late pay that going there first would cost the rest of
+ * the cargo aboard. Upkeep is the same whatever it does, so it doesn't count.
+ * Spare space then takes cargo for the route's other ports that can make it in time.
+ * (Tested: weighing that later cargo, or looking one leg ahead at the destination's
+ * offers, made routes earn less: offers change before the ship gets there.)
  */
 function bestStop(g: GameState, shipId: number, world: World): { idx: number; load: number[]; score: number } | null {
   const ship = getShip(g, shipId);
   const o = ship.orders!;
   const type = typeOf(ship, world);
-  const price = fuelPrice(g, ship.location, world);
+  const here = ship.location;
+  const board = g.ports[here].board;
   let best: { idx: number; load: number[]; score: number } | null = null;
   o.stops.forEach((dest, idx) => {
-    if (dest === ship.location) return;
-    const plan = planVoyage(g, shipId, dest, world);
-    if (!plan || !plan.inRange) return;
+    if (dest === here) return;
+    const leg = legCost(g, ship, here, dest, world);
+    if (!leg || !leg.inRange) return;
     let free = type.capacity - cargoTons(ship);
-    const load: number[] = [];
-    let pay = plan.revenue;
-    const offers = g.ports[ship.location].board
-      .filter((c) => c.dest === dest && type.cargoClasses.includes(world.goods[c.good].cargoClass)
-        && g.day + plan.seaDays + ORDERS.deadlineMargin <= c.deadline)
-      .sort((a, b) => b.pay / b.tons - a.pay / a.tons);
-    for (const c of offers) {
-      if (c.tons <= free) { load.push(c.id); free -= c.tons; pay += c.pay; }
+    const arrive = g.day + leg.seaDays;
+    // Cargo for this stop
+    const now = pickLots(board, dest, free, arrive, type, world);
+    free -= now.reduce((s, c) => s + c.tons, 0);
+    const aboard = ship.cargo.filter((c) => c.dest === dest).reduce((s, c) => s + c.pay * latePayFactor(arrive - c.deadline), 0);
+    // Going here first delays the rest of the cargo aboard: count what that would cost in late pay.
+    let delay = 0;
+    for (const c of ship.cargo) {
+      if (c.dest === dest) continue;
+      const onward = legCost(g, ship, dest, c.dest, world);
+      if (onward) delay += c.pay * (1 - latePayFactor(arrive + RULES.portDays + onward.seaDays - c.deadline));
     }
-    const net = pay - plan.upkeep - plan.portFee - plan.canalFees - plan.fuelNeeded * price;
-    const score = net / (plan.seaDays + RULES.portDays + plan.strikeDays);
-    if (!best || score > best.score) best = { idx, load, score };
+    const gain = aboard + now.reduce((s, c) => s + c.pay, 0) - leg.costs - delay;
+    // Fill up with cargo for the other stops that can still make it via this one.
+    const taken = new Set(now.map((c) => c.id));
+    const later: Contract[] = [];
+    for (const next of ORDERS.loadLater ? o.stops : []) {
+      if (next === here || next === dest || free <= 0) continue;
+      const onward = legCost(g, ship, dest, next, world);
+      if (!onward || !onward.inRange) continue;
+      const lots = pickLots(board, next, free, arrive + RULES.portDays + onward.seaDays + ORDERS.laterMargin, type, world, taken);
+      for (const c of lots) { later.push(c); taken.add(c.id); free -= c.tons; }
+    }
+    const score = gain / leg.days;
+    if (!best || score > best.score) best = { idx, load: [...now, ...later].map((c) => c.id), score };
   });
   return best;
+}
+
+/** Would every lot aboard still arrive in time if the ship waited one more day? */
+function cargoKeepsADay(g: GameState, shipId: number, world: World): boolean {
+  const ship = getShip(g, shipId);
+  return ship.cargo.every((c) => {
+    const leg = legCost(g, ship, ship.location, c.dest, world);
+    return !leg || g.day + 1 + leg.seaDays + ORDERS.deadlineMargin <= c.deadline;
+  });
+}
+
+/** Fuel to buy for the next leg: just enough plus reserve, or a full tank where fuel is cheapest on the route. */
+function fuelToBuy(g: GameState, ship: ShipState, need: number, world: World): number {
+  const type = typeOf(ship, world);
+  const basic = Math.min(type.bunkerCapacity, Math.ceil(need * ORDERS.fuelReserve)) - ship.fuel;
+  const o = ship.orders;
+  if (!o) return basic;
+  const price = fuelPrice(g, ship.location, world);
+  const cheapest = Math.min(...o.stops.map((id) => fuelPrice(g, id, world)));
+  if (price > cheapest * (1 + ORDERS.cheapFuelMargin)) return basic;
+  // Cheapest on the route: fill up, from cash in hand (not on credit).
+  const affordable = Math.floor(Math.max(0, g.cash) / price);
+  return Math.max(basic, Math.min(type.bunkerCapacity - ship.fuel, affordable));
 }
 
 /**
