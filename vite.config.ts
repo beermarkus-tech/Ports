@@ -1,16 +1,34 @@
+import { execSync } from 'node:child_process';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+
+/** Build number = number of commits on the branch; increases by one per commit. */
+function git(cmd: string, fallback: string): string {
+  try {
+    return execSync(`git ${cmd}`, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+  } catch {
+    return fallback;
+  }
+}
+const buildNumber = git('rev-list --count HEAD', '0');
+const buildSha = git('rev-parse --short HEAD', 'dev');
 
 // Relative base so the build works at any path: GitHub Pages serves it from
 // /<repo>/, a custom domain from /, and `vite preview` from /.
 export default defineConfig({
   base: './',
+  define: {
+    __BUILD_NUMBER__: JSON.stringify(buildNumber),
+    __BUILD_SHA__: JSON.stringify(buildSha),
+    __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+  },
   plugins: [
     VitePWA({
       // The game saves after every action (a voyage is resolved and saved before
       // it is animated), so silently activating a new version is safe.
+      // Registration happens in src/ui/update.ts (it also drives the reload button).
       registerType: 'autoUpdate',
-      injectRegister: 'auto',
+      injectRegister: false,
       includeAssets: ['icons/icon.svg', 'icons/apple-touch-icon.png'],
       manifest: {
         id: './',

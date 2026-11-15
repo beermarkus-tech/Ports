@@ -8,6 +8,7 @@ import type { Contract, GameState } from './sim/types';
 import { getWorld } from './sim/world';
 import { compactMoney, days, esc, gameDate, money, tons } from './ui/format';
 import { MapView, type PortMarker } from './ui/map';
+import { BUILD, initServiceWorker, reloadApp } from './ui/update';
 
 type Tab = 'contracts' | 'ship' | 'voyage' | 'log';
 
@@ -411,7 +412,8 @@ class App {
         <li><span class="l-day">${gameDate(e.day)}</span><span class="l-text">${esc(e.text)}</span>
         ${e.amount !== undefined ? `<span class="l-amt ${e.amount >= 0 ? 'good' : 'bad'}">${money(e.amount, true)}</span>` : ''}</li>`).join('')}
       </ul>
-      <button class="btn ghost wide" data-action="new-game">New game</button>`;
+      <button class="btn ghost wide" data-action="new-game">New game</button>
+      <p class="build-info">Build ${esc(BUILD.number)} · ${esc(BUILD.sha)} · built ${esc(new Date(BUILD.time).toLocaleString())}</p>`;
   }
 
   // ------------------------------------------------------------ modals
@@ -462,4 +464,11 @@ function gauge(label: string, frac: number, text: string, cls: string): string {
   return `<div class="gauge ${cls}"><div class="g-head"><span>${label}</span><span>${text}</span></div><div class="g-track"><div class="g-fill" style="width:${f * 100}%"></div></div></div>`;
 }
 
+$('#build').textContent = `Build ${BUILD.number}`;
+$('#build').title = `Commit ${BUILD.sha}, built ${BUILD.time}`;
+$('#reload').addEventListener('click', () => {
+  $('#reload').classList.add('spinning');
+  void reloadApp();
+});
+initServiceWorker();
 new App();

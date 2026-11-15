@@ -34,9 +34,13 @@ automatically on the next launch.
 ### Deployment
 
 `.github/workflows/deploy.yml` runs the tests, builds, and deploys `dist/` to
-Pages on every push to `main` or the development branch (or manually from the
-Actions tab). One-time setup: **Settings → Pages → Build and deployment →
-Source: GitHub Actions**.
+Pages on every push to `main` (or manually from the Actions tab). One-time
+setup: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+
+**Build number:** the commit count on `main`, shown under the logo and at the
+bottom of the Log tab (with the commit id and build time). The ↻ button in the
+header checks for a new version, installs it and reloads, with no need to
+close the app. The game saves after every action, so reloading is always safe.
 
 ## How to play
 
