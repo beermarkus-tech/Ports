@@ -235,14 +235,17 @@ class App {
     if (this.tab === 'log' || this.tab === 'market') this.tab = 'contracts';
   }
 
-  /** After an order: on to the next ship that needs one, or let the clock run again. */
+  /**
+   * After an order: on to the next ship that needs one, or, once no ship is
+   * waiting for orders, start the clock again (also when it was paused by hand).
+   */
   private afterDecision(): void {
     const waiting = shipsNeedingDecision(this.g);
     if (waiting.length) {
       this.goToNextDecision();
       const next = waiting.find((s) => s.id === this.activeId) ?? waiting[0];
       this.toast(`Next: the ${next.name} in ${world.ports[next.location].name} needs orders.`, 'good');
-    } else if (this.paused && this.pausedBy !== 'user' && !this.g.reports.length) {
+    } else if (this.paused && !this.g.reports.length) {
       this.resume();
     }
   }
@@ -286,7 +289,9 @@ class App {
         if (plan) this.act((g) => buyFuel(g, id, Math.ceil(plan.fuelNeeded * 1.15) - getShip(g, id).fuel));
         break;
       }
-      case 'repair': this.act((g) => repair(g, id, Number(data.points))); break;
+      case 'repair':
+        if (this.act((g) => repair(g, id, Number(data.points)))) this.afterDecision();
+        break;
       case 'borrow': this.act((g) => borrow(g, data.amount === 'max' ? Infinity : Number(data.amount))); break;
       case 'repay': this.act((g) => repayLoan(g, data.amount === 'all' ? Infinity : Number(data.amount))); break;
       case 'buy-ship': {
