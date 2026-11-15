@@ -155,6 +155,12 @@ export function quotePurchase(g: GameState, offer: ShipOffer, world: World): Pur
 }
 
 /** The goods a port exports that this ship type can carry. */
+/** Goods this kind of ship can carry that `from` ships and `to` buys (what usually moves on that leg). */
+export function legTrade(world: World, type: ShipTypeDef, from: string, to: string): string[] {
+  const wanted = new Set(world.ports[to].demands.map((d) => d.good));
+  return exportsFor(world, type, from).filter((g) => wanted.has(g));
+}
+
 export function exportsFor(world: World, type: ShipTypeDef, portId: string): string[] {
   return world.ports[portId].produces
     .map((p) => world.goods[p.good])

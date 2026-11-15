@@ -35,6 +35,12 @@ export const CONTRACT_TUNING = {
    * miles away is half as likely as one next door.
    */
   nearbyNm: 5000,
+  /** Lots booked per port on its route when a ship on standing orders calls (tries; dead legs get none). */
+  serviceLotsPerStop: 1,
+  /** Chance of each such booking coming through. */
+  serviceChance: 0.6,
+  /** At most this many ports get bookings per call. */
+  serviceLotsMax: 2,
   /** Contracts sit on a board this many days before being withdrawn. */
   boardLifetime: 12,
 };
@@ -63,19 +69,21 @@ const DRY: CargoClass[] = ['bulk', 'general'];
 export function generateContract(
   world: World, g: GameState, originId: string, kind: ContractKind = { classes: DRY },
   lanes: ReadonlySet<string> = new Set(),
+  onlyDests?: ReadonlySet<string>,
 ): Contract | null {
   const origin = world.ports[originId];
   const T = CONTRACT_TUNING;
   const options = origin.produces.filter((p) => {
     const good = world.goods[p.good];
     return kind.classes.includes(good.cargoClass) && (!kind.big || good.bigLotMax !== undefined) &&
-      (kind.maxTons === undefined || good.lotMin <= kind.maxTons);
+      (kind.maxTons === undefined || good.lotMin <= kind.maxTons) &&
+      (!onlyDests || [...onlyDests].some((d) => world.ports[d].demands.some((x) => x.good === good.id)));
   });
   if (options.length === 0) return null;
   const produced = pickWeighted(g, options, (p) => p.weight);
   const good = world.goods[produced.good];
   const buyers = world.portList.flatMap((p) => {
-    if (p.id === originId) return [];
+    if (p.id === originId || (onlyDests && !onlyDests.has(p.id))) return [];
     const route = routeFor(world, g, originId, p.id);
     if (!route) return [];
     return p.demands.filter((d) => d.good === good.id).map((d) => ({ port: p, strength: d.strength, nm: route.nm }));
@@ -154,4 +162,29 @@ export function churnBoard(world: World, g: GameState, portId: string): void {
     const c = generateContract(world, g, portId, pickKind(g), new Set(port.board.map((b) => b.dest)));
     if (c) port.board.push(c);
   }
+}
+
+/**
+ * A ship on a regular route draws cargo: shippers book lots for the other ports
+ * on its route when it calls (only goods that actually move on those legs).
+ */
+export function bookServiceCargo(world: World, g: GameState, portId: string, dests: string[], classes: CargoClass[], capacity: number): Contract[] {
+  const T = CONTRACT_TUNING;
+  const booked: Contract[] = [];
+  const others = dests.filter((d) => d !== portId);
+  // With many ports on a route, a random few of them get bookings each call.
+  for (let i = others.length - 1; i > 0; i--) {
+    const j = Math.floor(rand(g) * (i + 1));
+    [others[i], others[j]] = [others[j], others[i]];
+  }
+  for (const d of others.slice(0, T.serviceLotsMax)) {
+    for (let i = 0; i < T.serviceLotsPerStop; i++) {
+      if (rand(g) >= T.serviceChance) continue;
+      const big = capacity >= 10_000 && rand(g) < 0.5;
+      const c = generateContract(world, g, portId, { classes, big, maxTons: capacity }, new Set(), new Set([d]));
+      if (c) booked.push(c);
+    }
+  }
+  g.ports[portId].board.push(...booked);
+  return booked;
 }

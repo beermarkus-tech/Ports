@@ -79,6 +79,29 @@ export interface ShipState {
   busyUntil?: number;
   /** Ordered to wait in port until this day (a very large number = laid up until further notice). */
   waitUntil?: number;
+  /** A round trip the ship sails by itself (loading, bunkering and docking on the way). */
+  orders?: StandingOrders;
+  /** Results of recent legs, for the fleet overview. */
+  earnings?: { day: number; net: number }[];
+}
+
+/** A programmed round trip: the ship works through `stops` in a loop on its own. */
+export interface StandingOrders {
+  /** Ports in order; after the last it heads for the first again. */
+  stops: string[];
+  /** Index in `stops` of the port it heads for next (in 'loop' mode). */
+  next: number;
+  /**
+   * 'best': at each call, sail to whichever of the stops pays best right now.
+   * 'loop': visit the stops strictly in order. Older saves have no mode (= loop).
+   */
+  mode?: 'best' | 'loop';
+  /** Goes into dry dock when its condition falls below this (%). */
+  repairBelow: number;
+  /** Set when the ship hit a problem and stopped to ask for orders. */
+  halted?: string;
+  /** Days spent in this port waiting for cargo (an empty hold sails only after a few). */
+  idleDays?: number;
 }
 
 /**
@@ -177,6 +200,8 @@ export interface Delivery {
 export interface VoyageReport {
   shipId: number;
   shipName: string;
+  /** The ship was on standing orders: reported in passing, it didn't stop for the player. */
+  auto?: boolean;
   from: string;
   to: string;
   path: string[];

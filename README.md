@@ -12,7 +12,8 @@ Phase 1 (ten ports, contracts, fuel, wear and repairs, storms, map, autosave).
 Graphics pass 1: ship art per family, a living map (night side, waves, coastal
 glow, clouds, storm cells, wakes), cash and payment effects, synthesised sound
 effects with a mute button. The world has 26 ports and 29 goods (rice, sugar,
-bauxite, rubber, cotton, wool, tea, palm oil, fish and dairy among them). Next: automation.
+bauxite, rubber, cotton, wool, tea, palm oil, fish and dairy among them). Automation step 1: standing orders (routes) and a
+fleet overview. Next: smarter exceptions, then perhaps hired captains.
 
 ## Running it
 
@@ -74,7 +75,7 @@ close the app. The game saves after every action, so reloading is always safe.
    that, or when no ship can reach another port, the game is over.
 6. **Market:** buy ships in any port's market (pick the port at the top); a
    new ship joins your fleet there with a little fuel. Every port has a few
-   used ships; Rotterdam, Shanghai and Singapore also build new ones. Sell a
+   used ships; Rotterdam, Shanghai, Singapore and Busan also build new ones. Sell a
    ship from the Ship tab. Keep cash for fuel: a big ship's full tank costs a lot.
 7. Goals are net-worth milestones (cash + fleet value − loan): $1M, $5M, $25M, $100M.
 8. **The economy moves.** Every delivery lowers what that port pays for that good
@@ -84,6 +85,17 @@ close the app. The game saves after every action, so reloading is always safe.
    listed in the Voyage tab, and show on the map: dock strikes (3 extra days and
    double fees), harvest failures and booms (higher prices), canal closures
    (long detours) and oil shocks.
+9. **Routes (standing orders).** In the Voyage tab, "Set up a route…" gives a
+   ship a set of ports. *Wherever pays best* (default): at each call it sails to
+   whichever of them pays best right now. *In this order*: a fixed round trip.
+   Either way it loads, bunkers, docks for repairs below a threshold you pick and
+   casts off by itself, without stopping the clock; arrivals show as a toast.
+   A ship on a regular route draws bookings for its other ports (only goods that
+   really move on those legs). With an empty hold it waits up to 3 days for
+   cargo. It stops and asks only when stuck (no money for fuel or repairs, a
+   port out of range). The editor shows what trade runs between your ports.
+10. **Fleet tab:** every ship with its status, route, hold, fuel, condition and
+   what it earned in the last 30 days after fuel.
 
 ### Ship classes
 
@@ -158,6 +170,9 @@ less shrewdly), which is closer to a person playing for the first time.
 - `npx tsx scripts/progression.ts 80 60 casual`: net worth over a long game, when the first upgrade happens, which ships bots end up with.
 - `npx tsx scripts/ships.ts`: each ship class's earning power against its price.
 - `npx tsx scripts/economy.ts`: route concentration, price levels, oil range and event frequency.
+- `ORDERS` in `src/sim/game.ts` and `serviceLotsPerStop` / `serviceChance` / `serviceLotsMax` in
+  `CONTRACT_TUNING` tune standing orders. With them, an old coaster on five well-chosen Atlantic
+  ports makes roughly 70% of what the greedy bot makes by hand; poorly chosen pairs lose money.
 
 Current results (net worth, starting at about $380k including the old coaster):
 

@@ -1,14 +1,15 @@
 import './ui/style.css';
 import { activeEvents, closedCanals, priceLevel, routeFor } from './sim/economy';
 import {
-  ActionError, LAID_UP, RULES, acceptContract, advance, atSea, borrow, buyFuel, buyShip, canCarry, cargoTons,
+  ActionError, LAID_UP, RULES, acceptContract, advance, atSea, borrow, buyFuel, buyShip, canCarry, cargoTons, clearOrders,
+  onOrders, resumeOrders, setOrders,
   dailyUpkeep, daysUntilNextShip, fuelPrice, getShip, inDryDock, isReady, isWaiting, needsDecision, newGame,
   nextMilestone, planVoyage, portFee, repair, repairQuote, repayLoan, sail, saleQuote, sellShip,
   shipsNeedingDecision, takeReport, typeOf, unloadContract, voyageProgress, waitInPort, type VoyagePlan,
 } from './sim/game';
 import { clearSave, loadGame, saveGame } from './sim/save';
 import {
-  SHIP_TUNING, consumptionFactor, effectiveSpeed, exportsFor, fleetValue, maxLoan, netWorth, quotePurchase, saleValue,
+  SHIP_TUNING, consumptionFactor, effectiveSpeed, exportsFor, fleetValue, legTrade, maxLoan, netWorth, quotePurchase, saleValue,
   stateValue,
 } from './sim/ships';
 import type { Contract, GameState, ShipOffer, ShipState, ShipTypeDef, VoyageReport } from './sim/types';
@@ -19,7 +20,7 @@ import { MapView, type LonLat, type PortMarker, type ShipMarker, type WeatherCel
 import { sound } from './ui/sound';
 import { BUILD, consumeUpdatedFrom, initServiceWorker, isNewer, latestBuild, reloadApp } from './ui/update';
 
-type Tab = 'contracts' | 'voyage' | 'ship' | 'market' | 'log';
+type Tab = 'contracts' | 'voyage' | 'ship' | 'market' | 'fleet' | 'log';
 /** Why the clock is stopped: the player paused it, or a ship (or an arrival report) needs the player. */
 type PauseReason = 'user' | 'arrival' | 'decision';
 
@@ -48,6 +49,12 @@ const CONTRACT_SORTS = {
 type ContractSort = keyof typeof CONTRACT_SORTS;
 const SORT_KEY = 'deadweight.contractSort';
 
+/** "machinery, cars and steel" from good ids. */
+function goodsList(ids: string[]): string {
+  const names = ids.map((id) => world.goods[id].name.toLowerCase());
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0] ?? '';
+}
+
 function loadContractSort(): ContractSort {
   try {
     const v = localStorage.getItem(SORT_KEY);
@@ -63,6 +70,8 @@ class App {
   private hoverDest: string | null = null;
   private marketPort: string | null = null;
   private contractSort: ContractSort = loadContractSort();
+  /** A route being put together for a ship (stops in order), or null. */
+  private routeDraft: { shipId: number; stops: string[]; repairBelow: number; mode: 'best' | 'loop' } | null = null;
   private paused = true;
   private pausedBy: PauseReason | null = 'decision';
   private speed = 1;
@@ -122,6 +131,7 @@ class App {
     setInterval(() => this.tick(), TICK_MS);
     this.renderMute();
     this.render();
+    this.drainAutoReports();
     if (this.g.reports.length) this.showNextReport();
   }
 
@@ -147,6 +157,7 @@ class App {
     if (next !== null) step = Math.min(step, next + 1e-6);
     this.g = advance(this.g, Math.max(1e-6, step));
     this.flashEvents(before, this.g);
+    this.drainAutoReports();
     if (this.g.reports.length) {
       this.pause('arrival');
       this.showNextReport();
@@ -158,7 +169,8 @@ class App {
       this.pause('decision');
       for (const s of freed) {
         const wasDocked = before.fleet.find((b) => b.id === s.id)?.busyUntil !== undefined;
-        this.toast(`${s.name} ${wasDocked ? 'is out of dry dock' : 'has finished waiting'} in ${world.ports[s.location].name} and needs orders.`, 'good');
+        if (s.orders?.halted) this.toast(`${s.name} stopped its route in ${world.ports[s.location].name}: ${s.orders.halted}`, 'bad');
+        else this.toast(`${s.name} ${wasDocked ? 'is out of dry dock' : 'has finished waiting'} in ${world.ports[s.location].name} and needs orders.`, 'good');
       }
       sound.play('bell');
       this.goToNextDecision();
@@ -349,6 +361,54 @@ class App {
         this.act((g) => ({ ...g, fleet: g.fleet.map((s) => (s.id === id ? { ...s, waitUntil: undefined } : s)) }));
         this.pause('decision');
         break;
+      case 'route-edit': {
+        const o = ship.orders;
+        const start = ship.voyage?.to ?? ship.location;
+        this.routeDraft = { shipId: id, stops: o ? [...o.stops] : [start], repairBelow: o?.repairBelow ?? 60, mode: o ? o.mode ?? 'loop' : 'best' };
+        this.tab = 'voyage';
+        this.render();
+        return;
+      }
+      case 'route-add': this.addRouteStop(data.id!); return;
+      case 'route-remove':
+        this.routeDraft?.stops.splice(Number(data.index), 1);
+        this.renderPanel();
+        return;
+      case 'route-mode':
+        if (this.routeDraft) this.routeDraft.mode = data.mode === 'loop' ? 'loop' : 'best';
+        this.renderPanel();
+        return;
+      case 'route-repair':
+        if (this.routeDraft) this.routeDraft.repairBelow = Number(data.pct);
+        this.renderPanel();
+        return;
+      case 'route-cancel':
+        this.routeDraft = null;
+        this.render();
+        return;
+      case 'route-start': {
+        const d = this.routeDraft;
+        if (!d) return;
+        if (this.act((g) => setOrders(g, d.shipId, d.stops, d.repairBelow, d.mode))) {
+          this.routeDraft = null;
+          this.dest = null;
+          sound.play('horn');
+          this.toast(`The ${ship.name} is on its route.`, 'good');
+          this.afterDecision();
+        }
+        this.render();
+        return;
+      }
+      case 'route-stop':
+        if (this.act((g) => clearOrders(g, id))) this.toast(`The ${ship.name} is off its route${isReady(this.g, this.ship()) ? ' and needs orders' : '; it will wait for orders at its next port'}.`, 'good');
+        break;
+      case 'route-resume':
+        if (this.act((g) => resumeOrders(g, id))) {
+          const s = this.ship();
+          if (s.orders?.halted) this.toast(`Still stuck: ${s.orders.halted}`, 'bad');
+          else this.afterDecision();
+        }
+        break;
       case 'contract-sort':
         this.contractSort = this.contractSort === 'pay' ? 'dest' : 'pay';
         try { localStorage.setItem(SORT_KEY, this.contractSort); } catch { /* not saved, still works */ }
@@ -390,6 +450,7 @@ class App {
 
   private selectDest(portId: string): void {
     const ship = this.ship();
+    if (this.routeDraft?.shipId === ship.id) { this.addRouteStop(portId); return; }
     if (!isReady(this.g, ship)) return;
     this.dest = portId === ship.location ? null : portId;
     this.tab = 'voyage';
@@ -531,11 +592,13 @@ class App {
 
   private shipStatus(ship: ShipState): { text: string; state: 'sea' | 'ready' | 'busy'; progress?: number } {
     const g = this.g;
+    const route = onOrders(ship) ? '↻ ' : '';
     if (ship.voyage) {
       const left = Math.max(0, ship.voyage.arriveDay - g.day);
-      return { text: `→ ${world.ports[ship.voyage.to].name} · ${days(Math.ceil(left * 10) / 10)}`, state: 'sea', progress: voyageProgress(g, ship) };
+      return { text: `${route}→ ${world.ports[ship.voyage.to].name} · ${days(Math.ceil(left * 10) / 10)}`, state: 'sea', progress: voyageProgress(g, ship) };
     }
-    if (inDryDock(g, ship)) return { text: `Dry dock, ${world.ports[ship.location].name} · ${days(Math.ceil((ship.busyUntil! - g.day) * 10) / 10)}`, state: 'busy' };
+    if (ship.orders?.halted && !inDryDock(g, ship)) return { text: `Route stopped in ${world.ports[ship.location].name}`, state: 'ready' };
+    if (inDryDock(g, ship)) return { text: `${route}Dry dock, ${world.ports[ship.location].name} · ${days(Math.ceil((ship.busyUntil! - g.day) * 10) / 10)}`, state: 'busy' };
     if (isWaiting(g, ship)) {
       return ship.waitUntil! >= LAID_UP
         ? { text: `Laid up in ${world.ports[ship.location].name}`, state: 'busy' }
@@ -638,6 +701,7 @@ class App {
       ['voyage', 'Voyage'],
       ['ship', 'Ship'],
       ['market', 'Market'],
+      ['fleet', 'Fleet', g.fleet.length > 1 ? String(g.fleet.length) : undefined],
       ['log', 'Log'],
     ];
     $('#tabs').innerHTML = tabs.map(([id, label, badge]) =>
@@ -649,7 +713,7 @@ class App {
     const open = new Set([...body.querySelectorAll<HTMLDetailsElement>('details[open][data-key]')].map((d) => d.dataset.key));
     body.innerHTML = {
       contracts: () => this.contractsTab(), voyage: () => this.voyageTab(), ship: () => this.shipTab(),
-      market: () => this.marketTab(), log: () => this.logTab(),
+      market: () => this.marketTab(), fleet: () => this.fleetTab(), log: () => this.logTab(),
     }[this.tab]();
     body.querySelectorAll<HTMLDetailsElement>('details[data-key]').forEach((d) => { if (open.has(d.dataset.key)) d.open = true; });
     if (this.renderedTab !== this.tab || this.renderedShip !== ship.id) {
@@ -683,7 +747,7 @@ class App {
         </div>
         ${passed.length ? `<ul class="events">${passed.map((e) => `<li class="${e.kind}"><span>Day ${e.day}</span> ${esc(e.text)}</li>`).join('')}</ul>` : '<p class="calm">All quiet so far.</p>'}
         ${due.length ? `<p class="hint">Delivering ${due.length} lot${due.length > 1 ? 's' : ''} worth ${compactMoney(due.reduce((s, c) => s + c.pay, 0))} on arrival.</p>` : '<p class="hint">Sailing in ballast.</p>'}
-        <p class="hint">You'll get its orders back when it arrives. Meanwhile, pick another ship below.</p>
+        <p class="hint">${onOrders(ship) ? 'On its route: it carries on by itself when it arrives.' : "You'll get its orders back when it arrives. Meanwhile, pick another ship below."}</p>
       </section>`;
     }
     return `<section class="card plan underway">
@@ -719,6 +783,185 @@ class App {
           ${button}
         </div>
       </li>`;
+  }
+
+  /** Add a port to the route being drawn up (not the same port twice in a row). */
+  private addRouteStop(portId: string): void {
+    const d = this.routeDraft;
+    if (!d) return;
+    if (d.mode === 'best' ? !d.stops.includes(portId) : d.stops[d.stops.length - 1] !== portId) d.stops.push(portId);
+    this.renderPanel();
+  }
+
+  /** The Voyage tab's standing-orders card: the ship's route, or an offer to set one up. */
+  private ordersCard(): string {
+    const ship = this.ship();
+    const o = ship.orders;
+    if (!o) {
+      return `<section class="card orders">
+        <div class="orders-head"><h3>Standing orders</h3>
+          <button class="btn small" data-action="route-edit">Set up a route…</button></div>
+        <p class="hint">Pick a few ports and the ${esc(ship.name)} trades between them by itself: loads the best cargo,
+          bunkers, docks for repairs and casts off, without stopping the clock. Ships on a regular route also get
+          cargo booked for them.</p>
+      </section>`;
+    }
+    const best = o.mode === 'best';
+    const heading = ship.voyage?.to;
+    const loop = o.stops.map((id, i) => {
+      const next = best ? id === heading : i === o.next % o.stops.length && !o.halted;
+      return `<span class="stop ${next ? 'next' : ''}">${esc(world.ports[id].name)}</span>`;
+    }).join(best ? '' : '<span class="arrow">→</span>');
+    const earned = (ship.earnings ?? []).filter((e) => e.day > this.g.day - 30).reduce((sum, e) => sum + e.net, 0);
+    return `<section class="card orders ${o.halted ? 'halted' : ''}">
+      <div class="orders-head"><h3>↻ ${best ? 'Trading where it pays best' : 'On a round trip'}</h3>
+        <span class="orders-btns">
+          ${o.halted ? '<button class="btn small primary" data-action="route-resume">Resume</button>' : ''}
+          <button class="btn small" data-action="route-edit">Change</button>
+          <button class="btn small ghost" data-action="route-stop">Stop route</button>
+        </span></div>
+      <div class="route-loop ${best ? 'set' : ''}">${loop}${best ? '' : '<span class="arrow">↻</span>'}</div>
+      ${o.halted ? `<p class="warn-line">Stopped: ${esc(o.halted)} Sort it out (cargo, fuel, cash) and press Resume, or change the route.</p>` : ''}
+      <p class="hint">Docks for repairs below ${o.repairBelow}% condition. Last 30 days: <strong>${money(earned, true)}</strong> after fuel.</p>
+    </section>`;
+  }
+
+  /** Drawing up a route: its ports, how it sails them, the repair threshold, and ports to add. */
+  private routeEditor(): string {
+    const d = this.routeDraft!;
+    const ship = this.ship();
+    const type = typeOf(ship);
+    const best = d.mode === 'best';
+    const last = d.stops[d.stops.length - 1];
+    const distinct = new Set(d.stops).size;
+    const rangeOf = (from: string, to: string) => {
+      const r = world.route(from, to);
+      if (!r) return { nm: Infinity, out: true };
+      const fuel = Math.ceil(r.nm / (effectiveSpeed(type, ship) * 24) * type.fuelPerDay * consumptionFactor(ship));
+      return { nm: r.nm, out: fuel > type.bunkerCapacity };
+    };
+    /** Goods that move from `id` to any of the other ports in `set`. */
+    const shipsTo = (id: string, set: string[]) => [...new Set(set.filter((o) => o !== id).flatMap((o) => legTrade(world, type, id, o)))];
+
+    const rows = d.stops.map((id, i) => {
+      let detail = '';
+      let warn = false;
+      if (best) {
+        const out = shipsTo(id, d.stops);
+        warn = d.stops.length > 1 && !out.length;
+        detail = d.stops.length > 1
+          ? `<span class="leg-trade ${out.length ? '' : 'none'}">${out.length ? `Ships to your other ports: ${esc(goodsList(out))}` : 'Nothing from here for your other ports'}</span>`
+          : '';
+      } else if (d.stops.length > 1) {
+        const nextId = d.stops[(i + 1) % d.stops.length];
+        const leg = rangeOf(id, nextId);
+        const trade = goodsList(legTrade(world, type, id, nextId));
+        warn = leg.out;
+        detail = `<span class="leg">→ ${esc(world.ports[nextId].name)} · ${leg.nm.toLocaleString('en-US')} nm${leg.out ? ' · out of range' : ''}</span>
+          <span class="leg-trade ${trade ? '' : 'none'}">${trade ? `Cargo for you on this leg: ${esc(trade)}` : 'No regular cargo for your ship on this leg'}</span>`;
+      }
+      return `<li class="${warn ? 'out' : ''}">
+        <span class="n">${best ? '•' : i + 1}</span><strong>${esc(world.ports[id].name)}</strong>
+        ${detail}
+        <button class="x" data-action="route-remove" data-index="${i}" title="Remove this port">×</button>
+      </li>`;
+    }).join('');
+
+    const pct = [40, 50, 60, 70].map((p) =>
+      `<button class="btn small ${p === d.repairBelow ? 'primary' : 'ghost'}" data-action="route-repair" data-pct="${p}">${p}%</button>`).join('');
+    const modes = ([['best', 'Wherever pays best'], ['loop', 'In this order']] as const).map(([m, label]) =>
+      `<button class="btn small ${d.mode === m ? 'primary' : 'ghost'}" data-action="route-mode" data-mode="${m}">${label}</button>`).join('');
+
+    const candidates = world.portList.filter((p) => (best ? !d.stops.includes(p.id) : p.id !== last));
+    const options = candidates.map((p) => {
+      if (best) {
+        const out = shipsTo(p.id, [...d.stops, p.id]);
+        const inbound = [...new Set(d.stops.flatMap((s) => legTrade(world, type, s, p.id)))];
+        const near = Math.min(...d.stops.map((s) => rangeOf(s, p.id).nm));
+        const score = out.length + inbound.length;
+        const text = score
+          ? `${out.length ? `Ships ${esc(goodsList(out))}` : 'Ships nothing to your ports'} · ${inbound.length ? `buys ${esc(goodsList(inbound))}` : 'buys nothing from them'}`
+          : 'No trade with your ports for this ship';
+        return { p, sortA: score ? 0 : 1, sortB: near, meta: `${near.toLocaleString('en-US')} nm from your nearest port`, text, ok: score > 0 };
+      }
+      const leg = rangeOf(last, p.id);
+      const there = goodsList(legTrade(world, type, last, p.id));
+      const back = p.id !== d.stops[0] ? goodsList(legTrade(world, type, p.id, d.stops[0])) : '';
+      const text = `${there ? `From ${esc(world.ports[last].name)}: ${esc(there)}` : `Nothing for you from ${esc(world.ports[last].name)}`}${back ? ` · back to ${esc(world.ports[d.stops[0]].name)}: ${esc(back)}` : ''}`;
+      return { p, sortA: there ? 0 : 1, sortB: leg.nm, meta: `${leg.nm.toLocaleString('en-US')} nm from ${esc(world.ports[last].name)}${leg.out ? ' · out of range' : ''}`, text, ok: !!there };
+    }).sort((x, y) => x.sortA - y.sortA || x.sortB - y.sortB)
+      .map((o) => `<li class="dest" data-action="route-add" data-id="${o.p.id}" data-hover-dest="${o.p.id}">
+          <span class="d-name">＋ ${esc(o.p.name)}</span>
+          <span class="d-meta">${o.meta}</span>
+          <span class="d-exports ${o.ok ? '' : 'none'}">${o.text}</span>
+        </li>`).join('');
+
+    return `<section class="card orders editing">
+      <h3>Route for the ${esc(ship.name)}</h3>
+      <div class="repair-pick"><span>Sail</span>${modes}</div>
+      <p class="hint">${best
+        ? 'At each call it sails to whichever of these ports pays best right now, loading cargo to match. Four or more ports with trade between them work best.'
+        : 'It visits the ports in this order, then back to the first and round again. Only legs with regular cargo pay their way.'}
+        Tap ports below or on the map to add them.</p>
+      <ol class="route-stops">${rows}</ol>
+      <div class="repair-pick"><span>Dry dock below</span>${pct}</div>
+      <div class="orders-btns">
+        <button class="btn primary" data-action="route-start" ${distinct < 2 ? 'disabled' : ''}>${ship.orders ? 'Save route' : 'Start route'}</button>
+        <button class="btn ghost" data-action="route-cancel">Cancel</button>
+      </div>
+    </section>
+    <h3>Add a port</h3>
+    <ul class="dests">${options}</ul>`;
+  }
+
+  /** Every ship at a glance. */
+  private fleetTab(): string {
+    const g = this.g;
+    const rows = g.fleet.map((s) => {
+      const type = typeOf(s);
+      const st = this.shipStatus(s);
+      const earned = (s.earnings ?? []).filter((e) => e.day > g.day - 30).reduce((sum, e) => sum + e.net, 0);
+      const fuel = s.voyage ? s.voyage.fuelAtArrival : s.fuel;
+      const route = s.orders ? s.orders.stops.map((id) => world.ports[id].name).join(s.orders.mode === 'best' ? ' · ' : ' → ') : '';
+      return `<li class="fleet-row ${st.state} ${s.id === this.activeId ? 'selected' : ''}" data-action="select-ship" data-id="${s.id}">
+        <span class="fr-art">${shipSideView(type, 72)}</span>
+        <span class="fr-main">
+          <strong>${esc(s.name)}</strong> <span class="sub">${esc(type.name)} · ${Math.floor(s.age)} yrs</span>
+          <span class="fr-status">${esc(st.text)}</span>
+          ${route ? `<span class="fr-route ${s.orders?.halted ? 'halted' : ''}">↻ ${esc(route)}${s.orders?.halted ? ' · stopped' : ''}</span>` : ''}
+        </span>
+        <span class="fr-stats">
+          <span><em>Hold</em>${cargoTons(s).toLocaleString('en-US')}/${tons(type.capacity)}</span>
+          <span><em>Fuel</em>${Math.round(fuel)}/${type.bunkerCapacity} t</span>
+          <span class="${s.condition < 45 ? 'bad' : s.condition < 65 ? 'warn' : ''}"><em>Condition</em>${Math.round(s.condition)}%</span>
+          <span class="${earned < 0 ? 'bad' : earned > 0 ? 'good' : ''}"><em>30 days</em>${money(earned, true)}</span>
+        </span>
+      </li>`;
+    }).join('');
+    const total = g.fleet.reduce((sum, s) => sum + (s.earnings ?? []).filter((e) => e.day > g.day - 30).reduce((a, e) => a + e.net, 0), 0);
+    const routed = g.fleet.filter((s) => s.orders).length;
+    return `
+      <header class="port-head"><div><h2>Your fleet</h2>
+        <span class="sub">${g.fleet.length} ship${g.fleet.length > 1 ? 's' : ''} · ${routed} on routes · last 30 days ${money(total, true)} after fuel</span></div></header>
+      <p class="hint">Tap a ship to select it. "30 days" is what its finished legs earned after port fees, canal dues, upkeep and fuel.</p>
+      <ul class="fleet-list">${rows}</ul>`;
+  }
+
+  /** Arrivals of ships on routes don't stop the game: a toast and the coins instead of the report. */
+  private drainAutoReports(): void {
+    const autos = this.g.reports.filter((r) => r.auto);
+    if (!autos.length) return;
+    this.g = { ...this.g, reports: this.g.reports.filter((r) => !r.auto) };
+    for (const r of autos) {
+      const port = world.ports[r.to].name;
+      if (r.revenue > 0) {
+        this.map.flashAt(this.map.portPosition(r.to), money(r.revenue, true), 'good');
+        this.map.pulseAt(this.map.portPosition(r.to), 'good');
+        sound.play('coins');
+      }
+      this.toast(`↻ ${r.shipName} in ${port}: ${r.deliveries.length ? `delivered ${r.deliveries.length} lot${r.deliveries.length > 1 ? 's' : ''}, ` : ''}leg ${money(r.net, true)}.`, r.net >= 0 ? 'good' : 'bad');
+    }
+    saveGame(this.g);
   }
 
   /** A reefer in a port with no chilled cargo: say where to find some. */
@@ -1002,7 +1245,8 @@ class App {
   private voyageTab(): string {
     const g = this.g;
     const ship = this.ship();
-    if (!isReady(g, ship)) return this.newsCard() + this.busyCard();
+    if (this.routeDraft?.shipId === ship.id) return this.routeEditor();
+    if (!isReady(g, ship) || onOrders(ship)) return this.newsCard() + this.ordersCard() + this.busyCard();
     const here = ship.location;
     const rows = world.portList.filter((p) => p.id !== here).map((p) => ({ p, plan: planVoyage(g, ship.id, p.id)! }))
       .sort((a, b) => a.plan.route.nm - b.plan.route.nm);
@@ -1018,6 +1262,7 @@ class App {
     }).join('');
     return `
       ${this.newsCard()}
+      ${this.ordersCard()}
       ${this.waitControls()}
       ${this.dest ? this.planCard(planVoyage(g, ship.id, this.dest)!) : `<p class="hint">Where should the ${esc(ship.name)} go? Pick a destination below or tap a port on the map.</p>`}
       <p class="hint">"Exports for you" lists what each port ships that your ${esc(type.name.toLowerCase())} can carry.</p>
