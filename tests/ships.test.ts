@@ -134,7 +134,9 @@ describe('boards and saves', () => {
     delete g.ship.age;
     for (const p of Object.values(g.ports)) delete p.market;
     const m = migrate(JSON.parse(JSON.stringify(g)))!;
-    expect(m.version).toBe(2);
+    expect(m.version).toBe(3);
+    expect(m.oil.index).toBe(1);
+    expect(m.events).toEqual([]);
     expect(m.loan).toBe(0);
     expect(m.ship.age).toBe(24);
     expect(m.milestones).toEqual([{ amount: 1_000_000, day: 42 }]);

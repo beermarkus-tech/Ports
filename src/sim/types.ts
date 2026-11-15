@@ -85,9 +85,39 @@ export interface PortState {
   fuelDev: number;
   board: Contract[];
   market: ShipOffer[];
+  /**
+   * Price level per good this port buys (1 = normal). Deliveries push it down,
+   * events push it up, and it drifts back to normal over time.
+   */
+  prices: Record<string, number>;
 }
 
-export type VoyageEventKind = 'storm' | 'breakdown' | 'emergencyFuel';
+export type WorldEventKind = 'strike' | 'harvest' | 'boom' | 'canal' | 'oilShock';
+
+export interface WorldEvent {
+  id: number;
+  kind: WorldEventKind;
+  startDay: number;
+  endDay: number;
+  /** Affected port (strike, boom). */
+  port?: string;
+  /** Affected good (harvest failure). */
+  good?: string;
+  /** Closed canal id (canal). */
+  canal?: string;
+  /** Oil price shift while active, e.g. 0.35 or -0.25 (oil shock). */
+  oilShift?: number;
+  headline: string;
+}
+
+export interface OilMarket {
+  /** World oil price index (1 = normal); all bunker prices follow it. */
+  index: number;
+  /** Weekly samples of the index, oldest first (at most a year). */
+  history: number[];
+}
+
+export type VoyageEventKind = 'storm' | 'breakdown' | 'emergencyFuel' | 'strike';
 
 export interface VoyageEvent {
   day: number;
@@ -122,6 +152,10 @@ export interface VoyageReport {
   /** Loan and overdraft interest charged during the voyage (already taken from cash). */
   interest: number;
   net: number;
+  /** How the buyers' prices reacted to this delivery. */
+  marketNotes: string[];
+  /** World news that broke while at sea. */
+  news: string[];
 }
 
 export interface LogEntry {
@@ -131,7 +165,7 @@ export interface LogEntry {
 }
 
 export interface GameState {
-  version: 2;
+  version: 3;
   rng: number;
   day: number;
   cash: number;
@@ -146,4 +180,7 @@ export interface GameState {
   gameOver?: string;
   /** Net-worth milestones reached, with the day each was reached. */
   milestones: { amount: number; day: number }[];
+  oil: OilMarket;
+  /** World events: active and recently ended (kept for the news list). */
+  events: WorldEvent[];
 }

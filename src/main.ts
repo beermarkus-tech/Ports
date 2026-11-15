@@ -3,6 +3,7 @@ import {
   ActionError, RULES, acceptContract, borrow, buyFuel, buyShip, canCarry, cargoTons, fuelPrice, newGame, nextMilestone,
   planVoyage, portFee, repair, repairQuote, repayLoan, sail, shipType, unloadContract, waitDay, type VoyagePlan,
 } from './sim/game';
+import { activeEvents, closedCanals, priceLevel, routeFor } from './sim/economy';
 import { clearSave, loadGame, saveGame } from './sim/save';
 import {
   SHIP_TUNING, consumptionFactor, currentShipValue, effectiveSpeed, exportsFor, maxLoan, netWorth, quotePurchase, saleValue,
@@ -162,7 +163,7 @@ class App {
       report.events.forEach((e, i) => {
         if (!shown.has(i) && t >= Math.min(0.95, e.day / total)) {
           shown.add(i);
-          const label = { storm: '⛈ Storm', breakdown: '⚙ Breakdown', emergencyFuel: '⛽ Out of fuel!' }[e.kind];
+          const label = { storm: '⛈ Storm', breakdown: '⚙ Breakdown', emergencyFuel: '⛽ Out of fuel!', strike: '✊ Dock strike' }[e.kind];
           this.map.flash(label, 'bad');
         }
       });
@@ -220,21 +221,25 @@ class App {
 
   private renderPorts(g: GameState): void {
     const cargoDests = new Set(g.ship.cargo.map((c) => c.dest));
+    const events = activeEvents(g);
     const markers: PortMarker[] = world.portList.map((p) => ({
       id: p.id,
       name: p.name,
       fuelPrice: fuelPrice(g, p.id),
       role: p.id === g.ship.location && !this.busy ? 'here' : p.id === this.dest ? 'dest' : cargoDests.has(p.id) ? 'cargo' : 'normal',
+      strike: events.some((e) => e.kind === 'strike' && e.port === p.id),
+      boom: events.some((e) => e.kind === 'boom' && e.port === p.id),
     }));
     this.map.updatePorts(markers);
+    this.map.setClosedCanals(closedCanals(g));
   }
 
   private renderRoutes(): void {
     if (this.busy) return;
     const here = this.g.ship.location;
-    const primary = this.dest ? world.route(here, this.dest)?.path ?? null : null;
+    const primary = this.dest ? routeFor(world, this.g, here, this.dest)?.path ?? null : null;
     const hover = this.hoverDest && this.hoverDest !== this.dest && this.hoverDest !== here
-      ? world.route(here, this.hoverDest)?.path : null;
+      ? routeFor(world, this.g, here, this.hoverDest)?.path : null;
     this.map.showRoutes(primary, hover ? [hover] : []);
   }
 
@@ -266,7 +271,7 @@ class App {
   private contractRow(g: GameState, c: Contract, mode: 'board' | 'hold'): string {
     const good = world.goods[c.good];
     const daysLeft = c.deadline - g.day;
-    const nm = world.distance(c.origin, c.dest);
+    const nm = routeFor(world, g, c.origin, c.dest)?.nm ?? world.distance(c.origin, c.dest);
     const why = mode === 'board' ? canCarry(g, c) : null;
     const plan = planVoyage(g, c.dest);
     const reach = plan && !plan.inRange ? '<span class="tag warn">needs refuel stop</span>' : '';
@@ -303,6 +308,7 @@ class App {
         <button class="btn ghost small" data-action="wait" title="Costs one day of upkeep (${money(type.dailyCost)})">Wait a day</button>
       </header>
       <p class="hint">Free hold space: <strong>${tons(free)}</strong>. Hover a contract to see its route; you can carry cargo for several ports at once.</p>
+      ${this.priceHints(g)}
       ${board.length ? `<ul class="contracts">${board.map((c) => this.contractRow(g, c, 'board')).join('')}</ul>`
         : '<p class="empty">No cargo on offer. Wait a day or sail on.</p>'}
       ${g.ship.cargo.length ? `<h3>In the hold</h3><ul class="contracts">${g.ship.cargo.map((c) => this.contractRow(g, c, 'hold')).join('')}</ul>` : ''}
@@ -346,6 +352,7 @@ class App {
       return `<button class="btn small" data-action="fuel" data-amount="${amount}" ${n <= 0 ? 'disabled' : ''}>${label}<span>${money(n * price)}</span></button>`;
     };
     return `
+      ${this.oilCard(g)}
       <section class="card">
         <h3>Bunkers</h3>
         <div class="kv"><span>Price here</span><strong>${money(price)}/t</strong><em>${rank === 1 ? 'cheapest in the world' : `#${rank} of ${cheapest.length}`}</em></div>
@@ -385,6 +392,47 @@ class App {
         <div class="kv"><span>Value</span><strong>${money(value)}</strong><em>a broker pays ${money(saleValue(g, world))}</em></div>
         <button class="btn ghost wide" data-action="tab" data-tab="market">Look at ships for sale</button>
       </section>`;
+  }
+
+  /** What this port pays well for right now, and what it has had too much of. */
+  private priceHints(g: GameState): string {
+    const port = world.ports[g.ship.location];
+    const levels = port.demands.map((d) => ({ good: world.goods[d.good].name.toLowerCase(), level: priceLevel(g, port.id, d.good) }));
+    const fmt = (l: { good: string; level: number }) => `${esc(l.good)} ${l.level > 1 ? '+' : '−'}${Math.round(Math.abs(l.level - 1) * 100)}%`;
+    const high = levels.filter((l) => l.level >= 1.08).sort((a, b) => b.level - a.level);
+    const low = levels.filter((l) => l.level <= 0.92).sort((a, b) => a.level - b.level);
+    if (!high.length && !low.length) return '';
+    return `<p class="price-hints">
+      ${high.length ? `<span class="up">▲ ${port.name} pays well for ${high.map(fmt).join(', ')}</span>` : ''}
+      ${low.length ? `<span class="down">▼ Oversupplied: ${low.map(fmt).join(', ')}</span>` : ''}
+    </p>`;
+  }
+
+  /** Active world events and recent news. */
+  private newsCard(g: GameState): string {
+    const active = activeEvents(g);
+    if (!active.length) return '';
+    return `<section class="card news">
+      <h3>World news</h3>
+      <ul>${active.map((e) => `<li><span class="n-kind ${e.kind}">${{ strike: 'Strike', harvest: 'Harvest', boom: 'Boom', canal: 'Canal', oilShock: 'Oil' }[e.kind]}</span>
+        <span>${esc(e.headline)} <em>Until about ${gameDate(e.endDay)}.</em></span></li>`).join('')}</ul>
+    </section>`;
+  }
+
+  /** The world oil price index with a one-year sparkline. */
+  private oilCard(g: GameState): string {
+    const h = [...g.oil.history.slice(-52)];
+    const now = g.oil.index;
+    const pct = Math.round((now - 1) * 100);
+    const monthAgo = h.length > 4 ? h[h.length - 5] : h[0];
+    const trend = now - monthAgo;
+    const arrow = Math.abs(trend) < 0.02 ? '→ steady' : trend > 0 ? '↑ rising' : '↓ falling';
+    return `<section class="card">
+      <h3>Oil price</h3>
+      <div class="oil-head"><strong>${(now * 100).toFixed(0)}</strong><span>index (100 = normal) · ${pct >= 0 ? '+' : '−'}${Math.abs(pct)}% · ${arrow} over the last month</span></div>
+      ${sparkline(h, now)}
+      <p class="hint">Every port's bunker price follows this index. Fill up when it's low.</p>
+    </section>`;
   }
 
   private marketTab(g: GameState): string {
@@ -478,6 +526,7 @@ class App {
       </li>`;
     }).join('');
     return `
+      ${this.newsCard(g)}
       ${this.dest ? this.planCard(g, planVoyage(g, this.dest)!) : '<p class="hint">Pick a destination below or tap a port on the map.</p>'}
       <p class="hint">"Exports for you" lists what each port ships that your ${esc(type.name.toLowerCase())} can carry.</p>
       <ul class="dests">${list}</ul>`;
@@ -492,6 +541,12 @@ class App {
     const type = shipType(g);
     const warnings: string[] = [];
     if (!plan.inRange) warnings.push(`Beyond this ship's range (${plan.fuelNeeded} t needed, bunkers hold ${type.bunkerCapacity} t). Plan a stop on the way.`);
+    if (plan.strike) warnings.push(`Dock strike in ${name}: ${plan.strikeDays} extra days in port and double fees (included above).`);
+    const normal = world.route(g.ship.location, plan.dest);
+    if (normal && normal.nm < plan.route.nm - 50) {
+      const closed = closedCanals(g).filter((c) => normal.canals.includes(c)).map((c) => world.canals[c].name).join(' and ');
+      warnings.push(`The ${closed} is closed: this route is ${(plan.route.nm - normal.nm).toLocaleString('en-US')} nm longer than usual.`);
+    }
     for (const d of plan.deliveries) if (d.late) warnings.push(`${world.goods[d.contract.good].name} will arrive after its deadline.`);
     if (undelivered.length) warnings.push(`${undelivered.length} cargo lot(s) stay aboard for other ports.`);
     if (plan.deliveries.length === 0) warnings.push('Sailing in ballast: no cargo for this port.');
@@ -571,6 +626,7 @@ class App {
       <h2>Arrived in ${esc(world.ports[r.to].name)}</h2>
       <p class="sub">${r.distance.toLocaleString('en-US')} nm from ${esc(world.ports[r.from].name)} in ${days(r.arriveDay - r.departDay)} · ${r.fuelUsed} t fuel burned · condition −${r.conditionLoss}%</p>
       ${r.events.length ? `<ul class="events">${r.events.map((e) => `<li class="${e.kind}"><span>Day ${e.day}</span> ${esc(e.text)}</li>`).join('')}</ul>` : '<p class="calm">A calm passage.</p>'}
+      ${(r.news ?? []).length ? `<div class="news-in-report"><h3>News while you were at sea</h3><ul>${r.news.map((n) => `<li>📰 ${esc(n)}</li>`).join('')}</ul></div>` : ''}
       <div class="ledger">
         ${r.deliveries.map((d) => line(`${world.goods[d.contract.good].name}, ${tons(d.contract.tons)}${d.lateDays > 0 ? ` (late, ${Math.round((d.paid / d.contract.pay) * 100)}% paid)` : ''}`, d.paid, 'good')).join('')}
         ${line('Upkeep at sea', -r.upkeep)}
@@ -580,6 +636,7 @@ class App {
         ${r.interest ? line('Overdraft interest', -r.interest, 'bad') : ''}
         <div class="line total ${r.net >= 0 ? 'good' : 'bad'}"><span>Result for the leg</span><span>${money(r.net, true)}</span></div>
       </div>
+      ${(r.marketNotes ?? []).length ? `<ul class="market-notes">${r.marketNotes.map((n) => `<li>▼ ${esc(n)}</li>`).join('')}</ul>` : ''}
       <div class="line memo"><span>Memo: fuel burned, paid when bunkering</span><span>≈ ${money(r.fuelUsed * fuelPrice(this.g, r.from))}</span></div>
       <button class="btn primary wide" data-action="close-report">Continue</button>`;
     $('#modal').hidden = false;
@@ -606,6 +663,35 @@ function toast(text: string, kind: 'good' | 'bad' | 'info', ms = 3200): void {
   t.textContent = text;
   $('#toasts').appendChild(t);
   setTimeout(() => t.remove(), ms);
+}
+
+/**
+ * A one-series sparkline (no legend needed): 2px line, a recessive "normal"
+ * baseline at 100, and a hover readout per weekly sample.
+ */
+function sparkline(history: number[], now: number): string {
+  const pts = [...history, now];
+  const W = 300;
+  const H = 64;
+  const pad = 4;
+  const lo = Math.min(0.8, ...pts) - 0.05;
+  const hi = Math.max(1.2, ...pts) + 0.05;
+  const x = (i: number) => pad + (i / Math.max(1, pts.length - 1)) * (W - pad * 2);
+  const y = (v: number) => pad + (1 - (v - lo) / (hi - lo)) * (H - pad * 2);
+  const line = pts.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const step = (W - pad * 2) / Math.max(1, pts.length - 1);
+  const hits = pts.map((v, i) => {
+    const weeks = pts.length - 1 - i;
+    const label = weeks === 0 ? 'Now' : `${weeks} week${weeks > 1 ? 's' : ''} ago`;
+    return `<rect x="${(x(i) - step / 2).toFixed(1)}" y="0" width="${step.toFixed(1)}" height="${H}" class="spark-hit"><title>${label}: ${(v * 100).toFixed(0)}</title></rect>`;
+  }).join('');
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" role="img" aria-label="Oil price index over the last year, now ${(now * 100).toFixed(0)}">
+    <line x1="${pad}" x2="${W - pad}" y1="${y(1).toFixed(1)}" y2="${y(1).toFixed(1)}" class="spark-base"/>
+    <text x="${W - pad}" y="${(y(1) - 4).toFixed(1)}" class="spark-label" text-anchor="end">normal</text>
+    <path d="${line}" class="spark-line"/>
+    <circle cx="${x(pts.length - 1).toFixed(1)}" cy="${y(now).toFixed(1)}" r="4" class="spark-dot"/>
+    ${hits}
+  </svg>`;
 }
 
 interface ShipSpec { cap: number; speed: number; burn: number; upkeep: number; range: number }

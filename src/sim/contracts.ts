@@ -1,3 +1,4 @@
+import { priceLevel, routeFor } from './economy';
 import { pickWeighted, rand, randInt, randRange } from './rng';
 import type { CargoClass, Contract, GameState } from './types';
 import type { World } from './world';
@@ -67,8 +68,9 @@ export function generateContract(
   );
   if (buyers.length === 0) return null;
   const buyer = pickWeighted(g, buyers, (b) => b.strength);
-  const nm = world.distance(originId, buyer.port.id);
-  if (!isFinite(nm)) return null;
+  const route = routeFor(world, g, originId, buyer.port.id);
+  if (!route) return null;
+  const nm = route.nm;
 
   const raw = kind.big && good.bigLotMax !== undefined
     ? randRange(g, good.lotMax, good.bigLotMax)
@@ -78,7 +80,8 @@ export function generateContract(
   const refDays = nm / (T.referenceSpeedKn * 24);
   const urgency = 1 + T.urgencyBonus * ((T.slackMax - slack) / (T.slackMax - T.slackMin));
   const noise = randRange(g, 0.88, 1.12);
-  const pay = T.payScale * tons * good.freightRate * ((T.handlingNm + nm) / 1000) * buyer.strength * urgency * noise;
+  const market = priceLevel(g, buyer.port.id, good.id);
+  const pay = T.payScale * tons * good.freightRate * ((T.handlingNm + nm) / 1000) * buyer.strength * market * urgency * noise;
 
   return {
     id: g.nextId++,

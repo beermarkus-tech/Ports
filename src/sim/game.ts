@@ -3,6 +3,7 @@
 // mutated), so the UI can keep history, and tests can replay deterministically.
 
 import { churnBoard, latePayFactor, regenerateBoard } from './contracts';
+import { ECONOMY, economyDay, newOilMarket, recordDelivery, routeFor, strikeAt } from './economy';
 import { rand, randNormal, randRange } from './rng';
 import {
   SHIP_TUNING, breakdownAgeFactor, consumptionFactor, effectiveSpeed, maxLoan, netWorth, quotePurchase,
@@ -45,11 +46,12 @@ export function shipType(g: GameState, world: World = getWorld()): ShipTypeDef {
 }
 
 export function fuelPrice(g: GameState, portId: string, world: World = getWorld()): number {
-  return Math.round(world.ports[portId].fuelPrice * (1 + g.ports[portId].fuelDev));
+  return Math.round(world.ports[portId].fuelPrice * g.oil.index * (1 + g.ports[portId].fuelDev));
 }
 
 export function portFee(g: GameState, portId: string, world: World = getWorld()): number {
-  return Math.round(world.ports[portId].portFee * shipType(g, world).sizeFactor);
+  const strike = strikeAt(g, portId) ? ECONOMY.strike.feeMultiplier : 1;
+  return Math.round(world.ports[portId].portFee * shipType(g, world).sizeFactor * strike);
 }
 
 export function cargoTons(g: GameState): number {
@@ -133,6 +135,7 @@ function advanceClock(world: World, g: GameState, days: number): number {
       const ps = g.ports[p.id];
       ps.fuelDev = Math.max(-limit, Math.min(limit, ps.fuelDev * reversion + randNormal(g) * volatility));
     }
+    economyDay(world, g, d);
   }
   g.day = end;
   g.ship.age += days / 365;
@@ -142,7 +145,7 @@ function advanceClock(world: World, g: GameState, days: number): number {
 
 export function newGame(seed: number = Date.now() % 2 ** 31, world: World = getWorld()): GameState {
   const g: GameState = {
-    version: 2,
+    version: 3,
     rng: seed | 0,
     day: 0,
     cash: RULES.startCash,
@@ -161,9 +164,11 @@ export function newGame(seed: number = Date.now() % 2 ** 31, world: World = getW
     log: [],
     stats: { voyages: 0, revenue: 0, fuelSpent: 0, delivered: 0, interestPaid: 0, shipsOwned: 1 },
     milestones: [],
+    oil: newOilMarket(),
+    events: [],
   };
   for (const p of world.portList) {
-    g.ports[p.id] = { fuelDev: randRange(g, -0.12, 0.12), board: [], market: [] };
+    g.ports[p.id] = { fuelDev: randRange(g, -0.12, 0.12), board: [], market: [], prices: {} };
   }
   for (const p of world.portList) {
     regenerateBoard(world, g, p.id);
@@ -279,13 +284,19 @@ export interface VoyagePlan {
   revenue: number;
   /** Revenue minus upkeep, fees and fuel burned (valued at the current local price). */
   estimatedNet: number;
+  /** A dock strike at the destination right now (slow, expensive call). */
+  strike: boolean;
+  /** Days lost to a strike on arrival. */
+  strikeDays: number;
 }
 
 export function planVoyage(g: GameState, dest: string, world: World = getWorld()): VoyagePlan | null {
   if (dest === g.ship.location) return null;
-  const route = world.route(g.ship.location, dest);
+  const route = routeFor(world, g, g.ship.location, dest);
   if (!route) return null;
   const type = shipType(g, world);
+  const strike = strikeAt(g, dest) !== undefined;
+  const strikeDays = strike ? ECONOMY.strike.extraDays : 0;
   const seaDays = route.nm / (effectiveSpeed(type, g.ship) * 24);
   const fuelNeeded = Math.ceil(seaDays * type.fuelPerDay * consumptionFactor(g.ship));
   const arrive = g.day + seaDays + RULES.portDays;
@@ -296,7 +307,7 @@ export function planVoyage(g: GameState, dest: string, world: World = getWorld()
       return { contract: c, pay: Math.round(c.pay * f), late: f < 1 };
     });
   const revenue = deliveries.reduce((s, d) => s + d.pay, 0);
-  const upkeep = Math.round((seaDays + RULES.portDays) * type.dailyCost);
+  const upkeep = Math.round((seaDays + RULES.portDays + strikeDays) * type.dailyCost);
   const fee = portFee(g, dest, world);
   const canalFees = route.canals.reduce((s, c) => s + Math.round(world.canals[c].fee * type.sizeFactor), 0);
   const fuelCost = fuelNeeded * fuelPrice(g, g.ship.location, world);
@@ -313,6 +324,8 @@ export function planVoyage(g: GameState, dest: string, world: World = getWorld()
     deliveries,
     revenue,
     estimatedNet: revenue - upkeep - fee - canalFees - fuelCost,
+    strike,
+    strikeDays,
   };
 }
 
@@ -401,6 +414,12 @@ export function sail(state: GameState, dest: string, world: World = getWorld()):
 
   const seaArrival = g.day;
   interest += advanceClock(world, g, RULES.portDays);
+  if (strikeAt(g, dest)) {
+    const extra = ECONOMY.strike.extraDays;
+    events.push({ day: Math.floor(g.day - departDay) + 1, kind: 'strike', delayDays: extra, cost: 0,
+      text: `Dock strike in ${world.ports[dest].name}: ${extra} extra days to get unloaded, and double port fees.` });
+    interest += advanceClock(world, g, extra);
+  }
   g.ship.fuel = Math.max(0, Math.round(g.ship.fuel * 10) / 10);
   g.ship.condition = Math.round(g.ship.condition * 10) / 10;
   g.ship.location = dest;
@@ -413,6 +432,17 @@ export function sail(state: GameState, dest: string, world: World = getWorld()):
     return false;
   });
   const revenue = deliveries.reduce((s, d) => s + d.paid, 0);
+  // Each delivery saturates the buyer's market for that good.
+  const marketNotes: string[] = [];
+  const delivered = new Map<string, number>();
+  for (const d of deliveries) delivered.set(d.contract.good, (delivered.get(d.contract.good) ?? 0) + d.contract.tons);
+  for (const [good, tons] of delivered) {
+    const drop = recordDelivery(world, g, dest, good, tons);
+    if (drop >= 0.03) {
+      marketNotes.push(`${world.ports[dest].name} now pays ${Math.round(drop * 100)}% less for ${world.goods[good].name.toLowerCase()}.`);
+    }
+  }
+  const news = g.events.filter((e) => e.startDay > departDay && e.startDay <= g.day).map((e) => e.headline);
   const upkeep = Math.round((g.day - departDay) * type.dailyCost);
   const fee = portFee(g, dest, world);
   const net = revenue - upkeep - fee - plan.canalFees - eventCosts;
@@ -427,6 +457,7 @@ export function sail(state: GameState, dest: string, world: World = getWorld()):
     departDay, arriveDay: g.day, fuelUsed: Math.round(fuelUsed * 10) / 10,
     conditionLoss: Math.round((startCondition - g.ship.condition) * 10) / 10,
     events, deliveries, revenue, upkeep, portFee: fee, canalFees: plan.canalFees, eventCosts, interest, net: net - interest,
+    marketNotes, news,
   };
   g.lastVoyage = report;
 
@@ -442,6 +473,7 @@ export function sail(state: GameState, dest: string, world: World = getWorld()):
     const late = d.lateDays > 0 ? ` (${Math.ceil(d.lateDays)} day(s) late)` : '';
     log(g, `Delivered ${world.goods[d.contract.good].name} to ${portName}${late}.`, d.paid);
   }
+  for (const note of marketNotes) log(g, note);
   log(g, `Arrived in ${portName} after ${(g.day - departDay).toFixed(1)} days. Net for the leg: ${report.net >= 0 ? '+' : '-'}$${Math.abs(report.net).toLocaleString('en-US')}.`);
   checkEnd(g, world);
   return g;

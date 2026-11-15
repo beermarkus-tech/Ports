@@ -4,10 +4,11 @@ A calm, strategic shipping-company game built as a PWA. Start with one tired
 old coaster and $150,000, carry cargo between ten world ports, and grow from
 there. The full design is in [docs/design.md](docs/design.md).
 
-**Status: Phase 2 (ships and market).** Twelve ship classes, a second-hand market
-in every port and new ships at three shipyards, bank loans, and age effects, on
-top of Phase 1: ten ports, cargo contracts, bunker fuel, wear and repairs,
-storms and breakdowns, an animated world map, and autosave.
+**Status: Phase 3 (dynamic economy).** Port prices react to your deliveries,
+the world oil price moves in trends, and world events (strikes, harvest
+failures, booms, canal closures, oil shocks) shift the best routes. Built on
+Phase 2 (twelve ship classes, ship market, loans, ageing) and Phase 1 (ten
+ports, contracts, fuel, wear and repairs, storms, animated map, autosave).
 
 ## Running it
 
@@ -65,6 +66,13 @@ close the app. The game saves after every action, so reloading is always safe.
    up to 60% of a ship's value at 8% a year. Keep cash for fuel: a bigger ship's
    full tank costs far more.
 7. Goals are net-worth milestones (cash + ship value − loan): $1M, $5M, $25M, $100M.
+8. **The economy moves.** Every delivery lowers what that port pays for that good
+   (the Cargo tab shows what each port pays well for and what's oversupplied);
+   prices drift back over a couple of months. Bunker prices follow a world oil
+   index (chart in the Ship tab). World events appear about every 40 days, are
+   listed in the Voyage tab, and show on the map: dock strikes (3 extra days and
+   double fees), harvest failures and booms (higher prices), canal closures
+   (long detours) and oil shocks.
 
 ### Ship classes
 
@@ -101,10 +109,11 @@ src/sim/         Pure simulation, no DOM (deterministic: seeded RNG stored in th
   contracts.ts   Contract generation and pay formula (CONTRACT_TUNING)
   game.ts        Player actions and voyage resolution (RULES); every action returns a new state
   ships.ts       Ship value, age effects, the ship market, purchase quotes, loans (SHIP_TUNING)
+  economy.ts     Port price levels, oil market, world events (ECONOMY)
   bot.ts         Greedy and casual captains used for balancing (and a seed for automation later)
   save.ts        localStorage save/load, with upgrades for older saves
 src/ui/          Rendering: d3-geo world map, panels, styles
-scripts/         balance.ts, compare.sh, progression.ts, ships.ts
+scripts/         balance.ts, compare.sh, progression.ts, ships.ts, economy.ts, tune-ships.py
 tests/           vitest
 ```
 
@@ -127,12 +136,13 @@ less shrewdly), which is closer to a person playing for the first time.
 - `scripts/compare.sh`: 10 legs × 300 games, early-game cash and bankruptcies.
 - `npx tsx scripts/progression.ts 80 60 casual`: net worth over a long game, when the first upgrade happens, which ships bots end up with.
 - `npx tsx scripts/ships.ts`: each ship class's earning power against its price.
+- `npx tsx scripts/economy.ts`: route concentration, price levels, oil range and event frequency.
 
 Current results (net worth, starting at about $380k including the old coaster):
 
 | Bot    | after 10 legs | after 40 legs | after 80 legs | bankrupt (80 legs) |
 |--------|---------------|---------------|---------------|--------------------|
-| greedy | $1.3M         | $9.4M         | $22M          | 0%                 |
-| casual | $0.8M         | $3.2M         | $8.1M         | ~6%                |
+| greedy | $1.2M         | $7.9M         | $18.6M        | ~2%                |
+| casual | $0.7M         | $2.8M         | $6.8M         | ~13%               |
 
 The aim is for casual play to make steady money and good play to make a lot more.

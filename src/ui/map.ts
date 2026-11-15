@@ -19,6 +19,9 @@ export interface PortMarker {
   fuelPrice: number;
   /** Visual role, drives styling. */
   role: 'here' | 'dest' | 'cargo' | 'normal';
+  /** World events at this port. */
+  strike?: boolean;
+  boom?: boolean;
 }
 
 function el<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string | number> = {}, parent?: Element) {
@@ -65,7 +68,7 @@ export class MapView {
 
     const lanes = el('g', { class: 'lanes' }, this.svg);
     for (const e of world.edges) {
-      el('path', { d: this.path(this.line([e.a, e.b]))!, class: e.canal ? 'lane canal' : 'lane' }, lanes);
+      el('path', { d: this.path(this.line([e.a, e.b]))!, class: e.canal ? 'lane canal' : 'lane', ...(e.canal ? { 'data-canal': e.canal } : {}) }, lanes);
     }
 
     this.routeLayer = el('g', { class: 'routes' }, this.svg);
@@ -98,11 +101,18 @@ export class MapView {
     return { type: 'LineString', coordinates: ids.map((id) => [this.world.points[id].lon, this.world.points[id].lat]) };
   }
 
+  /** Draw closed canals as blocked. */
+  setClosedCanals(closed: string[]): void {
+    this.svg.querySelectorAll<SVGPathElement>('.lane.canal').forEach((p) => {
+      p.classList.toggle('closed', closed.includes(p.dataset.canal ?? ''));
+    });
+  }
+
   updatePorts(markers: PortMarker[]): void {
     for (const m of markers) {
       const g = this.ports[m.id];
-      g.setAttribute('class', `port ${m.role}`);
-      g.querySelector('.fuel')!.textContent = `⛽ $${m.fuelPrice}`;
+      g.setAttribute('class', `port ${m.role}${m.strike ? ' strike' : ''}${m.boom ? ' boom' : ''}`);
+      g.querySelector('.fuel')!.textContent = `⛽ $${m.fuelPrice}${m.strike ? ' · ✊ strike' : ''}${m.boom ? ' · ▲ boom' : ''}`;
     }
   }
 

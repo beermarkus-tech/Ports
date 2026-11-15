@@ -1,3 +1,4 @@
+import { newOilMarket } from './economy';
 import { regenerateMarket } from './ships';
 import type { GameState } from './types';
 import { getWorld } from './world';
@@ -17,10 +18,11 @@ export function saveGame(g: GameState, storage: Storage | undefined = globalThis
 export function migrate(raw: unknown): GameState | null {
   const g = raw as Record<string, unknown> & GameState;
   if (!g || typeof g !== 'object') return null;
-  if ((g.version as number) === 1) {
+  const version = () => g.version as number;
+  if (version() === 1) {
     const world = getWorld();
     const old = g as unknown as { wonAt?: number; stats: Record<string, number> };
-    g.version = 2;
+    (g as { version: number }).version = 2;
     g.loan = 0;
     g.ship.age ??= 24;
     g.milestones = old.wonAt !== undefined ? [{ amount: 1_000_000, day: old.wonAt }] : [];
@@ -32,7 +34,14 @@ export function migrate(raw: unknown): GameState | null {
       regenerateMarket(world, g, p.id);
     }
   }
-  return g.version === 2 ? g : null;
+  if (version() === 2) {
+    // Phase 3: port price levels, the oil market and world events.
+    g.version = 3;
+    g.oil ??= newOilMarket();
+    g.events ??= [];
+    for (const port of Object.values(g.ports)) port.prices ??= {};
+  }
+  return version() === 3 ? g : null;
 }
 
 export function loadGame(storage: Storage | undefined = globalThis.localStorage): GameState | null {
