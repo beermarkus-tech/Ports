@@ -10,8 +10,10 @@ function git(cmd: string, fallback: string): string {
     return fallback;
   }
 }
-const buildNumber = git('rev-list --count HEAD', '0');
+// BUILD_NUMBER can override the commit count (used to test updates locally).
+const buildNumber = process.env.BUILD_NUMBER ?? git('rev-list --count HEAD', '0');
 const buildSha = git('rev-parse --short HEAD', 'dev');
+const buildTime = new Date().toISOString();
 
 // Relative base so the build works at any path: GitHub Pages serves it from
 // /<repo>/, a custom domain from /, and `vite preview` from /.
@@ -20,9 +22,20 @@ export default defineConfig({
   define: {
     __BUILD_NUMBER__: JSON.stringify(buildNumber),
     __BUILD_SHA__: JSON.stringify(buildSha),
-    __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+    __BUILD_TIME__: JSON.stringify(buildTime),
   },
   plugins: [
+    {
+      // version.json: what the app's update check asks the server for.
+      name: 'version-file',
+      generateBundle() {
+        this.emitFile({
+          type: 'asset',
+          fileName: 'version.json',
+          source: JSON.stringify({ number: buildNumber, sha: buildSha, time: buildTime }),
+        });
+      },
+    },
     VitePWA({
       // The game saves after every action (a voyage is resolved and saved before
       // it is animated), so silently activating a new version is safe.
@@ -53,6 +66,8 @@ export default defineConfig({
       workbox: {
         // Precache everything so the game is fully playable offline.
         globPatterns: ['**/*.{js,css,html,svg,png,json,webmanifest}'],
+        // Never cache the version file: the update check must always reach the server.
+        globIgnores: ['version.json'],
         navigateFallback: 'index.html',
         cleanupOutdatedCaches: true,
       },

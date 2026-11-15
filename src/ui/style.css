@@ -332,3 +332,12 @@ body:not(.sailing) .ship { display: none; }
   .o-stats { grid-template-columns: repeat(3, 1fr); }
   .tab { font-size: 13px; padding: 12px 2px; }
 }
+
+/* ---------------------------------------------------------------- update badge */
+.icon-btn { position: relative; }
+.icon-btn.has-update::after {
+  content: ''; position: absolute; top: 1px; right: 1px; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--accent-2); border: 2px solid var(--surface);
+}
+.icon-btn.has-update { border-color: var(--accent-2); }
+.toast.info { border-left-color: var(--accent); }

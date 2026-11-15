@@ -11,7 +11,7 @@ import type { Contract, GameState, ShipOffer, ShipTypeDef } from './sim/types';
 import { getWorld } from './sim/world';
 import { compactMoney, days, esc, gameDate, money, tons } from './ui/format';
 import { MapView, type PortMarker } from './ui/map';
-import { BUILD, initServiceWorker, reloadApp } from './ui/update';
+import { BUILD, consumeUpdatedFrom, initServiceWorker, isNewer, latestBuild, reloadApp } from './ui/update';
 
 type Tab = 'contracts' | 'voyage' | 'ship' | 'market' | 'log';
 
@@ -583,12 +583,16 @@ class App {
   }
 
   private toast(text: string, kind: 'good' | 'bad'): void {
-    const t = document.createElement('div');
-    t.className = `toast ${kind}`;
-    t.textContent = text;
-    $('#toasts').appendChild(t);
-    setTimeout(() => t.remove(), 3200);
+    toast(text, kind);
   }
+}
+
+function toast(text: string, kind: 'good' | 'bad' | 'info', ms = 3200): void {
+  const t = document.createElement('div');
+  t.className = `toast ${kind}`;
+  t.textContent = text;
+  $('#toasts').appendChild(t);
+  setTimeout(() => t.remove(), ms);
 }
 
 function gauge(label: string, frac: number, text: string, cls: string): string {
@@ -598,9 +602,41 @@ function gauge(label: string, frac: number, text: string, cls: string): string {
 
 $('#build').textContent = `Build ${BUILD.number}`;
 $('#build').title = `Commit ${BUILD.sha}, built ${BUILD.time}`;
-$('#reload').addEventListener('click', () => {
-  $('#reload').classList.add('spinning');
-  void reloadApp();
+
+// ---------------------------------------------------------------- updates
+
+const reloadBtn = $('#reload');
+
+function markUpdate(latest: number | null): void {
+  const available = isNewer(latest);
+  reloadBtn.classList.toggle('has-update', available);
+  reloadBtn.title = available ? `Build ${latest} is available: tap to update` : 'Check for updates';
+}
+
+async function checkForUpdate(): Promise<void> {
+  markUpdate(await latestBuild());
+}
+
+reloadBtn.addEventListener('click', async () => {
+  if (reloadBtn.classList.contains('spinning')) return;
+  reloadBtn.classList.add('spinning');
+  const outcome = await reloadApp();
+  if (outcome === 'updating') {
+    toast('Updating…', 'info');
+    return; // the page reloads
+  }
+  reloadBtn.classList.remove('spinning');
+  markUpdate(null);
+  if (outcome === 'latest') toast(`You're on the latest build (${BUILD.number}).`, 'good');
+  else toast(`Couldn't reach the server, so there's no update check right now. You're on build ${BUILD.number}.`, 'bad', 4500);
 });
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') void checkForUpdate();
+});
+
 initServiceWorker();
 new App();
+const updatedFrom = consumeUpdatedFrom();
+if (updatedFrom) toast(`Updated from build ${updatedFrom} to build ${BUILD.number}.`, 'good', 4500);
+void checkForUpdate();
