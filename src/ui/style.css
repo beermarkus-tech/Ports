@@ -620,3 +620,19 @@ h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   .ps-tools { right: 6px; top: 6px; }
   .ps-btn { font-size: 12px; padding: 4px 9px; }
 }
+/* Route inset in the port view */
+.ps-mini { position: absolute; left: 10px; top: 10px; width: min(34%, 300px); aspect-ratio: 16 / 10; padding: 0; border: 1px solid rgba(255,255,255,0.5); border-radius: 8px; overflow: hidden; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,0.25); background: none; }
+.ps-mini svg { display: block; width: 100%; height: 100%; }
+.ps-mini .mm-sea { fill: #1d4a6b; }
+.ps-mini .mm-land { fill: #c9c2a8; stroke: #a59d82; stroke-width: 0.4; }
+.ps-mini .mm-route { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.ps-mini .mm-route.primary { stroke: #3ec7e0; stroke-width: 2.6; }
+.ps-mini .mm-route.secondary { stroke: #f2b84b; stroke-width: 1.8; stroke-dasharray: 4 3; }
+.ps-mini .mm-port.small { fill: rgba(255,255,255,0.55); }
+.ps-mini .mm-port.here { fill: #f2b84b; stroke: #102236; stroke-width: 1.5; }
+.ps-mini .mm-port.dest { fill: #3ec7e0; stroke: #102236; stroke-width: 1.5; }
+.ps-mini .mm-label { font: 600 12px system-ui, sans-serif; fill: #fff; paint-order: stroke; stroke: rgba(10,22,36,0.85); stroke-width: 3px; }
+.ps-mini .mm-hint { font: 11px system-ui, sans-serif; fill: rgba(255,255,255,0.8); }
+@media (max-width: 700px) {
+  .ps-mini { left: 6px; top: 6px; width: 40%; aspect-ratio: 16 / 9; }
+}

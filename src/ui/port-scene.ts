@@ -3,7 +3,9 @@
 // and bunker tank are cut open, and wear shows as rust, fading paint and smoke.
 
 import type { CargoClass } from '../sim/types';
+import type { World } from '../sim/world';
 import type { ShipFamily } from './art';
+import { MiniMap, type MiniRoutes } from './minimap';
 
 export type TimeOfDay = 'day' | 'dusk' | 'night';
 type Region = 'europe' | 'med' | 'desert' | 'tropic' | 'city' | 'mountain';
@@ -112,8 +114,9 @@ export class PortScene {
   private zoomed = false;
   private sparkTimer = 0;
   private lastKey = '';
+  private mini: MiniMap;
 
-  constructor(container: HTMLElement, onMap: () => void) {
+  constructor(container: HTMLElement, world: World, onMap: () => void) {
     this.el = document.createElement('div');
     this.el.className = 'port-scene';
     this.el.hidden = true;
@@ -128,6 +131,7 @@ export class PortScene {
     this.canvas = this.el.querySelector('canvas')!;
     this.ctx = this.canvas.getContext('2d')!;
     this.hud = this.el.querySelector('.ps-hud')!;
+    this.mini = new MiniMap(this.el, world, onMap);
     this.el.addEventListener('click', (ev) => {
       const btn = (ev.target as HTMLElement).closest<HTMLElement>('[data-ps]');
       if (btn?.dataset.ps === 'map') { onMap(); return; }
@@ -137,6 +141,11 @@ export class PortScene {
   }
 
   get visible(): boolean { return !this.el.hidden; }
+
+  /** The route shown in the inset map. */
+  showRoutes(r: MiniRoutes): void {
+    if (!this.el.hidden) this.mini.show(r);
+  }
 
   show(input: SceneInput): void {
     if (this.input?.ship.id !== input.ship.id) this.zoomed = false;

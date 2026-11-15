@@ -76,6 +76,7 @@ class App {
   private portScene!: PortScene;
   private portBtn!: HTMLButtonElement;
   private sunLon = 30;
+  private miniShown = false;
   /** A route being put together for a ship (stops in order), or null. */
   private routeDraft: { shipId: number; stops: string[]; repairBelow: number; mode: 'best' | 'loop' } | null = null;
   private paused = true;
@@ -107,7 +108,7 @@ class App {
       (id) => { this.hoverDest = id; this.renderRoutes(); },
       (id) => this.selectShip(id),
     );
-    this.portScene = new PortScene($('#map'), () => { this.view = 'map'; this.renderView(); });
+    this.portScene = new PortScene($('#map'), world, () => { this.view = 'map'; this.renderView(); });
     this.portBtn = document.createElement('button');
     this.portBtn.className = 'port-open';
     this.portBtn.textContent = '⚓ Port view';
@@ -516,9 +517,11 @@ class App {
           .map((s) => this.sceneShip(s)),
         dockDays: docked ? ship.busyUntil! - this.g.day : undefined,
       });
+      if (!this.portScene.visible || !this.miniShown) { this.miniShown = true; this.renderRoutes(); }
       this.portBtn.hidden = true;
     } else {
       this.portScene.hide();
+      this.miniShown = false;
       this.portBtn.hidden = !inPort;
     }
   }
@@ -750,6 +753,7 @@ class App {
     const hover = this.hoverDest && this.hoverDest !== this.dest && this.hoverDest !== here
       ? routeFor(world, this.g, here, this.hoverDest)?.path : null;
     this.map.showRoutes(primary, hover ? [hover] : []);
+    this.portScene.showRoutes({ here, primary, secondary: hover ? [hover] : [] });
   }
 
   private renderPanel(): void {

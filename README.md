@@ -2,7 +2,8 @@
 
 A calm, strategic shipping-company game built as a PWA. Start with one tired
 old coaster and $150,000, carry cargo between 26 world ports, and grow from
-there. The full design is in [docs/design.md](docs/design.md).
+there. The full design is in [docs/design.md](docs/design.md); ideas for later
+(such as an age-of-sail game mode) are in [docs/ideas.md](docs/ideas.md).
 
 **Status: world clock and fleet.** Time runs on a clock (1 day per second,
 2× and 4×, pause) and you can own several ships at once; arrivals pause the
@@ -100,8 +101,9 @@ close the app. The game saves after every action, so reloading is always safe.
    cargo and fuel go aboard (red bottom paint, draft marks, load line); the
    holds and bunker tank are cut open; wear shows as rust, fading paint, dents
    and smoke. Dry dock drains the water and puts it on keel blocks. Six
-   regional backdrops, time of day from the map's sun. Zoom fits the ship; Map
-   goes back (and the map returns by itself when the clock runs).
+   regional backdrops, time of day from the map's sun. An inset map shows the
+   route of the destination you picked or the cargo you point at; tap it (or
+   Map) for the world map, which also returns by itself when the clock runs.
 11. **Fleet tab:** every ship with its status, route, hold, fuel, condition and
    what it earned in the last 30 days after fuel.
 
