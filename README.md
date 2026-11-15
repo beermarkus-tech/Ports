@@ -13,8 +13,9 @@ Phase 1 (ten ports, contracts, fuel, wear and repairs, storms, map, autosave).
 Graphics pass 1: ship art per family, a living map (night side, waves, coastal
 glow, clouds, storm cells, wakes), cash and payment effects, synthesised sound
 effects with a mute button. The world has 26 ports and 29 goods (rice, sugar,
-bauxite, rubber, cotton, wool, tea, palm oil, fish and dairy among them). Automation step 1: standing orders (routes) and a
-fleet overview. Next: smarter exceptions, then perhaps hired captains.
+bauxite, rubber, cotton, wool, tea, palm oil, fish and dairy among them). Captains run ships by themselves in a region or on a
+lane, for a wage; premium jobs reward the ships you command yourself. Next:
+decision events (storms: around or through), then goals.
 
 ## Running it
 
@@ -86,20 +87,19 @@ close the app. The game saves after every action, so reloading is always safe.
    listed in the Voyage tab, and show on the map: dock strikes (3 extra days and
    double fees), harvest failures and booms (higher prices), canal closures
    (long detours) and oil shocks.
-9. **Routes (standing orders).** In the Voyage tab, "Set up a route…" gives a
-   ship a set of ports. *Wherever pays best* (default): at each call it sails to
-   whichever of them pays best right now. *In this order*: a fixed round trip.
-   Either way it loads, bunkers, docks for repairs below a threshold you pick and
-   casts off by itself, without stopping the clock; arrivals show as a toast.
-   A ship on a regular route draws bookings for its other ports (only goods that
-   really move on those legs). In best-pay mode it picks the port whose cargo
-   adds most over waiting per day (revenue less fuel, fees and dues, less late
-   pay it would cause for cargo aboard), then fills spare space with cargo for
-   the route's other ports that can make it in time. A leg that doesn't pay its
-   share of upkeep isn't sailed at once: the ship waits up to 5 days for better
-   offers (never making cargo late), then sails anyway. It fills its tank where
-   fuel is cheapest on the route. It stops and asks only when stuck (no money for fuel or repairs, a
-   port out of range). The editor shows what trade runs between your ports.
+9. **Captains.** A ship only sails by itself with a hired captain. Hire them in
+   the Company tab (2 posts to start, one more per net-worth goal): each has a
+   wage, a skill (★ green to ★★★ veteran) and a home region where he gets more
+   cargo booked. In a ship's Voyage tab, "Hand over to a captain…" gives him a
+   region to trade in, or a lane between two regions; a short market report per
+   region shows the regular cargo for that ship, what's on the quays, leg length,
+   fuel prices and range. The captain picks ports himself (best pay per day over
+   waiting, loads for the whole area, waits for better offers rather than sail at
+   a loss, repositions empty only towards real trade, and reports back after ten
+   idle days). Less skilled captains misjudge more, wait less and buy fuel
+   anywhere. "Take command" gets the ship back; letting a captain go costs a
+   month's wage. **Premium jobs** (★ Express, Dangerous goods, Government,
+   Project cargo: 1.8–2.6× pay, tight deadlines) are only for ships you command.
 10. **Port view:** when a ship needs orders (or you tap a ship in port or dry
    dock), the map gives way to a side view of it at the quay, drawn to one true
    scale (300 m of quay, cranes and people for comparison). It sits deeper as
@@ -113,8 +113,9 @@ close the app. The game saves after every action, so reloading is always safe.
    the monthly result, revenue less running costs (bars, profit teal, loss
    orange), with hover/tap tooltips; this month and last month broken down into
    revenue, fuel, port fees and canals, upkeep, interest, repairs and incidents.
-   Below: every ship with its status, route, hold, fuel, condition and what it
-   earned in the last 30 days after fuel.
+   Then your captains and the ones looking for work, and every ship with its
+   captain or "under your command", status, hold, fuel, condition, a small chart
+   of its last 12 months (same scale for all ships) and its last 30 days.
 
 ### Ship classes
 

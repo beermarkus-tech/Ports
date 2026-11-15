@@ -2,7 +2,7 @@ import './ui/style.css';
 import { activeEvents, closedCanals, priceLevel, routeFor } from './sim/economy';
 import {
   ActionError, LAID_UP, RULES, acceptContract, advance, atSea, borrow, buyFuel, buyShip, canCarry, cargoTons, clearOrders,
-  monthOf, monthProfit, onOrders, resumeOrders, setOrders,
+  assignCaptain, captainOf, fireCaptain, hireCaptain, monthOf, monthProfit, onOrders, resumeOrders,
   dailyUpkeep, daysUntilNextShip, fuelPrice, getShip, inDryDock, isReady, isWaiting, needsDecision, newGame,
   nextMilestone, planVoyage, portFee, repair, repairQuote, repayLoan, sail, saleQuote, sellShip,
   shipsNeedingDecision, takeReport, typeOf, unloadContract, voyageProgress, waitInPort, type VoyagePlan,
@@ -12,13 +12,15 @@ import {
   SHIP_TUNING, consumptionFactor, effectiveSpeed, exportsFor, fleetValue, legTrade, maxLoan, netWorth, quotePurchase, saleValue,
   stateValue,
 } from './sim/ships';
-import type { Contract, GameState, ShipOffer, ShipState, ShipTypeDef, VoyageReport } from './sim/types';
+import type { Captain, Contract, GameState, PremiumKind, ShipOffer, ShipState, ShipTypeDef, VoyageReport } from './sim/types';
 import { getWorld } from './sim/world';
 import { compactMoney, days, esc, gameDate, money, tons } from './ui/format';
 import { mapIconPath, shipFamily, shipSideView } from './ui/art';
 import { MapView, type LonLat, type PortMarker, type ShipMarker, type WeatherCell } from './ui/map';
 import { PortScene, type SceneShip, type TimeOfDay } from './ui/port-scene';
-import { barChart, lineChart, type ChartPoint } from './ui/charts';
+import { barChart, lineChart, miniBars, type ChartPoint } from './ui/charts';
+import { captainSlots } from './sim/captains';
+import { REGIONS, areaName, areaPorts, region, regionOf } from './sim/regions';
 import { sound } from './ui/sound';
 import { BUILD, consumeUpdatedFrom, initServiceWorker, isNewer, latestBuild, reloadApp } from './ui/update';
 
@@ -51,6 +53,10 @@ const CONTRACT_SORTS = {
 type ContractSort = keyof typeof CONTRACT_SORTS;
 const SORT_KEY = 'deadweight.contractSort';
 
+const PREMIUM_LABEL: Record<PremiumKind, string> = {
+  express: 'Express', hazardous: 'Dangerous goods', government: 'Government', project: 'Project cargo',
+};
+
 /** "machinery, cars and steel" from good ids. */
 function goodsList(ids: string[]): string {
   const names = ids.map((id) => world.goods[id].name.toLowerCase());
@@ -81,7 +87,8 @@ class App {
   private routesHidden = false;
   private miniShown = false;
   /** A route being put together for a ship (stops in order), or null. */
-  private routeDraft: { shipId: number; stops: string[]; repairBelow: number; mode: 'best' | 'loop' } | null = null;
+  /** Handing a ship to a captain: which captain, which region(s), when to dock. */
+  private areaDraft: { shipId: number; captainId: number | null; regions: string[]; repairBelow: number } | null = null;
   private paused = true;
   private pausedBy: PauseReason | null = 'decision';
   private speed = 1;
@@ -410,46 +417,67 @@ class App {
         this.act((g) => ({ ...g, fleet: g.fleet.map((s) => (s.id === id ? { ...s, waitUntil: undefined } : s)) }));
         this.pause('decision');
         break;
-      case 'route-edit': {
-        const o = ship.orders;
-        const start = ship.voyage?.to ?? ship.location;
-        this.routeDraft = { shipId: id, stops: o ? [...o.stops] : [start], repairBelow: o?.repairBelow ?? 60, mode: o ? o.mode ?? 'loop' : 'best' };
+      case 'area-edit': {
+        const free = (this.g.captains ?? []).find((c) => c.shipId === undefined);
+        const home = regionOf(ship.voyage?.to ?? ship.location);
+        this.areaDraft = {
+          shipId: id,
+          captainId: ship.captainId ?? free?.id ?? null,
+          regions: ship.orders?.area ? [...ship.orders.area] : home ? [home] : [],
+          repairBelow: ship.orders?.repairBelow ?? 50,
+        };
         this.tab = 'voyage';
         this.render();
         return;
       }
-      case 'route-add': this.addRouteStop(data.id!); return;
-      case 'route-remove':
-        this.routeDraft?.stops.splice(Number(data.index), 1);
+      case 'area-captain':
+        if (this.areaDraft) this.areaDraft.captainId = Number(data.id);
         this.renderPanel();
         return;
-      case 'route-mode':
-        if (this.routeDraft) this.routeDraft.mode = data.mode === 'loop' ? 'loop' : 'best';
+      case 'area-region': this.toggleRegion(data.id!); return;
+      case 'area-repair':
+        if (this.areaDraft) this.areaDraft.repairBelow = Number(data.pct);
         this.renderPanel();
         return;
-      case 'route-repair':
-        if (this.routeDraft) this.routeDraft.repairBelow = Number(data.pct);
-        this.renderPanel();
-        return;
-      case 'route-cancel':
-        this.routeDraft = null;
+      case 'area-cancel':
+        this.areaDraft = null;
         this.render();
         return;
-      case 'route-start': {
-        const d = this.routeDraft;
-        if (!d) return;
-        if (this.act((g) => setOrders(g, d.shipId, d.stops, d.repairBelow, d.mode))) {
-          this.routeDraft = null;
+      case 'area-start': {
+        const d = this.areaDraft;
+        if (!d || d.captainId === null) return;
+        const captainId = d.captainId;
+        if (this.act((g) => assignCaptain(g, captainId, d.shipId, d.regions, d.repairBelow))) {
+          this.areaDraft = null;
           this.dest = null;
           sound.play('horn');
-          this.toast(`The ${ship.name} is on its route.`, 'good');
+          const c = this.g.captains!.find((x) => x.id === captainId)!;
+          this.toast(`Captain ${c.name} takes the ${ship.name}: ${areaName(d.regions)}.`, 'good');
           this.afterDecision();
         }
         this.render();
         return;
       }
+      case 'hire': {
+        if (this.act((g) => hireCaptain(g, Number(data.id)))) {
+          const c = this.g.captains![this.g.captains!.length - 1];
+          this.toast(`Captain ${c.name} is on the payroll. Hand a ship over from its Voyage tab.`, 'good');
+        }
+        break;
+      }
+      case 'fire': {
+        const c = (this.g.captains ?? []).find((x) => x.id === Number(data.id));
+        if (!c) break;
+        if (!confirm(`Let Captain ${c.name} go? Severance: ${money(c.wage)}.${c.shipId !== undefined ? ' You take command of their ship.' : ''}`)) return;
+        this.act((g) => fireCaptain(g, c.id));
+        break;
+      }
+      case 'goto-company':
+        this.tab = 'fleet';
+        this.render();
+        return;
       case 'route-stop':
-        if (this.act((g) => clearOrders(g, id))) this.toast(`The ${ship.name} is off its route${isReady(this.g, this.ship()) ? ' and needs orders' : '; it will wait for orders at its next port'}.`, 'good');
+        if (this.act((g) => clearOrders(g, id))) this.toast(`You take command of the ${ship.name}${isReady(this.g, this.ship()) ? '. It needs orders' : '. It waits for your orders at its next port'}.`, 'good');
         break;
       case 'route-resume':
         if (this.act((g) => resumeOrders(g, id))) {
@@ -505,7 +533,7 @@ class App {
 
   private selectDest(portId: string): void {
     const ship = this.ship();
-    if (this.routeDraft?.shipId === ship.id) { this.addRouteStop(portId); return; }
+    if (this.areaDraft?.shipId === ship.id) { const r = regionOf(portId); if (r) this.toggleRegion(r); return; }
     if (!isReady(this.g, ship)) return;
     this.dest = portId === ship.location ? null : portId;
     this.routesHidden = false;
@@ -771,7 +799,7 @@ class App {
       name: p.name,
       fuelPrice: fuelPrice(g, p.id),
       role: p.id === here ? 'here'
-        : p.id === (this.dest ?? ship.voyage?.to) || (this.routeDraft?.shipId === ship.id && this.routeDraft.stops.includes(p.id)) ? 'dest'
+        : p.id === (this.dest ?? ship.voyage?.to) || (this.areaDraft?.shipId === ship.id && areaPorts(this.areaDraft.regions).includes(p.id)) ? 'dest'
           : cargoDests.has(p.id) ? 'cargo' : 'normal',
       strike: events.some((e) => e.kind === 'strike' && e.port === p.id),
       boom: events.some((e) => e.kind === 'boom' && e.port === p.id),
@@ -783,7 +811,7 @@ class App {
   private renderRoutes(): void {
     const ship = this.ship();
     const g = this.g;
-    if (this.routesHidden && !this.dest && this.routeDraft?.shipId !== ship.id) {
+    if (this.routesHidden && !this.dest && this.areaDraft?.shipId !== ship.id) {
       this.map.showRoutes(null, []);
       this.portScene.showRoutes({ here: ship.voyage?.to ?? ship.location, primary: [], secondary: [] });
       return;
@@ -797,21 +825,15 @@ class App {
       return some(stops.flatMap((a, i) => stops.slice(i + 1).map((b) => path(a, b))));
     };
 
-    const d = this.routeDraft?.shipId === ship.id ? this.routeDraft : null;
+    const d = this.areaDraft?.shipId === ship.id ? this.areaDraft : null;
     if (d) {
-      // Drawing up a route: the whole route, plus a preview of the port being pointed at.
-      const legs = legsOf(d.stops, d.mode);
-      const h = this.hoverDest;
-      const last = d.stops[d.stops.length - 1];
-      const preview = !h ? [] : d.mode === 'loop'
-        ? (h === last ? [] : some([path(last, h), d.stops.length > 1 ? path(h, d.stops[0]) : null]))
-        : (d.stops.includes(h) ? [] : some(d.stops.map((s2) => path(s2, h))));
-      this.map.showRoutes(legs, preview);
-      this.portScene.showRoutes({ here: ship.voyage?.to ?? ship.location, primary: legs, secondary: preview, stops: d.stops });
+      // Picking an area: its ports are highlighted (no lines).
+      this.map.showRoutes(null, []);
+      this.portScene.showRoutes({ here: ship.voyage?.to ?? ship.location, primary: [], secondary: [], stops: areaPorts(d.regions) });
       return;
     }
     // A ship on a route shows its whole route faintly behind the current leg.
-    const orderLegs = ship.orders ? legsOf(ship.orders.stops, ship.orders.mode ?? 'loop') : [];
+    const orderLegs = ship.orders && !ship.orders.area ? legsOf(ship.orders.stops, ship.orders.mode ?? 'loop') : [];
     if (ship.voyage) {
       this.map.showRoutes(ship.voyage.path, orderLegs);
       return;
@@ -898,7 +920,8 @@ class App {
     const good = world.goods[c.good];
     const daysLeft = c.deadline - g.day;
     const nm = routeFor(world, g, c.origin, c.dest)?.nm ?? world.distance(c.origin, c.dest);
-    const why = mode === 'board' ? canCarry(ship, c) : null;
+    const why = mode !== 'board' ? null
+      : c.premium && ship.captainId !== undefined ? 'Premium jobs need you in command' : canCarry(ship, c);
     const plan = mode === 'board' ? planVoyage(g, ship.id, c.dest) : null;
     const reach = plan && !plan.inRange ? '<span class="tag warn">needs refuel stop</span>' : '';
     const urgent = daysLeft < (nm / (effectiveSpeed(typeOf(ship), ship) * 24)) + 1.5;
@@ -907,9 +930,9 @@ class App {
       : c.origin === ship.location && isReady(g, ship)
         ? `<button class="btn small ghost" data-action="unload" data-id="${c.id}">Unload</button>` : '';
     return `
-      <li class="contract ${why ? 'unavailable' : ''}" data-hover-dest="${c.dest}">
+      <li class="contract ${why ? 'unavailable' : ''} ${c.premium ? 'premium' : ''}" data-hover-dest="${c.dest}">
         <div class="c-main">
-          <div class="c-good"><span class="cls ${good.cargoClass}">${good.cargoClass}</span> ${esc(good.name)} · ${tons(c.tons)}</div>
+          <div class="c-good">${c.premium ? `<span class="tag premium">★ ${PREMIUM_LABEL[c.premium]}</span> ` : ''}<span class="cls ${good.cargoClass}">${good.cargoClass}</span> ${esc(good.name)} · ${tons(c.tons)}</div>
           <div class="c-route">→ <strong>${esc(world.ports[c.dest].name)}</strong> · ${nm.toLocaleString('en-US')} nm ${reach}</div>
           <div class="c-meta ${urgent ? 'urgent' : ''}">Due ${gameDate(c.deadline)} (${days(Math.max(0, Math.round(daysLeft)))})${why ? ` · <span class="why">${esc(why)}</span>` : ''}</div>
         </div>
@@ -921,133 +944,145 @@ class App {
       </li>`;
   }
 
-  /** Add a port to the route being drawn up (not the same port twice in a row). */
-  private addRouteStop(portId: string): void {
-    const d = this.routeDraft;
+  /** Pick a region for the area (a second one makes a lane; a third replaces the second). */
+  private toggleRegion(id: string): void {
+    const d = this.areaDraft;
     if (!d) return;
-    if (d.mode === 'best' ? !d.stops.includes(portId) : d.stops[d.stops.length - 1] !== portId) d.stops.push(portId);
+    if (d.regions.includes(id)) d.regions = d.regions.filter((r) => r !== id);
+    else if (d.regions.length < 2) d.regions.push(id);
+    else d.regions = [d.regions[0], id];
     this.renderPanel();
   }
 
-  /** The Voyage tab's standing-orders card: the ship's route, or an offer to set one up. */
-  private ordersCard(): string {
+  private stars(c: Captain): string {
+    return `<span class="stars" title="${c.skill === 3 ? 'Veteran' : c.skill === 2 ? 'Experienced' : 'Green'}">${'★'.repeat(c.skill)}${'☆'.repeat(3 - c.skill)}</span>`;
+  }
+
+  /** The Voyage tab's captain card: who runs this ship, or how to hand it over. */
+  private captainCard(): string {
+    const g = this.g;
     const ship = this.ship();
-    const o = ship.orders;
-    if (!o) {
+    const c = captainOf(g, ship);
+    if (!c) {
+      const free = (g.captains ?? []).filter((x) => x.shipId === undefined);
+      const room = (g.captains ?? []).length < captainSlots(g);
       return `<section class="card orders">
-        <div class="orders-head"><h3>Standing orders</h3>
-          <button class="btn small" data-action="route-edit">Set up a route…</button></div>
-        <p class="hint">Pick a few ports and the ${esc(ship.name)} trades between them by itself: loads the best cargo,
-          bunkers, docks for repairs and casts off, without stopping the clock. Ships on a regular route also get
-          cargo booked for them.</p>
+        <div class="orders-head"><h3>Under your command</h3>
+          ${free.length ? '<button class="btn small" data-action="area-edit">Hand over to a captain…</button>'
+            : `<button class="btn small" data-action="goto-company">${room ? 'Hire a captain…' : 'Captains…'}</button>`}</div>
+        <p class="hint">${free.length ? `A captain trades in a region (or on a lane between two) by himself, for a wage.`
+          : room ? 'Hire a captain in the Company tab and he can run this ship by himself in a region you choose.'
+            : 'All your captains have ships. More posts come with each net-worth goal.'}
+          Only ships you command take ★ premium jobs.</p>
       </section>`;
     }
-    const best = o.mode === 'best';
-    const heading = ship.voyage?.to;
-    const loop = o.stops.map((id, i) => {
-      const next = best ? id === heading : i === o.next % o.stops.length && !o.halted;
-      return `<span class="stop ${next ? 'next' : ''}">${esc(world.ports[id].name)}</span>`;
-    }).join(best ? '' : '<span class="arrow">→</span>');
-    const earned = (ship.earnings ?? []).filter((e) => e.day > this.g.day - 30).reduce((sum, e) => sum + e.net, 0);
-    return `<section class="card orders ${o.halted ? 'halted' : ''}">
-      <div class="orders-head"><h3>↻ ${best ? 'Trading where it pays best' : 'On a round trip'}</h3>
+    const o = ship.orders;
+    const earned = (ship.earnings ?? []).filter((e) => e.day > g.day - 30).reduce((sum, e) => sum + e.net, 0);
+    const where = ship.voyage ? `Heading for ${esc(world.ports[ship.voyage.to].name)}.` : '';
+    return `<section class="card orders ${o?.halted ? 'halted' : ''}">
+      <div class="orders-head"><h3>Captain ${esc(c.name)} ${this.stars(c)}</h3>
         <span class="orders-btns">
-          ${o.halted ? '<button class="btn small primary" data-action="route-resume">Resume</button>' : ''}
-          <button class="btn small" data-action="route-edit">Change</button>
-          <button class="btn small ghost" data-action="route-stop">Stop route</button>
+          ${o?.halted ? '<button class="btn small primary" data-action="route-resume">Resume</button>' : ''}
+          <button class="btn small" data-action="area-edit">Change area</button>
+          <button class="btn small ghost" data-action="route-stop">Take command</button>
         </span></div>
-      <div class="route-loop ${best ? 'set' : ''}">${loop}${best ? '' : '<span class="arrow">↻</span>'}</div>
-      ${o.halted ? `<p class="warn-line">Stopped: ${esc(o.halted)} Sort it out (cargo, fuel, cash) and press Resume, or change the route.</p>` : ''}
-      <p class="hint">Docks for repairs below ${o.repairBelow}% condition. Last 30 days: <strong>${money(earned, true)}</strong> after fuel.</p>
+      <p class="area-line">↻ ${o?.area ? esc(areaName(o.area)) : 'Own route'} ${where}</p>
+      ${o?.halted ? `<p class="warn-line">Stopped: ${esc(o.halted)}</p>` : ''}
+      <p class="hint">From ${esc(region(c.home).name)} · ${money(c.wage)} a month · docks below ${o?.repairBelow ?? 50}% condition. Last 30 days: <strong>${money(earned, true)}</strong> after fuel.</p>
     </section>`;
   }
 
-  /** Drawing up a route: its ports, how it sails them, the repair threshold, and ports to add. */
-  private routeEditor(): string {
-    const d = this.routeDraft!;
-    const ship = this.ship();
+  /** A short market report for a region or lane, for this ship. */
+  private areaReport(regions: string[], ship: ShipState): string {
+    const g = this.g;
     const type = typeOf(ship);
-    const best = d.mode === 'best';
-    const last = d.stops[d.stops.length - 1];
-    const distinct = new Set(d.stops).size;
-    const rangeOf = (from: string, to: string) => {
-      const r = world.route(from, to);
-      if (!r) return { nm: Infinity, out: true };
-      const fuel = Math.ceil(r.nm / (effectiveSpeed(type, ship) * 24) * type.fuelPerDay * consumptionFactor(ship));
-      return { nm: r.nm, out: fuel > type.bunkerCapacity };
-    };
-    /** Goods that move from `id` to any of the other ports in `set`. */
-    const shipsTo = (id: string, set: string[]) => [...new Set(set.filter((o) => o !== id).flatMap((o) => legTrade(world, type, id, o)))];
+    const ports = areaPorts(regions);
+    const pairs: [string, string][] = regions.length > 1
+      ? region(regions[0]).ports.flatMap((a) => region(regions[1]).ports.flatMap((b) => [[a, b], [b, a]] as [string, string][]))
+      : ports.flatMap((a) => ports.filter((b) => b !== a).map((b) => [a, b] as [string, string]));
+    const perNm = (type.fuelPerDay * consumptionFactor(ship)) / (effectiveSpeed(type, ship) * 24);
+    const legs = pairs.map(([a, b]) => ({ a, b, nm: world.route(a, b)?.nm ?? Infinity }));
+    const reachable = legs.filter((l) => l.nm * perNm <= type.bunkerCapacity);
+    const goods = [...new Set(reachable.flatMap((l) => legTrade(world, type, l.a, l.b)))];
+    const pairSet = new Set(reachable.map((l) => `${l.a}>${l.b}`));
+    const lots = ports.flatMap((p) => g.ports[p].board.filter((c) => !c.premium && pairSet.has(`${p}>${c.dest}`)
+      && type.cargoClasses.includes(world.goods[c.good].cargoClass) && c.tons <= type.capacity));
+    const avg = reachable.length ? reachable.reduce((s2, l) => s2 + l.nm, 0) / reachable.length : 0;
+    const prices = ports.map((p) => fuelPrice(g, p));
+    const events = activeEvents(g).filter((e) => (e.port && ports.includes(e.port)));
+    const out = reachable.length < legs.length;
+    const lines = [
+      goods.length ? `<li class="ok">Regular cargo for your ${esc(type.name.toLowerCase())}: ${esc(goodsList(goods))}</li>`
+        : `<li class="bad">No regular cargo for your ${esc(type.name.toLowerCase())} here</li>`,
+      `<li>On the quays now: ${lots.length} lot${lots.length === 1 ? '' : 's'}${lots.length ? `, ${compactMoney(lots.reduce((s2, c) => s2 + c.pay, 0))}` : ''}</li>`,
+      reachable.length ? `<li>Typical leg ${Math.round(avg).toLocaleString('en-US')} nm · ${days(Math.round(avg / (effectiveSpeed(type, ship) * 24) * 10) / 10)} · fuel $${Math.min(...prices)}–${Math.max(...prices)}/t</li>` : '',
+      out ? `<li class="${reachable.length ? 'warn' : 'bad'}">${reachable.length ? 'Some legs are' : 'Every leg is'} beyond this ship's range</li>` : '',
+      ...events.map((e) => `<li class="warn">${esc(e.headline)}</li>`),
+    ];
+    return `<ul class="area-report">${lines.join('')}</ul>`;
+  }
 
-    const rows = d.stops.map((id, i) => {
-      let detail = '';
-      let warn = false;
-      if (best) {
-        const out = shipsTo(id, d.stops);
-        warn = d.stops.length > 1 && !out.length;
-        detail = d.stops.length > 1
-          ? `<span class="leg-trade ${out.length ? '' : 'none'}">${out.length ? `Ships to your other ports: ${esc(goodsList(out))}` : 'Nothing from here for your other ports'}</span>`
-          : '';
-      } else if (d.stops.length > 1) {
-        const nextId = d.stops[(i + 1) % d.stops.length];
-        const leg = rangeOf(id, nextId);
-        const trade = goodsList(legTrade(world, type, id, nextId));
-        warn = leg.out;
-        detail = `<span class="leg">→ ${esc(world.ports[nextId].name)} · ${leg.nm.toLocaleString('en-US')} nm${leg.out ? ' · out of range' : ''}</span>
-          <span class="leg-trade ${trade ? '' : 'none'}">${trade ? `Cargo for you on this leg: ${esc(trade)}` : 'No regular cargo for your ship on this leg'}</span>`;
-      }
-      return `<li class="${warn ? 'out' : ''}">
-        <span class="n">${best ? '•' : i + 1}</span><strong>${esc(world.ports[id].name)}</strong>
-        ${detail}
-        <button class="x" data-action="route-remove" data-index="${i}" title="Remove this port">×</button>
+  /** Handing a ship to a captain: pick the captain, the region or lane, and when to dock. */
+  private areaEditor(): string {
+    const g = this.g;
+    const d = this.areaDraft!;
+    const ship = this.ship();
+    const captains = (g.captains ?? []).filter((c) => c.shipId === undefined || c.shipId === ship.id);
+    const pickCaptain = captains.length
+      ? captains.map((c) => `<button class="cap-chip ${c.id === d.captainId ? 'on' : ''}" data-action="area-captain" data-id="${c.id}">
+          <strong>${esc(c.name)}</strong> ${this.stars(c)}<span>from ${esc(region(c.home).name)} · ${money(c.wage)}/mo</span></button>`).join('')
+      : '<p class="warn-line">No free captain. Hire one in the Company tab first.</p>';
+    const cards = REGIONS.map((r) => {
+      const on = d.regions.includes(r.id);
+      const laneWith = !on && d.regions.length === 1 ? d.regions[0] : null;
+      const home = captains.find((c) => c.id === d.captainId)?.home === r.id;
+      return `<li class="region ${on ? 'on' : ''}" data-action="area-region" data-id="${r.id}">
+        <div class="r-head"><strong>${on ? '✓ ' : ''}${esc(r.name)}</strong>${home ? '<span class="tag good">captain\'s home</span>' : ''}</div>
+        <div class="r-ports">${r.ports.map((p) => esc(world.ports[p].name)).join(' · ')}</div>
+        ${laneWith ? `<div class="r-lane">As a lane with ${esc(region(laneWith).name)}:</div>${this.areaReport([laneWith, r.id], ship)}` : this.areaReport([r.id], ship)}
       </li>`;
     }).join('');
-
     const pct = [40, 50, 60, 70].map((p) =>
-      `<button class="btn small ${p === d.repairBelow ? 'primary' : 'ghost'}" data-action="route-repair" data-pct="${p}">${p}%</button>`).join('');
-    const modes = ([['best', 'Wherever pays best'], ['loop', 'In this order']] as const).map(([m, label]) =>
-      `<button class="btn small ${d.mode === m ? 'primary' : 'ghost'}" data-action="route-mode" data-mode="${m}">${label}</button>`).join('');
-
-    const candidates = world.portList.filter((p) => (best ? !d.stops.includes(p.id) : p.id !== last));
-    const options = candidates.map((p) => {
-      if (best) {
-        const out = shipsTo(p.id, [...d.stops, p.id]);
-        const inbound = [...new Set(d.stops.flatMap((s) => legTrade(world, type, s, p.id)))];
-        const near = Math.min(...d.stops.map((s) => rangeOf(s, p.id).nm));
-        const score = out.length + inbound.length;
-        const text = score
-          ? `${out.length ? `Ships ${esc(goodsList(out))}` : 'Ships nothing to your ports'} · ${inbound.length ? `buys ${esc(goodsList(inbound))}` : 'buys nothing from them'}`
-          : 'No trade with your ports for this ship';
-        return { p, sortA: score ? 0 : 1, sortB: near, meta: `${near.toLocaleString('en-US')} nm from your nearest port`, text, ok: score > 0 };
-      }
-      const leg = rangeOf(last, p.id);
-      const there = goodsList(legTrade(world, type, last, p.id));
-      const back = p.id !== d.stops[0] ? goodsList(legTrade(world, type, p.id, d.stops[0])) : '';
-      const text = `${there ? `From ${esc(world.ports[last].name)}: ${esc(there)}` : `Nothing for you from ${esc(world.ports[last].name)}`}${back ? ` · back to ${esc(world.ports[d.stops[0]].name)}: ${esc(back)}` : ''}`;
-      return { p, sortA: there ? 0 : 1, sortB: leg.nm, meta: `${leg.nm.toLocaleString('en-US')} nm from ${esc(world.ports[last].name)}${leg.out ? ' · out of range' : ''}`, text, ok: !!there };
-    }).sort((x, y) => x.sortA - y.sortA || x.sortB - y.sortB)
-      .map((o) => `<li class="dest" data-action="route-add" data-id="${o.p.id}" data-hover-dest="${o.p.id}">
-          <span class="d-name">＋ ${esc(o.p.name)}</span>
-          <span class="d-meta">${o.meta}</span>
-          <span class="d-exports ${o.ok ? '' : 'none'}">${o.text}</span>
-        </li>`).join('');
-
+      `<button class="btn small ${p === d.repairBelow ? 'primary' : 'ghost'}" data-action="area-repair" data-pct="${p}">${p}%</button>`).join('');
+    const ready = d.regions.length > 0 && d.captainId !== null;
     return `<section class="card orders editing">
-      <h3>Route for the ${esc(ship.name)}</h3>
-      <div class="repair-pick"><span>Sail</span>${modes}</div>
-      <p class="hint">${best
-        ? 'At each call it sails to whichever of these ports pays best right now, loading cargo to match. Four or more ports with trade between them work best.'
-        : 'It visits the ports in this order, then back to the first and round again. This usually earns less than "Wherever pays best": only legs with regular cargo pay their way.'}
-        Tap ports below or on the map to add them.</p>
-      <ol class="route-stops">${rows}</ol>
+      <h3>Hand the ${esc(ship.name)} to a captain</h3>
+      <div class="cap-pick">${pickCaptain}</div>
+      <p class="hint">Pick a region to trade in, or two for a lane between them (long legs, cargo both ways: good for big ships). The captain chooses the ports himself. Tap regions below or ports on the map.</p>
+      ${d.regions.length ? `<div class="area-sel"><strong>${esc(areaName(d.regions))}</strong>${this.areaReport(d.regions, ship)}</div>` : ''}
       <div class="repair-pick"><span>Dry dock below</span>${pct}</div>
       <div class="orders-btns">
-        <button class="btn primary" data-action="route-start" ${distinct < 2 ? 'disabled' : ''}>${ship.orders ? 'Save route' : 'Start route'}</button>
-        <button class="btn ghost" data-action="route-cancel">Cancel</button>
+        <button class="btn primary" data-action="area-start" ${ready ? '' : 'disabled'}>${ship.captainId !== undefined ? 'Save' : 'Hand over'}</button>
+        <button class="btn ghost" data-action="area-cancel">Cancel</button>
       </div>
     </section>
-    <h3>Add a port</h3>
-    <ul class="dests">${options}</ul>`;
+    <h3>Regions</h3>
+    <ul class="regions">${cards}</ul>`;
+  }
+
+  /** Captains on the payroll and the ones looking for work. */
+  private captainsCard(): string {
+    const g = this.g;
+    const hired = g.captains ?? [];
+    const slots = captainSlots(g);
+    const ship = (c: Captain) => g.fleet.find((s) => s.id === c.shipId);
+    const row = (c: Captain, hire: boolean) => {
+      const s = ship(c);
+      const status = hire ? '' : s ? `on the ${esc(s.name)}${s.orders?.area ? `, ${esc(areaName(s.orders.area))}` : ''}${s.orders?.halted ? ' · <span class="bad">stopped</span>' : ''}` : 'ashore, waiting for a ship';
+      return `<li class="cap-row">
+        <div><strong>${esc(c.name)}</strong> ${this.stars(c)}<span class="sub">from ${esc(region(c.home).name)} · ${money(c.wage)} a month</span>
+          ${status ? `<span class="cap-status">${status}</span>` : ''}</div>
+        ${hire ? `<button class="btn small" data-action="hire" data-id="${c.id}" ${hired.length >= slots ? 'disabled title="All posts filled"' : ''}>Hire</button>`
+          : `<button class="btn small ghost" data-action="fire" data-id="${c.id}">Let go</button>`}
+      </li>`;
+    };
+    return `<section class="card captains">
+      <h3>Captains <span class="count">${hired.length} of ${slots} posts</span></h3>
+      ${hired.length ? `<ul class="cap-list">${hired.map((c) => row(c, false)).join('')}</ul>` : '<p class="hint">No captains yet: every ship waits for your orders.</p>'}
+      <h4>Looking for work</h4>
+      <ul class="cap-list">${(g.captainPool ?? []).map((c) => row(c, true)).join('')}</ul>
+      <p class="hint">★ green: cheap, misjudges cargo and ports, impatient. ★★ experienced. ★★★ veteran: picks the best, loads for the whole area, buys fuel where it's cheap. A captain gets more cargo booked in his home region. Wages are paid daily; letting one go costs a month's wage. One more post with each net-worth goal.</p>
+    </section>`;
   }
 
   /** How the company is doing: net worth and monthly results, from the books. */
@@ -1123,6 +1158,19 @@ class App {
   /** Every ship at a glance. */
   private fleetTab(): string {
     const g = this.g;
+    // Each ship's last 12 months on one shared scale.
+    const nowM = monthOf(g.day);
+    const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const months = (s: ShipState) => (s.books ?? []).filter((b) => b.m > nowM - 12);
+    const maxAbs = Math.max(1, ...g.fleet.flatMap((s) => months(s).map((b) => Math.abs(b.revenue - b.costs))));
+    const shipChart = (s: ShipState) => {
+      const ms = months(s);
+      if (!ms.length) return '<span class="fr-nochart">No months yet</span>';
+      return miniBars(ms.map((b) => ({
+        label: '', value: b.revenue - b.costs,
+        tip: `<strong>${esc(s.name)} · ${MONTHS[b.m % 12]} ${2000 + Math.floor(b.m / 12)}${b.m === nowM ? ' (so far)' : ''}</strong><div class="tl"><span>Revenue</span><b>${money(b.revenue)}</b></div><div class="tl"><span>Costs</span><b>${money(-b.costs)}</b></div><div class="tl ${b.revenue >= b.costs ? 'up' : 'down'}"><span>Result</span><b>${money(b.revenue - b.costs, true)}</b></div>`,
+      })), maxAbs, `${s.name}: result by month`);
+    };
     const rows = g.fleet.map((s) => {
       const type = typeOf(s);
       const st = this.shipStatus(s);
@@ -1134,8 +1182,9 @@ class App {
         <span class="fr-main">
           <strong>${esc(s.name)}</strong> <span class="sub">${esc(type.name)} · ${Math.floor(s.age)} yrs</span>
           <span class="fr-status">${esc(st.text)}</span>
-          ${route ? `<span class="fr-route ${s.orders?.halted ? 'halted' : ''}">↻ ${esc(route)}${s.orders?.halted ? ' · stopped' : ''}</span>` : ''}
+          ${captainOf(g, s) ? `<span class="fr-route ${s.orders?.halted ? 'halted' : ''}">↻ Captain ${esc(captainOf(g, s)!.name)} · ${esc(s.orders?.area ? areaName(s.orders.area) : route)}${s.orders?.halted ? ' · stopped' : ''}</span>` : '<span class="fr-route mine">Under your command</span>'}
         </span>
+        <span class="fr-chart">${shipChart(s)}</span>
         <span class="fr-stats">
           <span><em>Hold</em>${cargoTons(s).toLocaleString('en-US')}/${tons(type.capacity)}</span>
           <span><em>Fuel</em>${Math.round(fuel)}/${type.bunkerCapacity} t</span>
@@ -1148,6 +1197,7 @@ class App {
     const routed = g.fleet.filter((s) => s.orders).length;
     return `
       ${this.companyCard()}
+      ${this.captainsCard()}
       <header class="port-head"><div><h2>Your fleet</h2>
         <span class="sub">${g.fleet.length} ship${g.fleet.length > 1 ? 's' : ''} · ${routed} on routes · last 30 days ${money(total, true)} after fuel</span></div></header>
       <p class="hint">Tap a ship to select it. "30 days" is what its finished legs earned after port fees, canal dues, upkeep and fuel.</p>
@@ -1450,8 +1500,8 @@ class App {
   private voyageTab(): string {
     const g = this.g;
     const ship = this.ship();
-    if (this.routeDraft?.shipId === ship.id) return this.routeEditor();
-    if (!isReady(g, ship) || onOrders(ship)) return this.newsCard() + this.ordersCard() + this.busyCard();
+    if (this.areaDraft?.shipId === ship.id) return this.areaEditor();
+    if (!isReady(g, ship) || onOrders(ship)) return this.newsCard() + this.captainCard() + this.busyCard();
     const here = ship.location;
     const rows = world.portList.filter((p) => p.id !== here).map((p) => ({ p, plan: planVoyage(g, ship.id, p.id)! }))
       .sort((a, b) => a.plan.route.nm - b.plan.route.nm);
@@ -1467,7 +1517,7 @@ class App {
     }).join('');
     return `
       ${this.newsCard()}
-      ${this.ordersCard()}
+      ${this.captainCard()}
       ${this.waitControls()}
       ${this.dest ? this.planCard(planVoyage(g, ship.id, this.dest)!) : `<p class="hint">Where should the ${esc(ship.name)} go? Pick a destination below or tap a port on the map.</p>`}
       <p class="hint">"Exports for you" lists what each port ships that your ${esc(type.name.toLowerCase())} can carry.</p>

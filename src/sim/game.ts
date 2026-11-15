@@ -7,15 +7,17 @@
 // ship's arrival day comes it unloads, gets paid, and an arrival report waits
 // in `reports` until the player has seen it.
 
+import { CAPTAIN_TUNING, captainSlots, churnCaptainPool, fillCaptainPool } from './captains';
 import { bookServiceCargo, churnBoard, latePayFactor, regenerateBoard } from './contracts';
+import { areaName, areaPorts, region, regionOf } from './regions';
 import { ECONOMY, economyDay, newOilMarket, recordDelivery, routeFor, strikeAt } from './economy';
 import { rand, randNormal, randRange } from './rng';
 import {
-  SHIP_TUNING, breakdownAgeFactor, consumptionFactor, effectiveSpeed, maxLoan, netWorth, quotePurchase,
+  SHIP_TUNING, breakdownAgeFactor, consumptionFactor, effectiveSpeed, legTrade, maxLoan, netWorth, quotePurchase,
   regenerateMarket, saleValue, shipName,
 } from './ships';
 import type {
-  ActiveVoyage, Contract, Delivery, GameState, MonthBook, ShipState, ShipTypeDef, StandingOrders, VoyageEvent, VoyageReport,
+  ActiveVoyage, Captain, Contract, Delivery, GameState, MonthBook, ShipState, ShipTypeDef, StandingOrders, VoyageEvent, VoyageReport,
 } from './types';
 import { getWorld, type Route, type World } from './world';
 
@@ -64,7 +66,7 @@ export function monthOf(day: number): number {
   return (d.getUTCFullYear() - 2000) * 12 + d.getUTCMonth();
 }
 
-type BookField = 'revenue' | 'fuel' | 'fees' | 'upkeep' | 'interest' | 'repairs' | 'incidents' | 'shipsBought' | 'shipsSold';
+type BookField = 'revenue' | 'fuel' | 'fees' | 'upkeep' | 'interest' | 'repairs' | 'incidents' | 'wages' | 'shipsBought' | 'shipsSold';
 
 /** This month's page in the books (kept for 20 years). */
 function bookFor(g: GameState, world: World, day = g.day): MonthBook {
@@ -72,7 +74,7 @@ function bookFor(g: GameState, world: World, day = g.day): MonthBook {
   const m = monthOf(day);
   let b = g.books[g.books.length - 1];
   if (!b || b.m !== m) {
-    b = { m, revenue: 0, fuel: 0, fees: 0, upkeep: 0, interest: 0, repairs: 0, incidents: 0, shipsBought: 0, shipsSold: 0,
+    b = { m, revenue: 0, fuel: 0, fees: 0, upkeep: 0, interest: 0, repairs: 0, incidents: 0, wages: 0, shipsBought: 0, shipsSold: 0,
       netWorth: Math.round(netWorth(g, world)), cash: Math.round(g.cash), loan: g.loan };
     g.books.push(b);
     if (g.books.length > 240) g.books.shift();
@@ -81,7 +83,23 @@ function bookFor(g: GameState, world: World, day = g.day): MonthBook {
 }
 
 function book(g: GameState, world: World, field: BookField, amount: number, day = g.day): void {
-  if (amount) bookFor(g, world, day)[field] += Math.round(amount);
+  if (!amount) return;
+  const b = bookFor(g, world, day);
+  b[field] = (b[field] ?? 0) + Math.round(amount);
+}
+
+/** A ship's own books: what it earned, and what it cost (everything but interest and purchases). */
+function shipBook(ship: ShipState, kind: 'revenue' | 'costs', amount: number, day: number): void {
+  if (!amount) return;
+  ship.books ??= [];
+  const m = monthOf(day);
+  let b = ship.books[ship.books.length - 1];
+  if (!b || b.m !== m) {
+    b = { m, revenue: 0, costs: 0 };
+    ship.books.push(b);
+    if (ship.books.length > 24) ship.books.shift();
+  }
+  b[kind] += Math.round(amount);
 }
 
 /** Note where the company stands (end of day). */
@@ -94,7 +112,7 @@ function snapshot(g: GameState, world: World, day = g.day): void {
 
 /** Operating result of a month: revenue less running costs (ship purchases and sales aside). */
 export function monthProfit(b: MonthBook): number {
-  return b.revenue - b.fuel - b.fees - b.upkeep - b.interest - b.repairs - b.incidents;
+  return b.revenue - b.fuel - b.fees - b.upkeep - b.interest - b.repairs - b.incidents - (b.wages ?? 0);
 }
 
 // ---------------------------------------------------------------- lookups
@@ -256,6 +274,16 @@ function runClock(world: World, g: GameState, days: number): void {
     g.stats.upkeepPaid += upkeep;
     book(g, world, 'upkeep', upkeep, d);
     book(g, world, 'interest', interest, d);
+    for (const ship of g.fleet) shipBook(ship, 'costs', typeOf(ship, world).dailyCost, d);
+    // Captains are paid by the day.
+    for (const c of g.captains ?? []) {
+      const pay = c.wage / 30;
+      g.cash -= pay;
+      book(g, world, 'wages', pay, d);
+      const ship = c.shipId !== undefined ? g.fleet.find((s) => s.id === c.shipId) : undefined;
+      if (ship) shipBook(ship, 'costs', pay, d);
+    }
+    churnCaptainPool(g);
     for (const p of world.portList) {
       const ps = g.ports[p.id];
       ps.fuelDev = Math.max(-limit, Math.min(limit, ps.fuelDev * reversion + randNormal(g) * volatility));
@@ -343,6 +371,8 @@ export function newGame(seed: number = Date.now() % 2 ** 31, world: World = getW
     regenerateBoard(world, g, p.id);
     regenerateMarket(world, g, p.id);
   }
+  g.captains = [];
+  fillCaptainPool(g);
   log(g, `You take command of the ${g.fleet[0].name}, a tired old coaster, in ${world.ports[RULES.startPort].name}.`);
   return g;
 }
@@ -373,6 +403,7 @@ export function acceptContract(state: GameState, shipId: number, contractId: num
   if (idx < 0) throw new ActionError('That contract is no longer available.');
   const why = canCarry(ship, board[idx], world);
   if (why) throw new ActionError(why);
+  if (board[idx].premium && ship.captainId !== undefined) throw new ActionError('Premium jobs need you in command: take this ship back from its captain first.');
   const [c] = board.splice(idx, 1);
   ship.cargo.push(c);
   log(g, `${ship.name}: loaded ${c.tons.toLocaleString('en-US')} t ${world.goods[c.good].name} for ${world.ports[c.dest].name}.`);
@@ -407,6 +438,7 @@ export function buyFuel(state: GameState, shipId: number, tons: number, world: W
   g.cash -= cost;
   g.stats.fuelSpent += cost;
   book(g, world, 'fuel', cost);
+  shipBook(ship, 'costs', cost, g.day);
   log(g, `${ship.name}: bunkered ${amount} t of fuel at $${price}/t${g.cash < 0 ? ' (on credit)' : ''}.`, -cost);
   coverShortfall(g, world);
   return g;
@@ -430,6 +462,7 @@ export function repair(state: GameState, shipId: number, points: number, world: 
   if (q.cost > spendable(g, world)) throw new ActionError('Not enough cash or credit for that repair.');
   g.cash -= q.cost;
   book(g, world, 'repairs', q.cost);
+  shipBook(ship, 'costs', q.cost, g.day);
   ship.condition = Math.min(100, Math.floor(ship.condition) + q.points);
   ship.busyUntil = g.day + q.days;
   log(g, `${ship.name}: into dry dock for +${q.points}% condition, ready in ${q.days} day(s).`, -q.cost);
@@ -472,6 +505,11 @@ export const ORDERS = {
   worthUpkeepShare: 1,
   /** Fill spare space with cargo for later ports on the route (best-pay mode). */
   loadLater: true,
+  /**
+   * A leg that doesn't even pay its fuel and fees is never sailed: the ship keeps
+   * waiting, and after this many days reports back that there's nothing to carry.
+   */
+  hopelessDays: 10,
   /** Extra days of slack required for cargo loaded for a later port. */
   laterMargin: 4,
   /** Fill the tank where fuel is within this margin of the cheapest port on the route. */
@@ -480,7 +518,8 @@ export const ORDERS = {
 
 /** Give a ship a round trip to sail by itself, starting now if it is in port. */
 export function setOrders(
-  state: GameState, shipId: number, stops: string[], repairBelow: number, mode: 'best' | 'loop' = 'best', world: World = getWorld(),
+  state: GameState, shipId: number, stops: string[], repairBelow: number, mode: 'best' | 'loop' = 'best',
+  area?: string[], world: World = getWorld(),
 ): GameState {
   const loop = stops.filter((id, i) => id !== stops[(i + 1) % stops.length]);
   if (new Set(loop).size < 2) throw new ActionError('A route needs at least two different ports.');
@@ -492,10 +531,11 @@ export function setOrders(
   const at = loop.indexOf(ship.voyage?.to ?? ship.location);
   // Head for the stop after the one it's at (or arriving at); otherwise start at the first.
   const next = at >= 0 ? (at + 1) % loop.length : 0;
-  ship.orders = { stops: loop, next, repairBelow, mode };
+  ship.orders = { stops: loop, next, repairBelow, mode, ...(area ? { area } : {}) };
   delete ship.waitUntil;
   const names = loop.map((id) => world.ports[id].name);
-  log(g, mode === 'loop'
+  if (area) log(g, `${ship.name} now trades ${area.length > 1 ? 'on the lane ' : 'in '}${areaName(area)}.`);
+  else log(g, mode === 'loop'
     ? `${ship.name} takes up a route: ${names.join(' → ')} → and round again.`
     : `${ship.name} trades between ${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}, wherever pays best.`);
   return dispatchOrders(g, world);
@@ -504,10 +544,70 @@ export function setOrders(
 export function clearOrders(state: GameState, shipId: number): GameState {
   const g = clone(state);
   const ship = getShip(g, shipId);
-  if (!ship.orders) return state;
+  if (!ship.orders && ship.captainId === undefined) return state;
   delete ship.orders;
-  log(g, `${ship.name} comes off its route and waits for your orders.`);
+  const c = g.captains?.find((x) => x.id === ship.captainId);
+  if (c) delete c.shipId;
+  delete ship.captainId;
+  log(g, c ? `You take command of the ${ship.name}; Captain ${c.name} waits ashore for a new ship.` : `${ship.name} comes off its route and waits for your orders.`);
   return g;
+}
+
+// ---------------------------------------------------------------- captains
+
+export function captainOf(g: GameState, ship: ShipState): Captain | undefined {
+  return ship.captainId === undefined ? undefined : g.captains?.find((c) => c.id === ship.captainId);
+}
+
+export function hireCaptain(state: GameState, candidateId: number): GameState {
+  const g = clone(state);
+  g.captains ??= [];
+  const pool = g.captainPool ?? [];
+  const i = pool.findIndex((c) => c.id === candidateId);
+  if (i < 0) throw new ActionError('That captain has found other work.');
+  const slots = captainSlots(g);
+  if (g.captains.length >= slots) throw new ActionError(`You can employ ${slots} captains for now; more come with each net-worth goal.`);
+  const [c] = pool.splice(i, 1);
+  g.captains.push(c);
+  fillCaptainPool(g);
+  log(g, `Hired Captain ${c.name} (${'★'.repeat(c.skill)}, from ${region(c.home).name}) at $${c.wage.toLocaleString('en-US')} a month.`);
+  return g;
+}
+
+export function fireCaptain(state: GameState, captainId: number, world: World = getWorld()): GameState {
+  const g = clone(state);
+  const c = g.captains?.find((x) => x.id === captainId);
+  if (!c) throw new ActionError('No such captain.');
+  const ship = c.shipId !== undefined ? g.fleet.find((s) => s.id === c.shipId) : undefined;
+  if (ship) { delete ship.orders; delete ship.captainId; }
+  const severance = Math.round(c.wage * CAPTAIN_TUNING.severanceMonths);
+  g.cash -= severance;
+  book(g, world, 'wages', severance);
+  g.captains = g.captains!.filter((x) => x.id !== captainId);
+  log(g, `Let Captain ${c.name} go, with $${severance.toLocaleString('en-US')} severance.${ship ? ` You take command of the ${ship.name}.` : ''}`, -severance);
+  coverShortfall(g, world);
+  return g;
+}
+
+/** Hand a ship to a captain to trade within a region (or a lane between two) by itself. */
+export function assignCaptain(
+  state: GameState, captainId: number, shipId: number, regions: string[], repairBelow: number, world: World = getWorld(),
+): GameState {
+  if (regions.length < 1 || regions.length > 2 || new Set(regions).size !== regions.length) throw new ActionError('Pick one region, or two for a lane.');
+  const g = clone(state);
+  const c = g.captains?.find((x) => x.id === captainId);
+  if (!c) throw new ActionError('Hire that captain first.');
+  const ship = getShip(g, shipId);
+  if (c.shipId !== undefined && c.shipId !== shipId) {
+    const other = g.fleet.find((s) => s.id === c.shipId);
+    if (other) { delete other.orders; delete other.captainId; }
+  }
+  const previous = captainOf(g, ship);
+  if (previous && previous.id !== c.id) delete previous.shipId;
+  c.shipId = shipId;
+  ship.captainId = c.id;
+  log(g, `Captain ${c.name} takes command of the ${ship.name}.`);
+  return setOrders(g, shipId, areaPorts(regions), repairBelow, 'best', regions, world);
 }
 
 /** Carry on with a route that stopped on a problem. */
@@ -566,20 +666,35 @@ function runOrders(state: GameState, shipId: number, world: World): GameState {
       // The regular service draws bookings for its other ports (each day it waits, too).
       const t = typeOf(start, world);
       const w = clone(g);
-      bookServiceCargo(world, w, start.location, o.stops, t.cargoClasses, t.capacity);
+      const cap = captainOf(w, start);
+      const boost = cap && regionOf(start.location) === cap.home ? CAPTAIN_TUNING.homeBookingBoost : 1;
+      bookServiceCargo(world, w, start.location, o.stops, t.cargoClasses, t.capacity, boost);
       g = w;
     }
     let idx: number;
     const t = typeOf(start, world);
     const worthPerDay = ORDERS.worthUpkeepShare * t.dailyCost;
-    const canWait = (o.idleDays ?? 0) < ORDERS.maxIdleDays && cargoKeepsADay(g, shipId, world);
+    const skill = captainOf(g, start)?.skill ?? 3;
+    const maxIdle = skill === 1 ? 2 : ORDERS.maxIdleDays;
+    const canWait = (o.idleDays ?? 0) < maxIdle && cargoKeepsADay(g, shipId, world);
     if (o.mode === 'best') {
       const pick = bestStop(g, shipId, world);
       if (!pick) return halt('none of its ports can be reached from here with a full tank.');
       // Not worth it yet: wait for better offers (a few days at most, and never making cargo late).
       if (pick.score < worthPerDay && canWait) return idle(g);
-      idx = pick.idx;
-      for (const id of pick.load) g = acceptContract(g, shipId, id, world);
+      if (pick.gain < 0 && !start.cargo.length) {
+        // Nothing here pays its fuel and fees. Sail empty only to a port with a deal that pays for the trip;
+        // otherwise keep waiting, and after a while report back.
+        const move = repositionTo(g, shipId, world);
+        if (move === null) {
+          if ((o.idleDays ?? 0) < ORDERS.hopelessDays) return idle(g);
+          return halt(`nothing worth carrying in ${o.area ? areaName(o.area) : 'its area'} for ${ORDERS.hopelessDays} days. Give it another area, or take command.`);
+        }
+        idx = move;
+      } else {
+        idx = pick.idx;
+        for (const id of pick.load) g = acceptContract(g, shipId, id, world);
+      }
     } else {
       idx = nextStop(o, start.location);
       const reach = legCost(g, start, start.location, o.stops[idx], world);
@@ -606,8 +721,13 @@ function runOrders(state: GameState, shipId: number, world: World): GameState {
       try { g = buyFuel(g, shipId, want, world); } catch { /* checked just below */ }
     }
     if (getShip(g, shipId).fuel < plan.fuelNeeded) return halt('not enough cash or credit for fuel.');
+    const fromRegion = regionOf(getShip(g, shipId).location);
     g = sail(g, shipId, dest, world);
     getShip(g, shipId).orders!.next = (idx + 1) % o.stops.length;
+    if (o.area && o.area.length > 1) {
+      const sailed = getShip(g, shipId).orders!;
+      sailed.localLegs = regionOf(dest) === fromRegion ? (sailed.localLegs ?? 0) + 1 : 0;
+    }
     // (In 'best' mode `next` only marks where it went, for display.)
     delete getShip(g, shipId).orders!.idleDays;
     return g;
@@ -649,7 +769,7 @@ function legValue(g: GameState, ship: ShipState, from: string, to: string, cargo
 function pickLots(board: Contract[], dest: string, free: number, arriveDay: number, type: ShipTypeDef, world: World, taken = new Set<number>()) {
   const lots: Contract[] = [];
   for (const c of board
-    .filter((c) => c.dest === dest && !taken.has(c.id) && type.cargoClasses.includes(world.goods[c.good].cargoClass)
+    .filter((c) => c.dest === dest && !c.premium && !taken.has(c.id) && type.cargoClasses.includes(world.goods[c.good].cargoClass)
       && arriveDay + ORDERS.deadlineMargin <= c.deadline)
     .sort((a, b) => b.pay / b.tons - a.pay / a.tons)) {
     if (c.tons <= free) { lots.push(c); free -= c.tons; }
@@ -666,15 +786,21 @@ function pickLots(board: Contract[], dest: string, free: number, arriveDay: numb
  * (Tested: weighing that later cargo, or looking one leg ahead at the destination's
  * offers, made routes earn less: offers change before the ship gets there.)
  */
-function bestStop(g: GameState, shipId: number, world: World): { idx: number; load: number[]; score: number } | null {
+function bestStop(g: GameState, shipId: number, world: World): { idx: number; load: number[]; score: number; gain: number } | null {
   const ship = getShip(g, shipId);
   const o = ship.orders!;
   const type = typeOf(ship, world);
   const here = ship.location;
   const board = g.ports[here].board;
-  let best: { idx: number; load: number[]; score: number } | null = null;
+  const skill = captainOf(g, ship)?.skill ?? 3;
+  // On a lane, at most one leg in a row stays within a region: then it crosses.
+  const lane = o.area && o.area.length > 1;
+  const hereRegion = regionOf(here);
+  const mustCross = lane && (o.localLegs ?? 0) >= 1 && o.area!.includes(hereRegion ?? '');
+  let best: { idx: number; load: number[]; score: number; gain: number } | null = null;
   o.stops.forEach((dest, idx) => {
     if (dest === here) return;
+    if (mustCross && regionOf(dest) === hereRegion) return;
     const leg = legCost(g, ship, here, dest, world);
     if (!leg || !leg.inRange) return;
     let free = type.capacity - cargoTons(ship);
@@ -694,17 +820,54 @@ function bestStop(g: GameState, shipId: number, world: World): { idx: number; lo
     // Fill up with cargo for the other stops that can still make it via this one.
     const taken = new Set(now.map((c) => c.id));
     const later: Contract[] = [];
-    for (const next of ORDERS.loadLater ? o.stops : []) {
+    for (const next of ORDERS.loadLater && skill >= 2 ? o.stops : []) {
       if (next === here || next === dest || free <= 0) continue;
       const onward = legCost(g, ship, dest, next, world);
       if (!onward || !onward.inRange) continue;
       const lots = pickLots(board, next, free, arrive + RULES.portDays + onward.seaDays + ORDERS.laterMargin, type, world, taken);
       for (const c of lots) { later.push(c); taken.add(c.id); free -= c.tons; }
     }
-    const score = gain / leg.days;
-    if (!best || score > best.score) best = { idx, load: [...now, ...later].map((c) => c.id), score };
+    // Less experienced captains misjudge: their sense of each option is off by up to 10% (★★) or 25% (★).
+    const noise = skill === 3 ? 1 : 1 + (rand(g) * 2 - 1) * (skill === 2 ? 0.1 : 0.25);
+    const score = (gain / leg.days) * noise;
+    const total = gain + later.reduce((s, c) => s + c.pay, 0);
+    if (!best || score > best.score) best = { idx, load: [...now, ...later].map((c) => c.id), score, gain: total };
   });
   return best;
+}
+
+/**
+ * Where an empty ship should sail to find work: a port in its area whose cargo for
+ * another of its ports pays for the empty run and the leg after; failing that, the
+ * nearest port with regular trade for this kind of ship to another of its ports
+ * (most of a route's cargo is booked when the ship calls). Null if neither exists.
+ */
+function repositionTo(g: GameState, shipId: number, world: World): number | null {
+  const ship = getShip(g, shipId);
+  const o = ship.orders!;
+  const type = typeOf(ship, world);
+  const here = ship.location;
+  const hereRegion = regionOf(here);
+  const mustCross = o.area && o.area.length > 1 && (o.localLegs ?? 0) >= 1;
+  let deal: { idx: number; perDay: number } | null = null;
+  let trade: { idx: number; days: number } | null = null;
+  o.stops.forEach((d, idx) => {
+    if (d === here || (mustCross && regionOf(d) === hereRegion)) return;
+    const empty = legCost(g, ship, here, d, world);
+    if (!empty || !empty.inRange) return;
+    for (const e of o.stops) {
+      if (e === d) continue;
+      const onward = legCost(g, ship, d, e, world);
+      if (!onward || !onward.inRange) continue;
+      const lots = pickLots(g.ports[d].board, e, type.capacity, g.day + empty.days + onward.seaDays, type, world);
+      const value = lots.reduce((s, c) => s + c.pay, 0) - onward.costs - empty.costs;
+      const perDay = value / (empty.days + onward.days);
+      if (value > 0 && (!deal || perDay > deal.perDay)) deal = { idx, perDay };
+      if (legTrade(world, type, d, e).length && (!trade || empty.days < trade.days)) trade = { idx, days: empty.days };
+    }
+  });
+  const pick = (deal ?? trade) as { idx: number } | null;
+  return pick ? pick.idx : null;
 }
 
 /** Would every lot aboard still arrive in time if the ship waited one more day? */
@@ -721,7 +884,7 @@ function fuelToBuy(g: GameState, ship: ShipState, need: number, world: World): n
   const type = typeOf(ship, world);
   const basic = Math.min(type.bunkerCapacity, Math.ceil(need * ORDERS.fuelReserve)) - ship.fuel;
   const o = ship.orders;
-  if (!o) return basic;
+  if (!o || (captainOf(g, ship)?.skill ?? 3) < 3) return basic;
   const price = fuelPrice(g, ship.location, world);
   const cheapest = Math.min(...o.stops.map((id) => fuelPrice(g, id, world)));
   if (price > cheapest * (1 + ORDERS.cheapFuelMargin)) return basic;
@@ -756,7 +919,7 @@ function loadForRoute(state: GameState, shipId: number, world: World): GameState
     from = stop;
   }
   const offers = g.ports[ship.location].board
-    .filter((c) => eta.has(c.dest) && eta.get(c.dest)! + ORDERS.deadlineMargin <= c.deadline)
+    .filter((c) => !c.premium && eta.has(c.dest) && eta.get(c.dest)! + ORDERS.deadlineMargin <= c.deadline)
     .sort((a, b) => b.pay / b.tons - a.pay / a.tons);
   for (const c of offers) {
     if (canCarry(getShip(g, shipId), c, world) === null) g = acceptContract(g, shipId, c.id, world);
@@ -957,6 +1120,8 @@ function arrive(world: World, g: GameState, ship: ShipState): void {
   book(g, world, 'revenue', revenue);
   book(g, world, 'fees', fee + v.canalFees);
   book(g, world, 'incidents', v.eventCosts);
+  shipBook(ship, 'revenue', revenue, g.day);
+  shipBook(ship, 'costs', fee + v.canalFees + v.eventCosts, g.day);
   g.stats.voyages++;
   g.stats.revenue += revenue;
   g.stats.fuelSpent += v.events.filter((e) => e.kind === 'emergencyFuel').reduce((s, e) => s + e.cost, 0);
@@ -1069,6 +1234,7 @@ export function sellShip(state: GameState, shipId: number, world: World = getWor
   const g = clone(state);
   const ship = getShip(g, shipId);
   g.fleet = g.fleet.filter((s) => s.id !== shipId);
+  for (const c of g.captains ?? []) if (c.shipId === shipId) delete c.shipId;
   g.cash += q.price + q.fuelRefund - q.repay;
   g.loan -= q.repay;
   book(g, world, 'shipsSold', q.price);

@@ -1,6 +1,6 @@
 import { priceLevel, routeFor } from './economy';
 import { pickWeighted, rand, randInt, randRange } from './rng';
-import type { CargoClass, Contract, GameState } from './types';
+import type { CargoClass, Contract, GameState, PremiumKind } from './types';
 import type { World } from './world';
 
 /** Balancing knobs for cargo pay. Kept together so they're easy to tune. */
@@ -41,6 +41,13 @@ export const CONTRACT_TUNING = {
   serviceChance: 0.6,
   /** At most this many ports get bookings per call. */
   serviceLotsMax: 2,
+  /** Premium jobs (only for ships you command): chance a day per port, and on a fresh board. */
+  premiumPerDay: 0.06,
+  premiumOnArrival: 0.3,
+  /** Premium pay multiplier range, and how long one stays on the board (days). */
+  premiumPayMin: 1.8,
+  premiumPayMax: 2.6,
+  premiumLifetime: 5,
   /** Contracts sit on a board this many days before being withdrawn. */
   boardLifetime: 12,
 };
@@ -149,6 +156,7 @@ export function regenerateBoard(world: World, g: GameState, portId: string): voi
     const n = randInt(g, min, max);
     for (let i = 0; i < n; i++) addContracts(world, g, portId, board, 1, { classes: [cls], big: rand(g) < 0.3 });
   }
+  if (rand(g) < T.premiumOnArrival) addPremium(world, g, portId, board);
   g.ports[portId].board = board;
 }
 
@@ -156,7 +164,8 @@ export function regenerateBoard(world: World, g: GameState, portId: string): voi
 export function churnBoard(world: World, g: GameState, portId: string): void {
   const T = CONTRACT_TUNING;
   const port = g.ports[portId];
-  port.board = port.board.filter((c) => g.day - c.postedDay < T.boardLifetime && c.deadline > g.day + 2);
+  port.board = port.board.filter((c) => g.day - c.postedDay < (c.premium ? T.premiumLifetime : T.boardLifetime) && c.deadline > g.day + 2);
+  if (rand(g) < T.premiumPerDay) addPremium(world, g, portId, port.board);
   const add = rand(g) < 0.6 ? randInt(g, 1, 2) : 0;
   for (let i = 0; i < add && port.board.length < T.boardSizeMax + T.bigLotsMax + 4; i++) {
     const c = generateContract(world, g, portId, pickKind(g), new Set(port.board.map((b) => b.dest)));
@@ -168,7 +177,9 @@ export function churnBoard(world: World, g: GameState, portId: string): void {
  * A ship on a regular route draws cargo: shippers book lots for the other ports
  * on its route when it calls (only goods that actually move on those legs).
  */
-export function bookServiceCargo(world: World, g: GameState, portId: string, dests: string[], classes: CargoClass[], capacity: number): Contract[] {
+export function bookServiceCargo(
+  world: World, g: GameState, portId: string, dests: string[], classes: CargoClass[], capacity: number, chanceFactor = 1,
+): Contract[] {
   const T = CONTRACT_TUNING;
   const booked: Contract[] = [];
   const others = dests.filter((d) => d !== portId);
@@ -179,7 +190,7 @@ export function bookServiceCargo(world: World, g: GameState, portId: string, des
   }
   for (const d of others.slice(0, T.serviceLotsMax)) {
     for (let i = 0; i < T.serviceLotsPerStop; i++) {
-      if (rand(g) >= T.serviceChance) continue;
+      if (rand(g) >= Math.min(1, T.serviceChance * chanceFactor)) continue;
       const big = capacity >= 10_000 && rand(g) < 0.5;
       const c = generateContract(world, g, portId, { classes, big, maxTons: capacity }, new Set(), new Set([d]));
       if (c) booked.push(c);
@@ -187,4 +198,28 @@ export function bookServiceCargo(world: World, g: GameState, portId: string, des
   }
   g.ports[portId].board.push(...booked);
   return booked;
+}
+
+const PREMIUM_KINDS: { kind: PremiumKind; classes: CargoClass[]; big?: boolean; maxTons?: number }[] = [
+  { kind: 'express', classes: ['general', 'reefer'], maxTons: 1500 },
+  { kind: 'hazardous', classes: ['liquid'] },
+  { kind: 'government', classes: ['bulk'] },
+  { kind: 'project', classes: ['general'], big: true },
+];
+
+/**
+ * A premium job: urgent, awkward or official cargo that pays 1.8–2.6× the going
+ * rate with a tight deadline. Only ships you command yourself can take one.
+ */
+function addPremium(world: World, g: GameState, portId: string, board: Contract[]): void {
+  const T = CONTRACT_TUNING;
+  const k = PREMIUM_KINDS[randInt(g, 0, PREMIUM_KINDS.length - 1)];
+  const c = generateContract(world, g, portId, { classes: k.classes, big: k.big, maxTons: k.maxTons });
+  if (!c) return;
+  const nm = routeFor(world, g, portId, c.dest)?.nm ?? 0;
+  const refDays = nm / (T.referenceSpeedKn * 24);
+  c.premium = k.kind;
+  c.pay = Math.round((c.pay * randRange(g, T.premiumPayMin, T.premiumPayMax)) / 100) * 100;
+  c.deadline = Math.ceil(g.day + refDays * randRange(g, 1.15, 1.4) + 2);
+  board.push(c);
 }

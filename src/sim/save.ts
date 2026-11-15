@@ -1,3 +1,4 @@
+import { fillCaptainPool } from './captains';
 import { regenerateBoard } from './contracts';
 import { newOilMarket } from './economy';
 import { randRange } from './rng';
@@ -54,7 +55,25 @@ export function migrate(raw: unknown): GameState | null {
   }
   if (g.version !== 4) return null;
   addNewPorts(g as GameState);
+  addCaptains(g as GameState);
   return g as GameState;
+}
+
+/**
+ * Captains arrived: from then on a ship only sails by itself with a hired captain.
+ * Routes set up before that end: ships finish their voyage and wait for orders.
+ */
+function addCaptains(g: GameState): void {
+  if (g.captains) return;
+  g.captains = [];
+  let ended = 0;
+  for (const ship of g.fleet) {
+    if (ship.orders) { delete ship.orders; ended++; }
+  }
+  fillCaptainPool(g);
+  if (ended) {
+    g.log.unshift({ day: g.day, text: `Routes now need a hired captain: ${ended} route${ended > 1 ? 's' : ''} ended. Ships finish their voyage and wait for your orders.` });
+  }
 }
 
 /** Ports added to the world after this game was started get a market, offers and a fuel price. */

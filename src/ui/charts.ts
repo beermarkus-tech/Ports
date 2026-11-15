@@ -76,3 +76,25 @@ export function barChart(points: ChartPoint[], aria: string): string {
   }).join('');
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${aria}">${f.grid}${bars}${f.labels}${f.hits}</svg>`;
 }
+
+/**
+ * A ship's months as small bars on a shared scale (so ships compare at a glance):
+ * no axes, a zero line, a tooltip per month.
+ */
+export function miniBars(points: ChartPoint[], maxAbs: number, aria: string): string {
+  const w = 168, h = 40, pad = 2;
+  const n = Math.max(points.length, 12);
+  const col = (w - pad * 2) / n;
+  const bw = Math.max(2, col - 2);
+  const scale = maxAbs > 0 ? (h / 2 - pad) / maxAbs : 0;
+  const mid = h / 2;
+  const off = n - points.length;
+  const bars = points.map((p, i) => {
+    const x = pad + col * (i + off) + (col - bw) / 2;
+    const len = Math.max(p.value === 0 ? 0 : 1, Math.abs(p.value) * scale);
+    const y = p.value >= 0 ? mid - len : mid;
+    return `<rect class="ch-bar ${p.value >= 0 ? 'up' : 'down'}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${len.toFixed(1)}" rx="1.5"/>
+      <rect class="ch-hit" x="${(pad + col * (i + off)).toFixed(1)}" y="0" width="${col.toFixed(1)}" height="${h}" data-tip="${p.tip.replace(/"/g, '&quot;')}"/>`;
+  }).join('');
+  return `<svg class="chart mini" viewBox="0 0 ${w} ${h}" role="img" aria-label="${aria}"><line class="ch-grid zero" x1="0" x2="${w}" y1="${mid}" y2="${mid}"/>${bars}</svg>`;
+}

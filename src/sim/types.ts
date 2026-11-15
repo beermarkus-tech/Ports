@@ -58,7 +58,28 @@ export interface Contract {
   /** Absolute game day by which the cargo must be delivered for full pay. */
   deadline: number;
   postedDay: number;
+  /** A premium job: pays far more, tight deadline, only for ships you command yourself. */
+  premium?: PremiumKind;
 }
+
+export type PremiumKind = 'express' | 'hazardous' | 'government' | 'project';
+
+/** A captain you can hire to run a ship by itself within a trading area. */
+export interface Captain {
+  id: number;
+  name: string;
+  /** 1 (green) to 3 (veteran): how well the captain picks cargo and ports. */
+  skill: 1 | 2 | 3;
+  /** Dollars a month, charged daily. */
+  wage: number;
+  /** Region the captain knows best (more cargo booked there). */
+  home: string;
+  /** The ship the captain is running, if any. */
+  shipId?: number;
+}
+
+/** A ship's month: what it earned and what it cost (fuel, fees, upkeep, repairs, incidents, its captain). */
+export interface ShipMonth { m: number; revenue: number; costs: number }
 
 export interface ShipState {
   id: number;
@@ -83,6 +104,10 @@ export interface ShipState {
   orders?: StandingOrders;
   /** Results of recent legs, for the fleet overview. */
   earnings?: { day: number; net: number }[];
+  /** The ship's own books by calendar month (last 24). */
+  books?: ShipMonth[];
+  /** The hired captain running this ship (it then sails its orders by itself). */
+  captainId?: number;
 }
 
 /** A programmed round trip: the ship works through `stops` in a loop on its own. */
@@ -100,6 +125,10 @@ export interface StandingOrders {
   repairBelow: number;
   /** Set when the ship hit a problem and stopped to ask for orders. */
   halted?: string;
+  /** The trading area: one region, or two for a lane between them (stops are their ports). */
+  area?: string[];
+  /** On a lane: legs in a row within the same region (a lane crosses after at most one). */
+  localLegs?: number;
   /** Days spent in this port waiting for cargo (an empty hold sails only after a few). */
   idleDays?: number;
 }
@@ -248,6 +277,9 @@ export interface GameState {
   gameOver?: string;
   /** Money by calendar month (oldest first), for the company charts. Missing in older saves. */
   books?: MonthBook[];
+  /** Captains on the payroll, and the ones looking for work. Missing in older saves. */
+  captains?: Captain[];
+  captainPool?: Captain[];
   /** Net-worth milestones reached, with the day each was reached. */
   milestones: { amount: number; day: number }[];
   oil: OilMarket;
@@ -268,6 +300,8 @@ export interface MonthBook {
   repairs: number;
   /** Breakdowns at sea and emergency bunkers. */
   incidents: number;
+  /** Captains' wages (missing in books from before captains). */
+  wages?: number;
   shipsBought: number;
   shipsSold: number;
   /** Position at the end of the month (or the latest day, for the current month). */
