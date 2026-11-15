@@ -94,7 +94,15 @@ close the app. The game saves after every action, so reloading is always safe.
    really move on those legs). With an empty hold it waits up to 3 days for
    cargo. It stops and asks only when stuck (no money for fuel or repairs, a
    port out of range). The editor shows what trade runs between your ports.
-10. **Fleet tab:** every ship with its status, route, hold, fuel, condition and
+10. **Port view:** when a ship needs orders (or you tap a ship in port or dry
+   dock), the map gives way to a side view of it at the quay, drawn to one true
+   scale (300 m of quay, cranes and people for comparison). It sits deeper as
+   cargo and fuel go aboard (red bottom paint, draft marks, load line); the
+   holds and bunker tank are cut open; wear shows as rust, fading paint, dents
+   and smoke. Dry dock drains the water and puts it on keel blocks. Six
+   regional backdrops, time of day from the map's sun. Zoom fits the ship; Map
+   goes back (and the map returns by itself when the clock runs).
+11. **Fleet tab:** every ship with its status, route, hold, fuel, condition and
    what it earned in the last 30 days after fuel.
 
 ### Ship classes
@@ -140,7 +148,7 @@ src/sim/         Pure simulation, no DOM (deterministic: seeded RNG stored in th
   economy.ts     Port price levels, oil market, world events (ECONOMY)
   bot.ts         Greedy and casual captains used for balancing (and a seed for automation later)
   save.ts        localStorage save/load, with upgrades for older saves
-src/ui/          Rendering: d3-geo world map (map.ts), ship art (art.ts), sound (sound.ts), panels, styles
+src/ui/          Rendering: d3-geo world map (map.ts), ship art (art.ts), port view (port-scene.ts), sound (sound.ts), panels, styles
 scripts/         balance.ts, compare.sh, progression.ts, ships.ts, economy.ts, tune-ships.py
 tests/           vitest
 ```

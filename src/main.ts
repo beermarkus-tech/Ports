@@ -17,6 +17,7 @@ import { getWorld } from './sim/world';
 import { compactMoney, days, esc, gameDate, money, tons } from './ui/format';
 import { mapIconPath, shipFamily, shipSideView } from './ui/art';
 import { MapView, type LonLat, type PortMarker, type ShipMarker, type WeatherCell } from './ui/map';
+import { PortScene, type SceneShip, type TimeOfDay } from './ui/port-scene';
 import { sound } from './ui/sound';
 import { BUILD, consumeUpdatedFrom, initServiceWorker, isNewer, latestBuild, reloadApp } from './ui/update';
 
@@ -70,6 +71,11 @@ class App {
   private hoverDest: string | null = null;
   private marketPort: string | null = null;
   private contractSort: ContractSort = loadContractSort();
+  /** What the big area shows: the world map, or the selected ship in port. */
+  private view: 'map' | 'port' = 'map';
+  private portScene!: PortScene;
+  private portBtn!: HTMLButtonElement;
+  private sunLon = 30;
   /** A route being put together for a ship (stops in order), or null. */
   private routeDraft: { shipId: number; stops: string[]; repairBelow: number; mode: 'best' | 'loop' } | null = null;
   private paused = true;
@@ -101,6 +107,13 @@ class App {
       (id) => { this.hoverDest = id; this.renderRoutes(); },
       (id) => this.selectShip(id),
     );
+    this.portScene = new PortScene($('#map'), () => { this.view = 'map'; this.renderView(); });
+    this.portBtn = document.createElement('button');
+    this.portBtn.className = 'port-open';
+    this.portBtn.textContent = '⚓ Port view';
+    this.portBtn.hidden = true;
+    this.portBtn.addEventListener('click', () => { this.view = 'port'; this.renderView(); });
+    $('#map').appendChild(this.portBtn);
 
     document.addEventListener('click', (ev) => {
       const t = (ev.target as HTMLElement).closest<HTMLElement>('[data-action]');
@@ -133,6 +146,7 @@ class App {
     this.render();
     this.drainAutoReports();
     if (this.g.reports.length) this.showNextReport();
+    else if (shipsNeedingDecision(this.g).some((s) => s.id === this.activeId)) { this.view = 'port'; this.renderView(); }
   }
 
   private ship(): ShipState {
@@ -229,7 +243,9 @@ class App {
     }
     this.paused = false;
     this.pausedBy = null;
+    this.view = 'map';
     this.renderTime();
+    this.renderView();
   }
 
   private togglePause(): void {
@@ -240,6 +256,7 @@ class App {
   /** Select the next ship that needs orders (keeps the current one if it does). */
   private goToNextDecision(): void {
     const waiting = shipsNeedingDecision(this.g);
+    if (waiting.length) this.view = 'port';
     if (!waiting.length || waiting.some((s) => s.id === this.activeId)) return;
     this.activeId = waiting[0].id;
     this.dest = null;
@@ -444,6 +461,8 @@ class App {
       this.dest = null;
       this.marketPort = null;
     }
+    // A ship in port or dry dock is shown at its quay; one at sea on the map.
+    this.view = atSea(this.ship()) ? 'map' : 'port';
     if (tab) this.tab = tab;
     this.render();
   }
@@ -464,6 +483,7 @@ class App {
     sound.play('horn');
     this.dest = null;
     this.tab = 'voyage';
+    this.view = 'map';
     this.afterDecision();
     this.render();
   }
@@ -479,8 +499,51 @@ class App {
     if (this.g.gameOver) this.showGameOver();
   }
 
+  /** The port view over the map when the selected ship is in port (and the button to get to it). */
+  private renderView(): void {
+    const ship = this.ship();
+    const inPort = !atSea(ship);
+    if (this.view === 'port' && inPort) {
+      const docked = inDryDock(this.g, ship);
+      const port = world.ports[ship.location];
+      this.portScene.show({
+        ship: this.sceneShip(ship),
+        place: docked ? 'dock' : 'quay',
+        portId: port.id,
+        portName: port.name,
+        time: this.timeOfDay(port.lon),
+        neighbours: this.g.fleet.filter((s) => s.id !== ship.id && !atSea(s) && !inDryDock(this.g, s) && s.location === ship.location)
+          .map((s) => this.sceneShip(s)),
+        dockDays: docked ? ship.busyUntil! - this.g.day : undefined,
+      });
+      this.portBtn.hidden = true;
+    } else {
+      this.portScene.hide();
+      this.portBtn.hidden = !inPort;
+    }
+  }
+
+  private sceneShip(s: ShipState): SceneShip {
+    const type = typeOf(s);
+    return {
+      id: s.id, name: s.name, typeId: type.id, family: shipFamily(type),
+      capacity: type.capacity, bunkerCapacity: type.bunkerCapacity,
+      cargo: s.cargo.map((c) => ({ good: c.good, cls: world.goods[c.good].cargoClass, tons: c.tons })),
+      fuel: s.fuel, condition: s.condition,
+    };
+  }
+
+  /** Local time of day at a port, from where the map's sun is right now. */
+  private timeOfDay(lon: number): TimeOfDay {
+    const hour = ((12 + (lon - this.sunLon) / 15) % 24 + 24) % 24;
+    if (hour >= 7 && hour < 17.5) return 'day';
+    if ((hour >= 5 && hour < 7) || (hour >= 17.5 && hour < 19.5)) return 'dusk';
+    return 'night';
+  }
+
   /** The parts that change every tick: date, money, fleet strip, ships on the map. */
   private renderLive(): void {
+    this.renderView();
     this.renderHeader();
     if (!this.pointerDown) this.renderFleet();
     this.renderShips();
@@ -493,6 +556,7 @@ class App {
     const doy = this.g.day % 365;
     const declination = 23.44 * Math.sin((2 * Math.PI * (doy - 80)) / 365);
     const sunLon = ((((-t * 4) + 30) % 360) + 540) % 360 - 180;
+    this.sunLon = sunLon;
     this.map.setSun([sunLon, declination]);
     this.map.setWaves(t);
     const day = this.g.day;
@@ -1364,6 +1428,7 @@ class App {
     saveGame(this.g);
     if (this.g.fleet.some((s) => s.id === report.shipId)) {
       this.activeId = report.shipId;
+      this.view = 'port';
       this.dest = null;
       this.marketPort = null;
       this.tab = 'contracts';
