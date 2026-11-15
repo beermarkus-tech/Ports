@@ -122,11 +122,7 @@ h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 .port.dest .dot { fill: var(--accent); }
 .port.dest .halo { fill-opacity: 0.35; }
 .port.cargo .dot { fill: var(--accent-2); }
-.ship { pointer-events: none; transition: transform 0.05s linear; }
-.ship-halo { fill: var(--accent-2); fill-opacity: 0.2; }
-.ship-hull { fill: var(--accent-2); stroke: var(--bg); stroke-width: 1; }
-body:not(.sailing) .ship { display: none; }
-.flash { font-size: 13px; font-weight: 700; paint-order: stroke; stroke: var(--bg); stroke-width: 3px; animation: rise 1.8s ease-out forwards; }
+.flash { font-size: 13px; font-weight: 700; paint-order: stroke; stroke: var(--bg); stroke-width: 3px; animation: rise 2.2s ease-out forwards; pointer-events: none; }
 .flash.good { fill: var(--good); }
 .flash.bad { fill: var(--bad); }
 .flash.info { fill: var(--text); }
@@ -134,7 +130,6 @@ body:not(.sailing) .ship { display: none; }
 
 /* ---------------------------------------------------------------- ship strip */
 .ship-strip {
-  display: grid; grid-template-columns: 1.1fr repeat(3, 1fr); gap: 16px; align-items: center;
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 14px;
 }
 .ship-name { display: flex; flex-direction: column; }
@@ -149,7 +144,7 @@ body:not(.sailing) .ship { display: none; }
 .gauge.cond.warn .g-fill { background: var(--warn); }
 .gauge.cond.bad .g-fill { background: var(--bad); }
 @media (max-width: 600px) {
-  .ship-strip { grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+  .ship-strip { padding: 8px 10px; }
 }
 
 /* ---------------------------------------------------------------- tabs & panel */
@@ -389,3 +384,66 @@ body:not(.sailing) .ship { display: none; }
 .spark-label { fill: var(--muted); font-size: 9.5px; }
 .spark-hit { fill: transparent; }
 .spark-hit:hover { fill: var(--text); fill-opacity: 0.06; }
+
+/* ---------------------------------------------------------------- world clock & fleet */
+.clock-state { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.time-ctl { display: flex; gap: 4px; align-items: center; }
+.time-ctl button {
+  font: inherit; font-weight: 700; color: var(--text); background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: 8px; height: 34px; min-width: 38px; padding: 0 8px; cursor: pointer;
+}
+.time-ctl button:hover { border-color: var(--accent); }
+.time-ctl .tc-play { min-width: 44px; font-size: 15px; }
+.time-ctl .tc-play.paused { background: var(--accent); border-color: var(--accent); color: #04202a; }
+.time-ctl .tc-speed.active { border-color: var(--accent); color: var(--accent); }
+.time-ctl button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.ship-strip { display: flex; flex-direction: column; align-items: stretch; gap: 10px; }
+.fleet { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin; }
+.ship-chip {
+  flex: 0 0 auto; min-width: 150px; max-width: 220px; text-align: left; font: inherit; color: var(--text);
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; cursor: pointer;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.ship-chip:hover { border-color: var(--accent); }
+.ship-chip.selected { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.sc-name { font-weight: 650; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+.sc-status { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sc-ready { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #04202a; background: var(--accent); border-radius: 4px; padding: 0 5px; }
+.ship-chip.ready .sc-ready { animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.55; } }
+.sc-bar, .voy-bar { display: block; height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; margin-top: 2px; }
+.sc-bar span, .voy-bar span { display: block; height: 100%; background: var(--accent-2); }
+.voy-bar { height: 6px; margin: 4px 0 10px; border-radius: 3px; }
+.active-ship { display: grid; grid-template-columns: 1.1fr repeat(3, 1fr); gap: 16px; align-items: center; }
+@media (max-width: 600px) {
+  .active-ship { grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+  .time-ctl button { height: 30px; min-width: 32px; padding: 0 6px; }
+  .clock-state { display: none; }
+}
+
+.ships .ship { cursor: pointer; transition: transform 0.1s linear; }
+.ship-hit { fill: transparent; }
+.ship .ship-hull { fill: var(--accent-2); stroke: var(--bg); stroke-width: 1; }
+.ship .ship-halo { fill: var(--accent-2); fill-opacity: 0.15; }
+.ship.ready .ship-hull { fill: var(--accent); }
+.ship.ready .ship-halo { fill: var(--accent); fill-opacity: 0.25; }
+.ship.busy .ship-hull { fill: var(--muted); }
+.ship.selected .ship-halo { fill-opacity: 0.45; stroke: var(--text); stroke-width: 1.2; }
+.port-pick { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); margin: 8px 0; }
+.port-pick select { font: inherit; color: var(--text); background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; flex: 1; }
+.card.underway h3 { color: var(--text); font-size: 16px; text-transform: none; letter-spacing: 0; }
+@media (max-width: 700px) {
+  /* Time controls get their own row under the date and cash. */
+  .topbar { flex-wrap: wrap; row-gap: 8px; }
+  .time-ctl { order: 10; flex-basis: 100%; }
+  .time-ctl .tc-play { flex: 1; max-width: 120px; }
+  .clock-state { display: inline; }
+  .clock .clock-state { display: none; }
+  .time-ctl::after { content: attr(data-state); font-size: 11.5px; color: var(--muted); margin-left: 6px; }
+}
+@media (max-width: 700px) {
+  .money { flex: 1; }
+  .time-ctl { flex-basis: auto; flex: 1; }
+  .topbar .icon-btn { order: 11; }
+}

@@ -4,11 +4,12 @@ A calm, strategic shipping-company game built as a PWA. Start with one tired
 old coaster and $150,000, carry cargo between ten world ports, and grow from
 there. The full design is in [docs/design.md](docs/design.md).
 
-**Status: Phase 3 (dynamic economy).** Port prices react to your deliveries,
-the world oil price moves in trends, and world events (strikes, harvest
-failures, booms, canal closures, oil shocks) shift the best routes. Built on
-Phase 2 (twelve ship classes, ship market, loans, ageing) and Phase 1 (ten
-ports, contracts, fuel, wear and repairs, storms, animated map, autosave).
+**Status: world clock and fleet.** Time runs on a clock (1 day per second,
+2× and 4×, pause) and you can own several ships at once; arrivals pause the
+game. Built on Phase 3 (dynamic economy: reacting prices, oil trends, world
+events), Phase 2 (twelve ship classes, ship market, loans, ageing) and
+Phase 1 (ten ports, contracts, fuel, wear and repairs, storms, map, autosave).
+Next: graphics and polish, then automation.
 
 ## Running it
 
@@ -46,10 +47,16 @@ close the app. The game saves after every action, so reloading is always safe.
 
 ## How to play
 
+0. **Time and the fleet.** The clock runs at 1 day per second (2× and 4× in the
+   header; space bar pauses). Ships at sea can't take orders; ships in port wait
+   for yours. When a ship arrives the game pauses and shows its report. Pick a
+   ship in the strip under the map (or on the map) and the tabs act on it.
+   Casting off restarts a clock that was paused for an arrival.
 1. **Contracts:** load cargo offered in your port. You can carry lots for
    several destinations at once, as long as they fit in the hold.
 2. **Ship:** bunker fuel (prices differ by port and drift daily), or repair
-   in dry dock. Low condition means more breakdowns and a thirstier engine.
+   in dry dock (the ship is out of action for a few days). Low condition means
+   more breakdowns and a thirstier engine. Upkeep is paid daily for every ship.
 3. **Voyage:** pick a destination (or tap a port on the map). The planner
    shows distance, days, fuel and the estimated result. You can't cast off
    without the fuel the leg needs, and legs beyond your bunker range need a
@@ -58,14 +65,14 @@ close the app. The game saves after every action, so reloading is always safe.
    (delay and repair bill). If you cut your fuel reserve too fine, a bunker
    tender rescues you at 2.5× the price.
 5. Late deliveries lose 15% of their pay for each day late. If cash runs out,
-   the bank automatically extends your ship loan (up to 60% of the ship's value,
+   the bank automatically extends your loan (up to 60% of the fleet's value,
    8% a year), then allows an overdraft of up to −$50,000 (18% a year). Past
-   that, or with no way to reach any port, the game is over.
-6. **Market:** trade your ship in for a better one. Every port has a few used
-   ships; Rotterdam, Shanghai and Singapore also build new ones. The bank lends
-   up to 60% of a ship's value at 8% a year. Keep cash for fuel: a bigger ship's
-   full tank costs far more.
-7. Goals are net-worth milestones (cash + ship value − loan): $1M, $5M, $25M, $100M.
+   that, or when no ship can reach another port, the game is over.
+6. **Market:** buy ships in any port's market (pick the port at the top); a
+   new ship joins your fleet there with a little fuel. Every port has a few
+   used ships; Rotterdam, Shanghai and Singapore also build new ones. Sell a
+   ship from the Ship tab. Keep cash for fuel: a big ship's full tank costs a lot.
+7. Goals are net-worth milestones (cash + fleet value − loan): $1M, $5M, $25M, $100M.
 8. **The economy moves.** Every delivery lowers what that port pays for that good
    (the Cargo tab shows what each port pays well for and what's oversupplied);
    prices drift back over a couple of months. Bunker prices follow a world oil
@@ -107,7 +114,7 @@ src/data/        Editable game data: ports, goods, ships, sea-lane graph, canals
 src/sim/         Pure simulation, no DOM (deterministic: seeded RNG stored in the save)
   world.ts       Loads data; shortest sea routes over the lane graph (Dijkstra)
   contracts.ts   Contract generation and pay formula (CONTRACT_TUNING)
-  game.ts        Player actions and voyage resolution (RULES); every action returns a new state
+  game.ts        Fleet, world clock (advance), player actions and voyages (RULES); every action returns a new state
   ships.ts       Ship value, age effects, the ship market, purchase quotes, loans (SHIP_TUNING)
   economy.ts     Port price levels, oil market, world events (ECONOMY)
   bot.ts         Greedy and casual captains used for balancing (and a seed for automation later)

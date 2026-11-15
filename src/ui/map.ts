@@ -11,7 +11,7 @@ const W = 1000;
 const H = 470;
 const NS = 'http://www.w3.org/2000/svg';
 
-type LonLat = [number, number];
+export type LonLat = [number, number];
 
 export interface PortMarker {
   id: string;
@@ -37,11 +37,17 @@ export class MapView {
   private path: ReturnType<typeof geoPath>;
   private portLayer: SVGGElement;
   private routeLayer: SVGGElement;
-  private ship: SVGGElement;
+  private shipLayer: SVGGElement;
+  private ships = new Map<number, SVGGElement>();
   private ports: Record<string, SVGGElement> = {};
-  private animation: number | null = null;
 
-  constructor(container: HTMLElement, private world: World, onPortClick: (id: string) => void, onPortHover: (id: string | null) => void) {
+  constructor(
+    container: HTMLElement,
+    private world: World,
+    onPortClick: (id: string) => void,
+    onPortHover: (id: string | null) => void,
+    private onShipClick: (id: number) => void = () => {},
+  ) {
     this.svg = el('svg', { viewBox: `0 0 ${W} ${H}`, class: 'map', role: 'img', 'aria-label': 'World map' });
     container.appendChild(this.svg);
 
@@ -92,9 +98,7 @@ export class MapView {
       this.ports[p.id] = g;
     }
 
-    this.ship = el('g', { class: 'ship' }, this.svg);
-    el('circle', { r: 11, class: 'ship-halo' }, this.ship);
-    el('path', { d: 'M 7 0 L -5 -4.5 L -3 0 L -5 4.5 Z', class: 'ship-hull' }, this.ship);
+    this.shipLayer = el('g', { class: 'ships' }, this.svg);
   }
 
   private line(ids: string[]): GeoJSON.LineString {
@@ -126,66 +130,80 @@ export class MapView {
     }
   }
 
-  placeShip(portId: string): void {
-    const p = this.world.points[portId];
-    this.setShip([p.lon, p.lat], 0);
-  }
-
-  private setShip(at: LonLat, angle: number): void {
-    const [x, y] = this.projection(at)!;
-    this.ship.setAttribute('transform', `translate(${x},${y}) rotate(${angle})`);
-  }
-
-  /**
-   * Animate the ship along a route over `durationMs`. `onProgress` gets 0..1.
-   * Movement is distance-proportional so the ship doesn't sprint short legs.
-   */
-  animateVoyage(path: string[], durationMs: number, onProgress: (t: number) => void): Promise<void> {
-    if (this.animation !== null) cancelAnimationFrame(this.animation);
+  /** Where a ship is `t` (0..1) of the way along a route, by distance, and its heading on screen. */
+  positionAlong(path: string[], t: number): { at: LonLat; angle: number } {
     const pts = path.map((id) => [this.world.points[id].lon, this.world.points[id].lat] as LonLat);
+    if (pts.length < 2) return { at: pts[0], angle: 0 };
     const segs = pts.slice(1).map((b, i) => {
       const a = pts[i];
-      const interp = geoInterpolate(a, b);
       const dLon = ((b[0] - a[0] + 540) % 360) - 180;
       const len = Math.hypot(dLon * Math.cos(((a[1] + b[1]) / 2) * Math.PI / 180), b[1] - a[1]);
-      return { interp, len };
+      return { interp: geoInterpolate(a, b), len };
     });
     const total = segs.reduce((s, x) => s + x.len, 0) || 1;
-    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    const duration = reduceMotion ? 1 : durationMs;
-
-    return new Promise((resolve) => {
-      const start = performance.now();
-      const frame = (now: number) => {
-        const t = Math.min(1, (now - start) / duration);
-        const eased = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
-        let d = eased * total;
-        let seg = segs[segs.length - 1];
-        let local = 1;
-        for (const s of segs) {
-          if (d <= s.len) { seg = s; local = s.len ? d / s.len : 1; break; }
-          d -= s.len;
-        }
-        const here = seg.interp(local);
-        const ahead = seg.interp(Math.min(1, local + 0.02));
-        const [x0, y0] = this.projection(here)!;
-        const [x1, y1] = this.projection(ahead)!;
-        const angle = (Math.atan2(y1 - y0, x1 - x0) * 180) / Math.PI;
-        this.setShip(here, Number.isFinite(angle) && (x1 !== x0 || y1 !== y0) ? angle : 0);
-        onProgress(eased);
-        if (t < 1) this.animation = requestAnimationFrame(frame);
-        else { this.animation = null; resolve(); }
-      };
-      this.animation = requestAnimationFrame(frame);
-    });
+    let d = Math.max(0, Math.min(1, t)) * total;
+    let seg = segs[segs.length - 1];
+    let local = 1;
+    for (const x of segs) {
+      if (d <= x.len) { seg = x; local = x.len ? d / x.len : 1; break; }
+      d -= x.len;
+    }
+    const here = seg.interp(local);
+    const ahead = seg.interp(Math.min(1, local + 0.02));
+    const [x0, y0] = this.projection(here)!;
+    const [x1, y1] = this.projection(ahead)!;
+    const angle = x1 !== x0 || y1 !== y0 ? (Math.atan2(y1 - y0, x1 - x0) * 180) / Math.PI : 0;
+    return { at: here, angle };
   }
 
-  /** Brief floating label over the ship (events, payments). */
-  flash(text: string, kind: 'good' | 'bad' | 'info'): void {
-    const m = /translate\(([-\d.]+),([-\d.]+)\)/.exec(this.ship.getAttribute('transform') ?? '');
-    if (!m) return;
-    const t = el('text', { x: m[1], y: Number(m[2]) - 16, class: `flash ${kind}`, 'text-anchor': 'middle' }, this.svg);
+  portPosition(portId: string): LonLat {
+    const p = this.world.points[portId];
+    return [p.lon, p.lat];
+  }
+
+  /** Draw the fleet. Markers are created, moved and removed to match `markers`. */
+  updateShips(markers: ShipMarker[]): void {
+    const keep = new Set<number>();
+    for (const m of markers) {
+      keep.add(m.id);
+      let g = this.ships.get(m.id);
+      if (!g) {
+        g = el('g', { class: 'ship', tabindex: 0, role: 'button' }, this.shipLayer);
+        el('circle', { r: 12, class: 'ship-hit' }, g);
+        el('circle', { r: 9, class: 'ship-halo' }, g);
+        el('path', { d: 'M 7 0 L -5 -4.5 L -3 0 L -5 4.5 Z', class: 'ship-hull' }, g);
+        el('title', {}, g);
+        g.addEventListener('click', (ev) => { ev.stopPropagation(); this.onShipClick(m.id); });
+        this.ships.set(m.id, g);
+      }
+      const [x, y] = this.projection(m.at)!;
+      const [dx, dy] = m.offset ?? [0, 0];
+      g.setAttribute('transform', `translate(${(x + dx).toFixed(1)},${(y + dy).toFixed(1)}) rotate(${m.angle.toFixed(0)})`);
+      g.setAttribute('class', `ship ${m.state}${m.selected ? ' selected' : ''}`);
+      g.setAttribute('aria-label', m.name);
+      g.querySelector('title')!.textContent = m.name;
+    }
+    for (const [id, g] of this.ships) {
+      if (!keep.has(id)) { g.remove(); this.ships.delete(id); }
+    }
+  }
+
+  /** Brief floating label at a point on the map (events, payments). */
+  flashAt(at: LonLat, text: string, kind: 'good' | 'bad' | 'info'): void {
+    const [x, y] = this.projection(at)!;
+    const t = el('text', { x: x.toFixed(1), y: (y - 16).toFixed(1), class: `flash ${kind}`, 'text-anchor': 'middle' }, this.svg);
     t.textContent = text;
-    setTimeout(() => t.remove(), 1800);
+    setTimeout(() => t.remove(), 2200);
   }
+}
+
+export interface ShipMarker {
+  id: number;
+  name: string;
+  at: LonLat;
+  angle: number;
+  /** Screen offset, to fan out several ships in one port. */
+  offset?: [number, number];
+  state: 'sea' | 'ready' | 'busy';
+  selected: boolean;
 }
