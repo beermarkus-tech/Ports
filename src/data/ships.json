@@ -1,5 +1,20 @@
 [
-  { "id": "coaster", "name": "Old coaster", "capacity": 3000, "speedKn": 10, "fuelPerDay": 8,
-    "bunkerCapacity": 260, "dailyCost": 1000, "sizeFactor": 1.0, "repairCostPerPoint": 900,
-    "cargoClasses": ["bulk", "general"] }
+  { "id": "coaster", "name": "Coaster", "description": "Small, slow and cheap. Takes small lots of bulk and general cargo anywhere.",
+    "capacity": 3000, "speedKn": 10, "fuelPerDay": 8, "bunkerCapacity": 260, "dailyCost": 1000, "sizeFactor": 1.0, "repairCostPerPoint": 900, "newPrice": 1500000,
+    "cargoClasses": ["bulk", "general"] },
+  { "id": "general", "name": "General cargo ship", "description": "The workhorse. Nearly three times the coaster's hold, faster and with ocean range.",
+    "capacity": 8000, "speedKn": 13, "fuelPerDay": 17, "bunkerCapacity": 700, "dailyCost": 2200, "sizeFactor": 1.7, "repairCostPerPoint": 1800, "newPrice": 4500000,
+    "cargoClasses": ["bulk", "general"] },
+  { "id": "reefer", "name": "Reefer", "description": "Fast refrigerated ship. Carries fruit and meat, which pay well, plus general cargo.",
+    "capacity": 5000, "speedKn": 17, "fuelPerDay": 26, "bunkerCapacity": 900, "dailyCost": 3000, "sizeFactor": 1.6, "repairCostPerPoint": 2200, "newPrice": 7500000,
+    "cargoClasses": ["reefer", "general"] },
+  { "id": "bulker", "name": "Bulk carrier", "description": "Huge hold for ore, coal, grain and the like. Bulk only, and it needs big lots to fill up.",
+    "capacity": 25000, "speedKn": 14, "fuelPerDay": 30, "bunkerCapacity": 1600, "dailyCost": 4000, "sizeFactor": 3.0, "repairCostPerPoint": 3000, "newPrice": 9000000,
+    "cargoClasses": ["bulk"] },
+  { "id": "tanker", "name": "Product tanker", "description": "Carries crude oil, fuel products and chemicals: cargo no other ship can take.",
+    "capacity": 30000, "speedKn": 14, "fuelPerDay": 28, "bunkerCapacity": 1700, "dailyCost": 3800, "sizeFactor": 3.2, "repairCostPerPoint": 3200, "newPrice": 10000000,
+    "cargoClasses": ["liquid"] },
+  { "id": "container", "name": "Container ship", "description": "Fast and big, built for high-value general cargo and refrigerated containers on tight deadlines.",
+    "capacity": 15000, "speedKn": 20, "fuelPerDay": 42, "bunkerCapacity": 2600, "dailyCost": 4200, "sizeFactor": 2.6, "repairCostPerPoint": 3500, "newPrice": 15000000,
+    "cargoClasses": ["general", "reefer"] }
 ]

@@ -10,6 +10,8 @@ export interface GoodDef {
   freightRate: number;
   lotMin: number;
   lotMax: number;
+  /** Occasionally a much bigger shipment (for bulkers, tankers, big ships) up to this size. */
+  bigLotMax?: number;
 }
 
 export interface PortDef {
@@ -22,6 +24,8 @@ export interface PortDef {
   fuelPrice: number;
   /** Base port fee for a ship of sizeFactor 1. */
   portFee: number;
+  /** Ports with a shipyard sell new ships. */
+  shipyard?: boolean;
   produces: { good: string; weight: number }[];
   demands: { good: string; strength: number }[];
 }
@@ -29,6 +33,9 @@ export interface PortDef {
 export interface ShipTypeDef {
   id: string;
   name: string;
+  description: string;
+  /** Price of a brand-new ship at a shipyard. */
+  newPrice: number;
   capacity: number;
   speedKn: number;
   fuelPerDay: number;
@@ -58,13 +65,26 @@ export interface ShipState {
   fuel: number;
   /** 0..100 */
   condition: number;
+  /** Years. Older ships are slower, thirstier and break down more. */
+  age: number;
   cargo: Contract[];
+}
+
+/** A ship offered for sale in a port's market (new at shipyards, used anywhere). */
+export interface ShipOffer {
+  id: number;
+  typeId: string;
+  name: string;
+  age: number;
+  condition: number;
+  price: number;
 }
 
 export interface PortState {
   /** Deviation from base fuel price, e.g. 0.1 = +10%. */
   fuelDev: number;
   board: Contract[];
+  market: ShipOffer[];
 }
 
 export type VoyageEventKind = 'storm' | 'breakdown' | 'emergencyFuel';
@@ -99,7 +119,7 @@ export interface VoyageReport {
   portFee: number;
   canalFees: number;
   eventCosts: number;
-  /** Overdraft interest charged during the voyage (already taken from cash). */
+  /** Loan and overdraft interest charged during the voyage (already taken from cash). */
   interest: number;
   net: number;
 }
@@ -111,16 +131,19 @@ export interface LogEntry {
 }
 
 export interface GameState {
-  version: 1;
+  version: 2;
   rng: number;
   day: number;
   cash: number;
+  /** Outstanding bank loan, secured on the ship. */
+  loan: number;
   ship: ShipState;
   ports: Record<string, PortState>;
   nextId: number;
   log: LogEntry[];
-  stats: { voyages: number; revenue: number; fuelSpent: number; delivered: number };
+  stats: { voyages: number; revenue: number; fuelSpent: number; delivered: number; interestPaid: number; shipsOwned: number };
   lastVoyage?: VoyageReport;
   gameOver?: string;
-  wonAt?: number;
+  /** Net-worth milestones reached, with the day each was reached. */
+  milestones: { amount: number; day: number }[];
 }

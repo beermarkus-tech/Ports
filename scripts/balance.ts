@@ -1,7 +1,7 @@
 // Headless balance check: run the greedy bot over many seeds and print how
 // the economy behaves. Usage: npm run balance [-- legs seeds]
 
-import { botStep, casualStep, evaluateOptions } from '../src/sim/bot';
+import { BOT_OPTIONS, botStep, casualStep, evaluateOptions } from '../src/sim/bot';
 import { RULES, newGame } from '../src/sim/game';
 import { getWorld } from '../src/sim/world';
 
@@ -10,6 +10,7 @@ const seeds = Number(process.argv[3] ?? 50);
 const policy = process.argv[4] === 'casual' ? 'casual' : 'greedy';
 const step = policy === 'casual' ? casualStep : botStep;
 const world = getWorld();
+BOT_OPTIONS.upgrade = process.env.NO_UPGRADE !== '1';
 
 const finalCash: number[] = [];
 const perDay: number[] = [];

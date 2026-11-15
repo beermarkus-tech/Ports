@@ -1,9 +1,12 @@
 // A simple greedy captain. Used by the balance script and tests to check
 // that the economy is playable, and as a baseline for later automation.
 
-import { acceptContract, buyFuel, canCarry, fuelPrice, planVoyage, repair, sail, shipType, waitDay } from './game';
+import {
+  acceptContract, buyFuel, buyShip, canCarry, fuelPrice, planVoyage, repair, repayLoan, sail, shipType, waitDay,
+} from './game';
+import { SHIP_TUNING, quotePurchase } from './ships';
 import { pickWeighted, rand } from './rng';
-import type { Contract, GameState } from './types';
+import type { Contract, GameState, ShipTypeDef } from './types';
 import { getWorld, type World } from './world';
 
 export interface BotChoice {
@@ -44,8 +47,10 @@ export function evaluateOptions(g: GameState, world: World = getWorld()): BotCho
 
 /** Play one leg with the greedy policy. Returns the new state. */
 export function botStep(g: GameState, world: World = getWorld()): GameState {
+  g = maybeRepay(g, 300_000, world);
+  g = maybeUpgrade(g, 100_000, 250, world);
   const type = shipType(g, world);
-  if (g.ship.condition < 50 && g.cash > 60_000) {
+  if (g.ship.condition < 50 && g.cash > 30 * type.repairCostPerPoint + 30_000) {
     g = repair(g, 80 - g.ship.condition, world);
   }
   let [best] = evaluateOptions(g, world);
@@ -84,8 +89,11 @@ export function botStep(g: GameState, world: World = getWorld()): GameState {
  * going the same way, tops up fuel wherever it is, never waits for offers.
  */
 export function casualStep(g: GameState, world: World = getWorld()): GameState {
+  g = maybeRepay(g, 200_000, world);
+  // A first-timer upgrades less shrewdly: accepts a much longer payback.
+  g = maybeUpgrade(g, 30_000, 500, world);
   const type = shipType(g, world);
-  if (g.ship.condition < 50 && g.cash > 60_000) g = repair(g, 80 - g.ship.condition, world);
+  if (g.ship.condition < 50 && g.cash > 30 * type.repairCostPerPoint + 30_000) g = repair(g, 80 - g.ship.condition, world);
   const here = g.ship.location;
   const options = g.ports[here].board.filter((c) => {
     const plan = planVoyage(g, c.dest, world);
@@ -111,4 +119,49 @@ export function casualStep(g: GameState, world: World = getWorld()): GameState {
   }
   if (g.ship.fuel < plan.fuelNeeded) return { ...g, gameOver: 'Stranded without fuel or money.' };
   return sail(g, dest, world);
+}
+
+// ---------------------------------------------------------------- ship buying
+
+/** Rough earning power of a ship: average best net $/day across every port's current offers. */
+export function earningPower(g: GameState, ship: Pick<GameState['ship'], 'typeId' | 'age' | 'condition'>, world: World = getWorld()): number {
+  let total = 0;
+  for (const p of world.portList) {
+    const trial: GameState = { ...g, ship: { ...g.ship, ...ship, location: p.id, cargo: [], fuel: 0 } };
+    const [best] = evaluateOptions(trial, world);
+    total += Math.max(0, best?.score ?? 0);
+  }
+  return total / world.portList.length;
+}
+
+/**
+ * Consider trading up. `reserve` is the cash the bot insists on keeping;
+ * `maxPayback` is how many days of extra earnings the price difference may take to recover.
+ */
+export const BOT_OPTIONS = { upgrade: true };
+
+/** Cash a ship needs on hand to operate: a full tank plus a month of upkeep. */
+export function runningCash(type: ShipTypeDef): number {
+  return type.bunkerCapacity * 420 + type.dailyCost * 30;
+}
+
+export function maybeUpgrade(g: GameState, reserve: number, maxPayback: number, world: World = getWorld()): GameState {
+  if (!BOT_OPTIONS.upgrade || g.ship.cargo.length > 0) return g;
+  const current = earningPower(g, g.ship, world);
+  let best: { id: number; gain: number } | null = null;
+  for (const offer of g.ports[g.ship.location].market) {
+    const q = quotePurchase(g, offer, world);
+    if (q.blocked || g.cash - q.fromCash < reserve + runningCash(q.type)) continue;
+    const gain = earningPower(g, offer, world) - current - q.loanAfter * SHIP_TUNING.loanDailyRate;
+    const cost = q.price - q.tradeIn;
+    if (gain <= 0 || cost / gain > maxPayback) continue;
+    if (!best || gain > best.gain) best = { id: offer.id, gain };
+  }
+  return best ? buyShip(g, best.id, world) : g;
+}
+
+/** Pay the loan down when there's comfortable cash. */
+export function maybeRepay(g: GameState, keep: number, world: World = getWorld()): GameState {
+  if (g.loan > 0 && g.cash > keep + 50_000) return repayLoan(g, g.cash - keep, world);
+  return g;
 }

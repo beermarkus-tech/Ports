@@ -1,16 +1,19 @@
 import './ui/style.css';
 import {
-  ActionError, RULES, acceptContract, buyFuel, canCarry, cargoTons, fuelPrice, newGame, planVoyage, portFee,
-  repair, repairQuote, sail, shipType, unloadContract, waitDay, type VoyagePlan,
+  ActionError, RULES, acceptContract, borrow, buyFuel, buyShip, canCarry, cargoTons, fuelPrice, newGame, nextMilestone,
+  planVoyage, portFee, repair, repairQuote, repayLoan, sail, shipType, unloadContract, waitDay, type VoyagePlan,
 } from './sim/game';
 import { clearSave, loadGame, saveGame } from './sim/save';
-import type { Contract, GameState } from './sim/types';
+import {
+  SHIP_TUNING, consumptionFactor, currentShipValue, effectiveSpeed, maxLoan, netWorth, quotePurchase, saleValue,
+} from './sim/ships';
+import type { Contract, GameState, ShipOffer, ShipTypeDef } from './sim/types';
 import { getWorld } from './sim/world';
 import { compactMoney, days, esc, gameDate, money, tons } from './ui/format';
 import { MapView, type PortMarker } from './ui/map';
 import { BUILD, initServiceWorker, reloadApp } from './ui/update';
 
-type Tab = 'contracts' | 'ship' | 'voyage' | 'log';
+type Tab = 'contracts' | 'voyage' | 'ship' | 'market' | 'log';
 
 const world = getWorld();
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
@@ -21,10 +24,12 @@ class App {
   private dest: string | null = null;
   private hoverDest: string | null = null;
   private busy = false;
+  private renderedTab: Tab | null = null;
   private map: MapView;
 
   constructor() {
     this.g = loadGame() ?? newGame();
+    saveGame(this.g);
     this.map = new MapView(
       $('#map'),
       world,
@@ -81,6 +86,28 @@ class App {
         break;
       }
       case 'repair': this.act((g) => repair(g, Number(data.points))); break;
+      case 'borrow': {
+        const amount = data.amount === 'max' ? Infinity : Number(data.amount);
+        this.act((g) => borrow(g, amount));
+        break;
+      }
+      case 'repay': {
+        const amount = data.amount === 'all' ? Infinity : Number(data.amount);
+        this.act((g) => repayLoan(g, amount));
+        break;
+      }
+      case 'buy-ship': {
+        const offer = this.g.ports[this.g.ship.location].market.find((o) => o.id === Number(data.id));
+        if (!offer) break;
+        const q = quotePurchase(this.g, offer, world);
+        const ok = confirm(`Sell the ${shipType(this.g).name} ${this.g.ship.name} for ${money(q.tradeIn)} and buy the ${
+          q.type.name} ${offer.name} for ${money(offer.price)}?${q.borrow > 0 ? `\n\nThe bank lends ${money(q.borrow)} at 8% a year.` : ''}`);
+        if (ok && this.act((g) => buyShip(g, offer.id))) {
+          this.toast(`Welcome aboard the ${offer.name}!`, 'good');
+          this.tab = 'ship';
+        }
+        break;
+      }
       case 'wait': this.act((g) => waitDay(g)); break;
       case 'dest': this.selectDest(data.id!); return;
       case 'sail': void this.sail(); return;
@@ -165,13 +192,17 @@ class App {
     const cash = $('#cash');
     cash.textContent = money(g.cash);
     cash.classList.toggle('negative', g.cash < 0);
-    const progress = Math.max(0, Math.min(1, g.cash / RULES.winCash));
+    const worth = netWorth(g, world);
+    const next = nextMilestone(g);
+    const prev = [...g.milestones].sort((a, b) => b.amount - a.amount)[0]?.amount ?? 0;
+    const progress = next ? Math.max(0, Math.min(1, (worth - prev) / (next - prev))) : 1;
     $('#goal-bar').style.width = `${progress * 100}%`;
     $('#goal-text').textContent = g.cash < 0
       ? `Overdraft · limit ${compactMoney(RULES.overdraftLimit)} · 18%/yr`
-      : g.wonAt !== undefined
-        ? `Goal reached on ${gameDate(g.wonAt)}`
-        : `Goal ${compactMoney(RULES.winCash)}`;
+      : next
+        ? `Worth ${compactMoney(worth)} → ${compactMoney(next)}`
+        : `Worth ${compactMoney(worth)} · all goals reached`;
+    $('#goal-text').title = 'Net worth: cash + ship value − loan';
   }
 
   private renderShipStrip(g: GameState): void {
@@ -180,7 +211,7 @@ class App {
     const where = this.busy ? 'At sea' : `In ${world.ports[g.ship.location].name}`;
     const cond = g.ship.condition;
     $('#ship-strip').innerHTML = `
-      <div class="ship-name"><strong>${esc(g.ship.name)}</strong><span>${esc(type.name)} · ${where}</span></div>
+      <div class="ship-name"><strong>${esc(g.ship.name)}</strong><span>${esc(type.name)} · ${Math.floor(g.ship.age)} yrs · ${where}</span></div>
       ${gauge('Fuel', g.ship.fuel / type.bunkerCapacity, `${Math.round(g.ship.fuel)} / ${type.bunkerCapacity} t`, 'fuel')}
       ${gauge('Hold', load / type.capacity, `${tons(load)} / ${tons(type.capacity)}`, 'hold')}
       ${gauge('Condition', cond / 100, `${Math.round(cond)}%`, cond < 45 ? 'cond bad' : cond < 65 ? 'cond warn' : 'cond')}
@@ -208,10 +239,12 @@ class App {
   }
 
   private renderPanel(g: GameState): void {
+    const loadable = g.ports[g.ship.location].board.filter((c) => canCarry(g, c) === null).length;
     const tabs: [Tab, string, string?][] = [
-      ['contracts', 'Contracts', String(g.ports[g.ship.location].board.length)],
-      ['ship', 'Ship'],
+      ['contracts', 'Cargo', String(loadable)],
       ['voyage', 'Voyage'],
+      ['ship', 'Ship'],
+      ['market', 'Market'],
       ['log', 'Log'],
     ];
     $('#tabs').innerHTML = tabs.map(([id, label, badge]) =>
@@ -220,7 +253,14 @@ class App {
     const body = $('#panel-body');
     body.innerHTML = this.busy
       ? `<div class="at-sea"><div class="wave">〰〰〰</div><p>Under way…</p></div>`
-      : { contracts: () => this.contractsTab(g), ship: () => this.shipTab(g), voyage: () => this.voyageTab(g), log: () => this.logTab(g) }[this.tab]();
+      : {
+        contracts: () => this.contractsTab(g), voyage: () => this.voyageTab(g), ship: () => this.shipTab(g),
+        market: () => this.marketTab(g), log: () => this.logTab(g),
+      }[this.tab]();
+    if (this.renderedTab !== this.tab) {
+      body.scrollTop = 0;
+      this.renderedTab = this.tab;
+    }
   }
 
   private contractRow(g: GameState, c: Contract, mode: 'board' | 'hold'): string {
@@ -230,7 +270,7 @@ class App {
     const why = mode === 'board' ? canCarry(g, c) : null;
     const plan = planVoyage(g, c.dest);
     const reach = plan && !plan.inRange ? '<span class="tag warn">needs refuel stop</span>' : '';
-    const urgent = daysLeft < (nm / (shipType(g).speedKn * 24)) + 1.5;
+    const urgent = daysLeft < (nm / (effectiveSpeed(shipType(g), g.ship) * 24)) + 1.5;
     const button = mode === 'board'
       ? `<button class="btn small" data-action="accept" data-id="${c.id}" ${why ? 'disabled' : ''} title="${esc(why ?? 'Load this cargo')}">Load</button>`
       : c.origin === g.ship.location
@@ -252,7 +292,9 @@ class App {
 
   private contractsTab(g: GameState): string {
     const port = world.ports[g.ship.location];
-    const board = [...g.ports[port.id].board].sort((a, b) => b.pay - a.pay);
+    // Cargo this ship can take first, then the rest; each group by pay.
+    const board = [...g.ports[port.id].board].sort((a, b) =>
+      Number(canCarry(g, a) !== null) - Number(canCarry(g, b) !== null) || b.pay - a.pay);
     const type = shipType(g);
     const free = type.capacity - cargoTons(g);
     return `
@@ -292,7 +334,13 @@ class App {
     const plan = this.dest ? planVoyage(g, this.dest) : null;
     const q10 = repairQuote(g, 10);
     const qFull = repairQuote(g, 100);
-    const range = Math.round((g.ship.fuel / (type.fuelPerDay * (1 + (100 - g.ship.condition) / 250))) * type.speedKn * 24);
+    const speed = effectiveSpeed(type, g.ship);
+    const burn = type.fuelPerDay * consumptionFactor(g.ship);
+    const range = Math.round((g.ship.fuel / burn) * speed * 24);
+    const value = currentShipValue(g, world);
+    const limit = maxLoan(g, world);
+    const room = Math.max(0, limit - g.loan);
+    const yearly = Math.round(g.loan * SHIP_TUNING.loanDailyRate * 365);
     const fuelBtn = (amount: number | 'fill', label: string) => {
       const n = amount === 'fill' ? space : Math.min(amount, space);
       return `<button class="btn small" data-action="fuel" data-amount="${amount}" ${n <= 0 ? 'disabled' : ''}>${label}<span>${money(n * price)}</span></button>`;
@@ -302,7 +350,7 @@ class App {
         <h3>Bunkers</h3>
         <div class="kv"><span>Price here</span><strong>${money(price)}/t</strong><em>${rank === 1 ? 'cheapest in the world' : `#${rank} of ${cheapest.length}`}</em></div>
         <div class="kv"><span>Aboard</span><strong>${Math.round(g.ship.fuel)} / ${type.bunkerCapacity} t</strong><em>range ≈ ${range.toLocaleString('en-US')} nm</em></div>
-        <div class="kv"><span>Burn</span><strong>${type.fuelPerDay} t/day</strong><em>at ${type.speedKn} kn, more when worn</em></div>
+        <div class="kv"><span>Burn</span><strong>${burn.toFixed(1)} t/day</strong><em>at ${speed.toFixed(1)} kn, more when worn or old</em></div>
         <div class="btn-row">${fuelBtn(25, '+25 t')}${fuelBtn(50, '+50 t')}${fuelBtn(100, '+100 t')}${fuelBtn('fill', 'Fill up')}</div>
         ${plan && plan.inRange ? `<button class="btn wide" data-action="fuel-for-leg" ${g.ship.fuel >= Math.ceil(plan.fuelNeeded * 1.15) ? 'disabled' : ''}>Top up for ${esc(world.ports[plan.dest].name)} (+15% reserve)</button>` : ''}
         <p class="hint">Cheapest bunkers right now: ${cheapest.slice(0, 3).map((x) => `${esc(x.p.name)} ${money(x.price)}`).join(' · ')}</p>
@@ -317,11 +365,93 @@ class App {
         <p class="hint">Time in dock also costs ${money(type.dailyCost)}/day upkeep.</p>
       </section>
       <section class="card">
-        <h3>Specifications</h3>
+        <h3>Bank</h3>
+        <div class="kv"><span>Loan</span><strong>${money(g.loan)}</strong><em>${g.loan ? `8% a year ≈ ${money(yearly)}/yr` : 'no loan'}</em></div>
+        <div class="kv"><span>Limit</span><strong>${money(limit)}</strong><em>${Math.round(SHIP_TUNING.loanToValue * 100)}% of your ship's value</em></div>
+        <div class="btn-row">
+          <button class="btn small" data-action="borrow" data-amount="100000" ${room >= 1000 ? '' : 'disabled'}>Borrow<span>${money(Math.min(100_000, room))}</span></button>
+          <button class="btn small" data-action="borrow" data-amount="max" ${room >= 1000 ? '' : 'disabled'}>Borrow max<span>${money(room)}</span></button>
+          <button class="btn small" data-action="repay" data-amount="100000" ${g.loan > 0 && g.cash > 0 ? '' : 'disabled'}>Repay<span>${money(Math.min(100_000, g.loan, Math.max(0, g.cash)))}</span></button>
+          <button class="btn small" data-action="repay" data-amount="all" ${g.loan > 0 && g.cash > 0 ? '' : 'disabled'}>Repay all<span>${money(Math.min(g.loan, Math.max(0, g.cash)))}</span></button>
+        </div>
+        <p class="hint">Separately, the bank covers an overdraft of up to ${money(RULES.overdraftLimit)} at 18% a year.</p>
+      </section>
+      <section class="card">
+        <h3>The ${esc(g.ship.name)}</h3>
+        <div class="kv"><span>Class</span><strong>${esc(type.name)}</strong><em>${Math.floor(g.ship.age)} years old</em></div>
         <div class="kv"><span>Capacity</span><strong>${tons(type.capacity)}</strong><em>${type.cargoClasses.join(' & ')} cargo</em></div>
-        <div class="kv"><span>Speed</span><strong>${type.speedKn} kn</strong><em>${Math.round(type.speedKn * 24)} nm/day</em></div>
+        <div class="kv"><span>Speed</span><strong>${speed.toFixed(1)} kn</strong><em>${Math.round(speed * 24)} nm/day</em></div>
         <div class="kv"><span>Upkeep</span><strong>${money(type.dailyCost)}/day</strong><em>crew, insurance, stores</em></div>
+        <div class="kv"><span>Value</span><strong>${money(value)}</strong><em>a broker pays ${money(saleValue(g, world))}</em></div>
+        <button class="btn ghost wide" data-action="tab" data-tab="market">Look at ships for sale</button>
       </section>`;
+  }
+
+  private marketTab(g: GameState): string {
+    const port = world.ports[g.ship.location];
+    const offers = g.ports[port.id].market;
+    const yards = world.portList.filter((p) => p.shipyard).map((p) => p.name).join(', ');
+    return `
+      <header class="port-head">
+        <div><h2>Ships for sale</h2><span class="sub">${esc(port.name)} · ${port.shipyard ? 'shipyard: new ships of every class' : 'second-hand market'}</span></div>
+      </header>
+      <p class="hint">Your ${esc(shipType(g).name)} would fetch <strong>${money(saleValue(g, world))}</strong> as a trade-in.
+        ${port.shipyard ? '' : `New ships are built in ${esc(yards)}.`} Each port's market changes after every voyage.</p>
+      ${g.ship.cargo.length ? '<p class="hint warn-text">Deliver or unload your cargo before swapping ships.</p>' : ''}
+      <ul class="offers">${offers.map((o) => this.offerCard(g, o)).join('')}</ul>`;
+  }
+
+  private offerCard(g: GameState, offer: ShipOffer): string {
+    const cur = shipType(g);
+    const type = world.shipTypes[offer.typeId];
+    const q = quotePurchase(g, offer, world);
+    const spec = (t: ShipTypeDef, ship: { age: number; condition: number }) => {
+      const speed = effectiveSpeed(t, ship);
+      const burn = t.fuelPerDay * consumptionFactor(ship);
+      return { cap: t.capacity, speed, burn, upkeep: t.dailyCost, range: (t.bunkerCapacity / burn) * speed * 24 };
+    };
+    const a = spec(cur, g.ship);
+    const b = spec(type, offer);
+    const cmp = (label: string, val: string, better: boolean | null) =>
+      `<div><span>${label}</span><strong class="${better === null ? '' : better ? 'up' : 'down'}">${val}</strong></div>`;
+    const same = (x: number, y: number) => Math.abs(x - y) / Math.max(1, Math.abs(y)) < 0.02;
+    const afterCash = g.cash - q.fromCash;
+    const running = Math.round(type.bunkerCapacity * fuelPrice(g, g.ship.location) + type.dailyCost * 30);
+    const tight = !q.blocked && afterCash < running;
+    const line = (label: string, v: number, cls = '') => `<div class="line ${cls}"><span>${label}</span><span>${money(v, true)}</span></div>`;
+    return `
+      <li class="offer">
+        <div class="o-head">
+          <div><strong>${esc(type.name)}</strong> <span class="sub">${esc(offer.name)}</span></div>
+          <div class="o-price">${compactMoney(offer.price)}</div>
+        </div>
+        <div class="o-tags">
+          <span class="tag ${offer.age === 0 ? 'good' : ''}">${offer.age === 0 ? 'New' : `${offer.age} years old`}</span>
+          <span class="tag ${offer.condition < 50 ? 'warn' : ''}">condition ${offer.condition}%</span>
+          <span class="tag">${type.cargoClasses.join(' & ')}</span>
+        </div>
+        <p class="o-desc">${esc(type.description)}</p>
+        <div class="o-stats">
+          ${cmp('Hold', b.cap >= 10_000 ? `${b.cap / 1000}k t` : tons(b.cap), same(b.cap, a.cap) ? null : b.cap > a.cap)}
+          ${cmp('Speed', `${b.speed.toFixed(1)} kn`, same(b.speed, a.speed) ? null : b.speed > a.speed)}
+          ${cmp('Burn', `${b.burn.toFixed(0)} t/day`, same(b.burn, a.burn) ? null : b.burn < a.burn)}
+          ${cmp('Upkeep', `$${(b.upkeep / 1000).toFixed(1)}k/d`, same(b.upkeep, a.upkeep) ? null : b.upkeep < a.upkeep)}
+          ${cmp('Range', `${(b.range / 1000).toFixed(1)}k nm`, same(b.range, a.range) ? null : b.range > a.range)}
+        </div>
+        <details class="o-deal">
+          <summary>${q.blocked ? 'Can’t buy yet' : q.borrow > 0 ? `Buy with a ${compactMoney(q.borrow)} loan` : 'Buy outright'} · details</summary>
+          <div class="ledger">
+            ${line('Price', -offer.price)}
+            ${line(`Trade-in of the ${g.ship.name}`, q.tradeIn, 'good')}
+            ${q.borrow > 0 ? line('New bank loan', q.borrow) : ''}
+            <div class="line total"><span>Cash after the deal</span><span>${money(afterCash)}</span></div>
+            <div class="line per-day"><span>Loan after the deal</span><span>${money(q.loanAfter)} of ${money(q.loanLimit)} limit</span></div>
+          </div>
+        </details>
+        ${q.blocked ? `<p class="o-warn bad">${esc(q.blocked)}</p>` : ''}
+        ${tight ? `<p class="o-warn">You'd keep ${money(afterCash)}, but a full tank and a month's upkeep for this ship cost about ${money(running)}. You may be stuck in port.</p>` : ''}
+        <button class="btn ${tight ? '' : 'primary'} wide" data-action="buy-ship" data-id="${offer.id}" ${q.blocked ? 'disabled' : ''}>Buy the ${esc(offer.name)}</button>
+      </li>`;
   }
 
   private voyageTab(g: GameState): string {
@@ -407,6 +537,8 @@ class App {
         <div><strong>${compactMoney(s.revenue)}</strong><span>revenue</span></div>
         <div><strong>${compactMoney(s.fuelSpent)}</strong><span>fuel bought</span></div>
         <div><strong>${tons(s.delivered)}</strong><span>delivered</span></div>
+        <div><strong>${compactMoney(s.interestPaid)}</strong><span>interest paid</span></div>
+        <div><strong>${s.shipsOwned}</strong><span>ships owned</span></div>
       </div>
       <ul class="log">${g.log.map((e) => `
         <li><span class="l-day">${gameDate(e.day)}</span><span class="l-text">${esc(e.text)}</span>

@@ -4,6 +4,10 @@
 
 import { churnBoard, latePayFactor, regenerateBoard } from './contracts';
 import { rand, randNormal, randRange } from './rng';
+import {
+  SHIP_TUNING, breakdownAgeFactor, consumptionFactor, effectiveSpeed, maxLoan, netWorth, quotePurchase,
+  regenerateMarket, saleValue,
+} from './ships';
 import type { Contract, Delivery, GameState, ShipTypeDef, VoyageEvent, VoyageReport } from './types';
 import { getWorld, type Route, type World } from './world';
 
@@ -12,7 +16,9 @@ export const RULES = {
   startPort: 'rotterdam',
   startFuel: 120,
   startCondition: 72,
-  winCash: 1_000_000,
+  startAge: 24,
+  /** Net-worth milestones (cash + ship value − loan). */
+  milestones: [1_000_000, 5_000_000, 25_000_000, 100_000_000],
   /** Days spent in port for cargo handling on each arrival. */
   portDays: 1,
   wearPerDay: 0.3,
@@ -50,11 +56,6 @@ export function cargoTons(g: GameState): number {
   return g.ship.cargo.reduce((s, c) => s + c.tons, 0);
 }
 
-/** Wear makes old engines thirsty: up to +40% consumption at condition 0. */
-function consumptionFactor(condition: number): number {
-  return 1 + (100 - condition) / 250;
-}
-
 function log(g: GameState, text: string, amount?: number): void {
   g.log.unshift({ day: g.day, text, amount });
   if (g.log.length > RULES.logLimit) g.log.length = RULES.logLimit;
@@ -84,58 +85,75 @@ function checkEnd(g: GameState, world: World): void {
     g.gameOver = 'Stranded: there is not enough fuel or credit left to reach any port.';
     log(g, g.gameOver);
   }
-  if (g.cash >= RULES.winCash && g.wonAt === undefined) {
-    g.wonAt = g.day;
-    log(g, `Milestone: $${RULES.winCash.toLocaleString('en-US')} in the bank!`);
+  const worth = netWorth(g, world);
+  for (const m of RULES.milestones) {
+    if (worth >= m && !g.milestones.some((x) => x.amount === m)) {
+      g.milestones.push({ amount: m, day: g.day });
+      log(g, `Milestone: your company is worth $${m.toLocaleString('en-US')}!`);
+    }
   }
 }
 
+/** The next net-worth milestone not yet reached, if any. */
+export function nextMilestone(g: GameState): number | null {
+  return RULES.milestones.find((m) => !g.milestones.some((x) => x.amount === m)) ?? null;
+}
+
 /**
- * Advance the world clock by `days`, applying daily price drift (and overdraft
- * interest) at each day boundary. Returns the interest charged.
+ * Advance the world clock by `days`, applying daily price drift, loan and
+ * overdraft interest at each day boundary, and ageing the ship. Returns the
+ * interest charged.
  */
 function advanceClock(world: World, g: GameState, days: number): number {
   const end = g.day + days;
   const { reversion, volatility, limit } = RULES.fuelDrift;
   let interest = 0;
   for (let d = Math.floor(g.day) + 1; d <= end; d++) {
-    if (g.cash < 0) {
-      const i = Math.round(-g.cash * RULES.overdraftDailyRate);
-      g.cash -= i;
-      interest += i;
-    }
+    let i = 0;
+    if (g.cash < 0) i += Math.round(-g.cash * RULES.overdraftDailyRate);
+    if (g.loan > 0) i += Math.round(g.loan * SHIP_TUNING.loanDailyRate);
+    g.cash -= i;
+    interest += i;
     for (const p of world.portList) {
       const ps = g.ports[p.id];
       ps.fuelDev = Math.max(-limit, Math.min(limit, ps.fuelDev * reversion + randNormal(g) * volatility));
     }
   }
   g.day = end;
+  g.ship.age += days / 365;
+  g.stats.interestPaid += interest;
   return interest;
 }
 
 export function newGame(seed: number = Date.now() % 2 ** 31, world: World = getWorld()): GameState {
   const g: GameState = {
-    version: 1,
+    version: 2,
     rng: seed | 0,
     day: 0,
     cash: RULES.startCash,
+    loan: 0,
     ship: {
       name: 'Tilly',
       typeId: 'coaster',
       location: RULES.startPort,
       fuel: RULES.startFuel,
       condition: RULES.startCondition,
+      age: RULES.startAge,
       cargo: [],
     },
     ports: {},
     nextId: 1,
     log: [],
-    stats: { voyages: 0, revenue: 0, fuelSpent: 0, delivered: 0 },
+    stats: { voyages: 0, revenue: 0, fuelSpent: 0, delivered: 0, interestPaid: 0, shipsOwned: 1 },
+    milestones: [],
   };
   for (const p of world.portList) {
-    g.ports[p.id] = { fuelDev: randRange(g, -0.12, 0.12), board: [] };
+    g.ports[p.id] = { fuelDev: randRange(g, -0.12, 0.12), board: [], market: [] };
   }
-  for (const p of world.portList) regenerateBoard(world, g, p.id);
+  for (const p of world.portList) {
+    regenerateBoard(world, g, p.id);
+    regenerateMarket(world, g, p.id);
+  }
   log(g, `You take command of the ${g.ship.name}, a tired old coaster, in ${world.ports[RULES.startPort].name}.`);
   return g;
 }
@@ -252,8 +270,8 @@ export function planVoyage(g: GameState, dest: string, world: World = getWorld()
   const route = world.route(g.ship.location, dest);
   if (!route) return null;
   const type = shipType(g, world);
-  const seaDays = route.nm / (type.speedKn * 24);
-  const fuelNeeded = Math.ceil(seaDays * type.fuelPerDay * consumptionFactor(g.ship.condition));
+  const seaDays = route.nm / (effectiveSpeed(type, g.ship) * 24);
+  const fuelNeeded = Math.ceil(seaDays * type.fuelPerDay * consumptionFactor(g.ship));
   const arrive = g.day + seaDays + RULES.portDays;
   const deliveries = g.ship.cargo
     .filter((c) => c.dest === dest)
@@ -282,8 +300,8 @@ export function planVoyage(g: GameState, dest: string, world: World = getWorld()
   };
 }
 
-function breakdownChance(condition: number): number {
-  return RULES.breakdownBase + RULES.breakdownPerMissingPoint * (100 - condition);
+function breakdownChance(g: GameState): number {
+  return (RULES.breakdownBase + RULES.breakdownPerMissingPoint * (100 - g.ship.condition)) * breakdownAgeFactor(g.ship);
 }
 
 /**
@@ -312,10 +330,11 @@ export function sail(state: GameState, dest: string, world: World = getWorld()):
   let interest = 0;
   const startCondition = g.ship.condition;
   const dayLabel = () => Math.floor(g.day - departDay) + 1;
+  const speed = effectiveSpeed(type, g.ship);
 
   while (remaining > 0.01) {
     const storm = rand(g) < RULES.stormChancePerDay;
-    const breakdown = rand(g) < breakdownChance(g.ship.condition);
+    const breakdown = rand(g) < breakdownChance(g);
 
     if (breakdown) {
       const delay = Math.round(randRange(g, 0.5, 2) * 10) / 10;
@@ -331,9 +350,9 @@ export function sail(state: GameState, dest: string, world: World = getWorld()):
     }
 
     const speedFactor = storm ? randRange(g, 0.45, 0.7) : 1;
-    const dayDistance = type.speedKn * 24 * speedFactor;
+    const dayDistance = speed * 24 * speedFactor;
     const frac = Math.min(1, remaining / dayDistance);
-    const burn = type.fuelPerDay * (storm ? 1.25 : 1) * consumptionFactor(g.ship.condition) * frac;
+    const burn = type.fuelPerDay * (storm ? 1.25 : 1) * consumptionFactor(g.ship) * frac;
 
     if (storm) {
       const damage = randRange(g, 1, 3);
@@ -344,8 +363,8 @@ export function sail(state: GameState, dest: string, world: World = getWorld()):
 
     if (g.ship.fuel < burn) {
       // Ran dry: call a bunker tender at a steep markup.
-      const remainingDays = remaining / (type.speedKn * 24);
-      const tons = Math.ceil(remainingDays * type.fuelPerDay * consumptionFactor(g.ship.condition) * 1.15 + burn);
+      const remainingDays = remaining / (speed * 24);
+      const tons = Math.ceil(remainingDays * type.fuelPerDay * consumptionFactor(g.ship) * 1.15 + burn);
       const price = Math.round(fuelPrice(g, dest, world) * RULES.emergencyFuelMarkup);
       const cost = tons * price;
       const delay = 1.5;
@@ -395,8 +414,11 @@ export function sail(state: GameState, dest: string, world: World = getWorld()):
   };
   g.lastVoyage = report;
 
-  // Every other port's board has drifted on while we were at sea.
-  for (const p of world.portList) regenerateBoard(world, g, p.id);
+  // Every port's board and ship market has moved on while we were at sea.
+  for (const p of world.portList) {
+    regenerateBoard(world, g, p.id);
+    regenerateMarket(world, g, p.id);
+  }
 
   const portName = world.ports[dest].name;
   for (const e of events) log(g, e.text, e.cost ? -e.cost : undefined);
@@ -408,3 +430,58 @@ export function sail(state: GameState, dest: string, world: World = getWorld()):
   checkEnd(g, world);
   return g;
 }
+
+// ---------------------------------------------------------------- bank & shipyard
+
+export function borrow(state: GameState, amount: number, world: World = getWorld()): GameState {
+  const g = clone(state);
+  const room = maxLoan(g, world) - g.loan;
+  const amt = Math.floor(Math.min(amount, room) / 1000) * 1000;
+  if (amt <= 0) throw new ActionError('The bank won\'t lend more against this ship.');
+  g.loan += amt;
+  g.cash += amt;
+  log(g, `Borrowed $${amt.toLocaleString('en-US')} from the bank.`, amt);
+  return g;
+}
+
+export function repayLoan(state: GameState, amount: number, world: World = getWorld()): GameState {
+  void world;
+  const g = clone(state);
+  const amt = Math.floor(Math.min(amount, g.loan, Math.max(0, g.cash)));
+  if (amt <= 0) throw new ActionError(g.loan <= 0 ? 'You have no loan.' : 'Not enough cash to repay.');
+  g.loan -= amt;
+  g.cash -= amt;
+  log(g, `Repaid $${amt.toLocaleString('en-US')} of the loan.`, -amt);
+  return g;
+}
+
+/** Swap the current ship for one from this port's market (the old ship is sold to a broker). */
+export function buyShip(state: GameState, offerId: number, world: World = getWorld()): GameState {
+  const g = clone(state);
+  const market = g.ports[g.ship.location].market;
+  const idx = market.findIndex((o) => o.id === offerId);
+  if (idx < 0) throw new ActionError('That ship has already been sold.');
+  const q = quotePurchase(g, market[idx], world);
+  if (q.blocked) throw new ActionError(q.blocked);
+  const oldName = g.ship.name;
+  const oldType = shipType(g, world).name;
+  const [offer] = market.splice(idx, 1);
+  g.cash -= q.fromCash;
+  g.loan = q.loanAfter;
+  // Bunkers go with the ship; any fuel that doesn't fit is sold back at 80% of the local price.
+  const fuel = Math.min(g.ship.fuel, q.type.bunkerCapacity);
+  const refund = Math.round((g.ship.fuel - fuel) * fuelPrice(g, g.ship.location, world) * 0.8);
+  g.cash += refund;
+  g.ship = {
+    name: offer.name, typeId: offer.typeId, location: g.ship.location, fuel,
+    condition: offer.condition, age: offer.age, cargo: [],
+  };
+  g.stats.shipsOwned++;
+  log(g, `Sold the ${oldType} ${oldName} for $${q.tradeIn.toLocaleString('en-US')}.`, q.tradeIn);
+  log(g, `Bought the ${q.type.name} ${offer.name} (${offer.age === 0 ? 'new' : `${offer.age} years old`}) for $${offer.price.toLocaleString('en-US')}${
+    q.borrow > 0 ? `, borrowing $${q.borrow.toLocaleString('en-US')}` : ''}.`, -offer.price);
+  checkEnd(g, world);
+  return g;
+}
+
+export { saleValue };

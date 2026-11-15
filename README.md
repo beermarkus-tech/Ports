@@ -4,9 +4,10 @@ A calm, strategic shipping-company game built as a PWA. Start with one tired
 old coaster and $150,000, carry cargo between ten world ports, and grow from
 there. The full design is in [docs/design.md](docs/design.md).
 
-**Status: Phase 1 (numbers prototype).** One ship, ten ports, cargo contracts,
-bunker fuel, wear and repairs, storms and breakdowns, an animated world map, and
-autosave.
+**Status: Phase 2 (ships and market).** Six ship classes, a second-hand market
+in every port and new ships at three shipyards, bank loans, and age effects, on
+top of Phase 1: ten ports, cargo contracts, bunker fuel, wear and repairs,
+storms and breakdowns, an animated world map, and autosave.
 
 ## Running it
 
@@ -58,6 +59,25 @@ close the app. The game saves after every action, so reloading is always safe.
 5. Late deliveries lose 15% of their pay for each day late. The bank allows an
    overdraft of up to −$50,000 (about 18% a year interest) for fuel and repairs.
    Past that limit, or with no way to reach any port, the game is over.
+6. **Market:** trade your ship in for a better one. Every port has a few used
+   ships; Rotterdam, Shanghai and Singapore also build new ones. The bank lends
+   up to 60% of a ship's value at 8% a year. Keep cash for fuel: a bigger ship's
+   full tank costs far more.
+7. Goals are net-worth milestones (cash + ship value − loan): $1M, $5M, $25M, $100M.
+
+### Ship classes
+
+| Class          | Hold     | Speed | Carries          | New price |
+|----------------|----------|-------|------------------|-----------|
+| Coaster        | 3,000 t  | 10 kn | bulk, general    | $1.5M     |
+| General cargo  | 8,000 t  | 13 kn | bulk, general    | $4.5M     |
+| Reefer         | 5,000 t  | 17 kn | reefer, general  | $7.5M     |
+| Bulk carrier   | 25,000 t | 14 kn | bulk             | $9M       |
+| Product tanker | 30,000 t | 14 kn | liquid           | $10M      |
+| Container ship | 15,000 t | 20 kn | general, reefer  | $15M      |
+
+Stats are for a typical 15-year-old ship. Newer ships are a little faster, more
+economical and more reliable; older ones are worse. Values drop about 7% a year.
 
 ## Code layout
 
@@ -67,10 +87,11 @@ src/sim/         Pure simulation, no DOM (deterministic: seeded RNG stored in th
   world.ts       Loads data; shortest sea routes over the lane graph (Dijkstra)
   contracts.ts   Contract generation and pay formula (CONTRACT_TUNING)
   game.ts        Player actions and voyage resolution (RULES); every action returns a new state
-  bot.ts         Greedy captain used for balancing (and a seed for automation later)
-  save.ts        localStorage save/load
+  ships.ts       Ship value, age effects, the ship market, purchase quotes, loans (SHIP_TUNING)
+  bot.ts         Greedy and casual captains used for balancing (and a seed for automation later)
+  save.ts        localStorage save/load, with upgrades for older saves
 src/ui/          Rendering: d3-geo world map, panels, styles
-scripts/         balance.ts
+scripts/         balance.ts, compare.sh, progression.ts, ships.ts
 tests/           vitest
 ```
 
@@ -86,14 +107,19 @@ Suez closing and the route going round the Cape).
 - Fuel prices, port fees, and what each port produces and demands are in `src/data/ports.json`.
 - Storms, breakdowns, wear and the start conditions are in `RULES` in `src/sim/game.ts`.
 
-Run `scripts/compare.sh` after changes. It plays 300 games with two bots: a
-**greedy** one (best net $/day every time) and a **casual** one (picks a
-juicy-looking contract, never waits for offers), which is closer to a person
-playing for the first time. Current results after 10 legs, from $150k:
+Balance scripts use two bots: a **greedy** one (best net $/day every time) and a
+**casual** one (picks a juicy-looking contract, never waits for offers, upgrades
+less shrewdly), which is closer to a person playing for the first time.
 
-| Bot    | p10   | median | p90    | bankrupt |
-|--------|-------|--------|--------|----------|
-| greedy | $680k | $970k  | $1.26M | 0%       |
-| casual | $245k | $610k  | $940k  | ~3%      |
+- `scripts/compare.sh`: 10 legs × 300 games, early-game cash and bankruptcies.
+- `npx tsx scripts/progression.ts 80 60 casual`: net worth over a long game, when the first upgrade happens, which ships bots end up with.
+- `npx tsx scripts/ships.ts`: each ship class's earning power against its price.
+
+Current results (net worth, starting at about $380k including the old coaster):
+
+| Bot    | after 10 legs | after 40 legs | after 80 legs | bankrupt (80 legs) |
+|--------|---------------|---------------|---------------|--------------------|
+| greedy | $1.1M         | $7.0M         | $15.8M        | 0%                 |
+| casual | $0.8M         | $2.8M         | $5.8M         | ~8%                |
 
 The aim is for casual play to make steady money and good play to make a lot more.
