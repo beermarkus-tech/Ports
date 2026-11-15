@@ -11,8 +11,8 @@ events), Phase 2 (twelve ship classes, ship market, loans, ageing) and
 Phase 1 (ten ports, contracts, fuel, wear and repairs, storms, map, autosave).
 Graphics pass 1: ship art per family, a living map (night side, waves, coastal
 glow, clouds, storm cells, wakes), cash and payment effects, synthesised sound
-effects with a mute button. The world has 26 ports and 28 goods (rice, sugar,
-bauxite, rubber, cotton, wool, tea, palm oil and fish among them). Next: automation.
+effects with a mute button. The world has 26 ports and 29 goods (rice, sugar,
+bauxite, rubber, cotton, wool, tea, palm oil, fish and dairy among them). Next: automation.
 
 ## Running it
 
@@ -103,6 +103,11 @@ The main ladder carries bulk and general cargo; specialists sit beside it.
 | Crude tanker        | 40,000 t | 14 kn | liquid           | $12M      |
 | Container feeder    | 6,000 t  | 17 kn | general, reefer  | $7.0M     |
 | Container ship      | 15,000 t | 20 kn | general, reefer  | $13M      |
+
+Chilled (reefer) cargo — fruit, meat, fish, dairy — pays about 40% more than
+ordinary freight, which is what earns back a reefer's higher price. Most of it
+flows from the southern hemisphere north, so reefers take general cargo on the
+way back. `scripts/reefer-trade.py` records that data change.
 
 Prices are set so a new ship pays for itself in roughly 280 days (coaster) to
 600 days (container ship) of typical trading (`npx tsx scripts/ships.ts`).

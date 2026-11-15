@@ -721,6 +721,24 @@ class App {
       </li>`;
   }
 
+  /** A reefer in a port with no chilled cargo: say where to find some. */
+  private chilledHint(ship: ShipState, portId: string): string {
+    if (!typeOf(ship).cargoClasses.includes('reefer')) return '';
+    const chilled = (good: string) => world.goods[good].cargoClass === 'reefer';
+    if (this.g.ports[portId].board.some((c) => chilled(c.good))) return '';
+    const sources = world.portList
+      .filter((p) => p.id !== portId && p.produces.some((x) => chilled(x.good)))
+      .map((p) => ({ p, nm: world.route(portId, p.id)?.nm ?? Infinity }))
+      .sort((a, b) => a.nm - b.nm)
+      .slice(0, 4)
+      .map(({ p }) => {
+        const goods = p.produces.filter((x) => chilled(x.good)).map((x) => world.goods[x.good].name.toLowerCase());
+        return `<strong>${esc(p.name)}</strong> (${goods.join(', ')})`;
+      });
+    return `<p class="hint">No chilled cargo on offer here. Nearest ports that ship it: ${sources.join(', ')}.
+      Until then, the ${esc(ship.name)} can take general cargo.</p>`;
+  }
+
   private contractsTab(): string {
     const g = this.g;
     const ship = this.ship();
@@ -741,6 +759,7 @@ class App {
       ${this.waitControls()}
       <p class="hint">Free hold space: <strong>${tons(free)}</strong>. New offers appear as days pass. Hover a contract to see its route.</p>
       ${this.priceHints(port.id)}
+      ${this.chilledHint(ship, port.id)}
       ${board.length > 1 ? sortPick : ''}
       ${board.length ? `<ul class="contracts">${board.map((c) => this.contractRow(c, 'board')).join('')}</ul>`
         : '<p class="empty">No cargo on offer right now. Let some time pass, or sail on.</p>'}
