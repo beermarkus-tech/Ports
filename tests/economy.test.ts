@@ -21,8 +21,11 @@ describe('market prices', () => {
     expect(drop).toBeGreaterThan(0.1);
     const low = priceLevel(g, 'rotterdam', 'cocoa');
     expect(low).toBeLessThan(0.9);
-    let later = g;
-    later = advance(later, 60);
+    // Switch off random world events so a boom can't push the price up meanwhile.
+    const every = ECONOMY.eventEveryDays;
+    ECONOMY.eventEveryDays = Infinity;
+    const later = advance(g, 60);
+    ECONOMY.eventEveryDays = every;
     const recovered = priceLevel(later, 'rotterdam', 'cocoa');
     expect(recovered).toBeGreaterThan(low);
     expect(recovered).toBeLessThan(1);

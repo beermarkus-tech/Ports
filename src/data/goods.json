@@ -17,5 +17,14 @@
   {"id": "fuelproducts", "name": "Fuel products", "cargoClass": "liquid", "freightRate": 4.5, "lotMin": 4000, "lotMax": 20000},
   {"id": "chemicals", "name": "Chemicals", "cargoClass": "liquid", "freightRate": 7, "lotMin": 1500, "lotMax": 9000},
   {"id": "fruit", "name": "Fruit", "cargoClass": "reefer", "freightRate": 10, "lotMin": 500, "lotMax": 3500, "bigLotMax": 6000},
-  {"id": "meat", "name": "Meat", "cargoClass": "reefer", "freightRate": 12, "lotMin": 400, "lotMax": 3000, "bigLotMax": 5000}
+  {"id": "meat", "name": "Meat", "cargoClass": "reefer", "freightRate": 12, "lotMin": 400, "lotMax": 3000, "bigLotMax": 5000},
+  {"id": "rice", "name": "Rice", "cargoClass": "bulk", "freightRate": 5.5, "lotMin": 1000, "lotMax": 5000, "bigLotMax": 25000},
+  {"id": "sugar", "name": "Sugar", "cargoClass": "bulk", "freightRate": 5, "lotMin": 1500, "lotMax": 5000, "bigLotMax": 30000},
+  {"id": "bauxite", "name": "Bauxite", "cargoClass": "bulk", "freightRate": 3.5, "lotMin": 1500, "lotMax": 5000, "bigLotMax": 45000},
+  {"id": "rubber", "name": "Rubber", "cargoClass": "general", "freightRate": 11, "lotMin": 200, "lotMax": 1500, "bigLotMax": 3000},
+  {"id": "cotton", "name": "Cotton", "cargoClass": "general", "freightRate": 9, "lotMin": 300, "lotMax": 2000, "bigLotMax": 4000},
+  {"id": "wool", "name": "Wool", "cargoClass": "general", "freightRate": 12, "lotMin": 200, "lotMax": 1500, "bigLotMax": 3000},
+  {"id": "tea", "name": "Tea", "cargoClass": "general", "freightRate": 15, "lotMin": 100, "lotMax": 800, "bigLotMax": 2000},
+  {"id": "palmoil", "name": "Palm oil", "cargoClass": "liquid", "freightRate": 6, "lotMin": 2000, "lotMax": 12000, "bigLotMax": 25000},
+  {"id": "fish", "name": "Fish", "cargoClass": "reefer", "freightRate": 13, "lotMin": 300, "lotMax": 2500, "bigLotMax": 4000}
 ]

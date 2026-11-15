@@ -26,6 +26,8 @@ export interface PortDef {
   portFee: number;
   /** Ports with a shipyard sell new ships. */
   shipyard?: boolean;
+  /** Where the map label goes relative to the port (default right). */
+  label?: "left" | "right" | "above" | "below";
   produces: { good: string; weight: number }[];
   demands: { good: string; strength: number }[];
 }

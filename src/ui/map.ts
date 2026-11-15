@@ -113,10 +113,16 @@ export class MapView {
       el('circle', { r: 7, class: 'lights' }, g);
       el('circle', { r: 4.5, class: 'dot' }, g);
       el('circle', { r: 1.8, class: 'dot-core' }, g);
-      const labelLeft = p.lon > 140 || p.id === 'shanghai';
-      const label = el('text', { x: labelLeft ? -10 : 10, y: -6, class: 'label', 'text-anchor': labelLeft ? 'end' : 'start' }, g);
+      // Label placement comes from the port data, so crowded regions can be tuned there.
+      const place = {
+        right: { x: 10, y: -6, fy: 8, anchor: 'start' },
+        left: { x: -10, y: -6, fy: 8, anchor: 'end' },
+        above: { x: 0, y: -21, fy: -9, anchor: 'middle' },
+        below: { x: 0, y: 18, fy: 29, anchor: 'middle' },
+      }[p.label ?? 'right'];
+      const label = el('text', { x: place.x, y: place.y, class: 'label', 'text-anchor': place.anchor }, g);
       label.textContent = p.name;
-      const fuel = el('text', { x: labelLeft ? -10 : 10, y: 8, class: 'fuel', 'text-anchor': labelLeft ? 'end' : 'start' }, g);
+      const fuel = el('text', { x: place.x, y: place.fy, class: 'fuel', 'text-anchor': place.anchor }, g);
       fuel.textContent = '';
       g.addEventListener('click', () => onPortClick(p.id));
       g.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') onPortClick(p.id); });

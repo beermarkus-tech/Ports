@@ -1,7 +1,7 @@
 # Deadweight (working title)
 
 A calm, strategic shipping-company game built as a PWA. Start with one tired
-old coaster and $150,000, carry cargo between ten world ports, and grow from
+old coaster and $150,000, carry cargo between 26 world ports, and grow from
 there. The full design is in [docs/design.md](docs/design.md).
 
 **Status: world clock and fleet.** Time runs on a clock (1 day per second,
@@ -11,7 +11,8 @@ events), Phase 2 (twelve ship classes, ship market, loans, ageing) and
 Phase 1 (ten ports, contracts, fuel, wear and repairs, storms, map, autosave).
 Graphics pass 1: ship art per family, a living map (night side, waves, coastal
 glow, clouds, storm cells, wakes), cash and payment effects, synthesised sound
-effects with a mute button. Next: automation.
+effects with a mute button. The world has 26 ports and 28 goods (rice, sugar,
+bauxite, rubber, cotton, wool, tea, palm oil and fish among them). Next: automation.
 
 ## Running it
 
@@ -128,7 +129,8 @@ tests/           vitest
 ```
 
 Distances come from a sea-lane graph (waypoints such as Gibraltar, Suez, Malacca
-and Panama) and are within ~10% of real sea distances. Canals are tagged edges
+and Panama) and are mostly within ~10% of real sea distances (a few coastal hops, such as Busan–Yokohama
+and round Cape Horn, run up to 25% long). Canals are tagged edges
 with dues, so a canal closure in Phase 3 just reroutes (tests already cover
 Suez closing and the route going round the Cape).
 
@@ -136,7 +138,11 @@ Suez closing and the route going round the Cape).
 
 - `CONTRACT_TUNING.payScale` in `src/sim/contracts.ts` is the main dial.
 - Goods `freightRate` and lot sizes are in `src/data/goods.json`.
-- Fuel prices, port fees, and what each port produces and demands are in `src/data/ports.json`.
+- Fuel prices, port fees, and what each port produces and demands are in `src/data/ports.json`
+  (`label` sets which side of the dot the map label goes). `scripts/add-ports.py` built the
+  26-port world from the original ten.
+- `CONTRACT_TUNING.laneBias` and `nearbyNm` decide where cargo goes: lots cluster on lanes already
+  on the board, and nearer buyers are likelier, so ships can fill up for one trip.
 - Storms, breakdowns, wear and the start conditions are in `RULES` in `src/sim/game.ts`.
 
 Balance scripts use two bots: a **greedy** one (best net $/day every time) and a

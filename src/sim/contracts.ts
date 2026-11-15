@@ -25,6 +25,16 @@ export const CONTRACT_TUNING = {
   /** Extra liquid / refrigerated offers per board, where the port produces them. */
   specialtyMin: 1,
   specialtyMax: 2,
+  /**
+   * Cargo clusters on busy lanes: a destination already on the board is this many
+   * times more likely to be picked again, so ships can fill up for one trip.
+   */
+  laneBias: 4,
+  /**
+   * Nearer buyers are likelier (short-sea trade dominates): a buyer this many
+   * miles away is half as likely as one next door.
+   */
+  nearbyNm: 5000,
   /** Contracts sit on a board this many days before being withdrawn. */
   boardLifetime: 12,
 };
@@ -52,6 +62,7 @@ const DRY: CargoClass[] = ['bulk', 'general'];
 
 export function generateContract(
   world: World, g: GameState, originId: string, kind: ContractKind = { classes: DRY },
+  lanes: ReadonlySet<string> = new Set(),
 ): Contract | null {
   const origin = world.ports[originId];
   const T = CONTRACT_TUNING;
@@ -63,14 +74,16 @@ export function generateContract(
   if (options.length === 0) return null;
   const produced = pickWeighted(g, options, (p) => p.weight);
   const good = world.goods[produced.good];
-  const buyers = world.portList.flatMap((p) =>
-    p.id === originId ? [] : p.demands.filter((d) => d.good === good.id).map((d) => ({ port: p, strength: d.strength })),
-  );
+  const buyers = world.portList.flatMap((p) => {
+    if (p.id === originId) return [];
+    const route = routeFor(world, g, originId, p.id);
+    if (!route) return [];
+    return p.demands.filter((d) => d.good === good.id).map((d) => ({ port: p, strength: d.strength, nm: route.nm }));
+  });
   if (buyers.length === 0) return null;
-  const buyer = pickWeighted(g, buyers, (b) => b.strength);
-  const route = routeFor(world, g, originId, buyer.port.id);
-  if (!route) return null;
-  const nm = route.nm;
+  const buyer = pickWeighted(g, buyers, (b) =>
+    b.strength * (lanes.has(b.port.id) ? T.laneBias : 1) * (T.nearbyNm / (T.nearbyNm + b.nm)));
+  const nm = buyer.nm;
 
   const raw = kind.big && good.bigLotMax !== undefined
     ? randRange(g, good.lotMax, good.bigLotMax)
@@ -98,7 +111,8 @@ export function generateContract(
 function addContracts(world: World, g: GameState, portId: string, board: Contract[], n: number, kind: ContractKind): void {
   let added = 0;
   for (let tries = 0; added < n && tries < n * 4; tries++) {
-    const c = generateContract(world, g, portId, kind);
+    const lanes = new Set(board.map((c) => c.dest));
+    const c = generateContract(world, g, portId, kind, lanes);
     if (c) { board.push(c); added++; }
   }
 }
@@ -137,7 +151,7 @@ export function churnBoard(world: World, g: GameState, portId: string): void {
   port.board = port.board.filter((c) => g.day - c.postedDay < T.boardLifetime && c.deadline > g.day + 2);
   const add = rand(g) < 0.6 ? randInt(g, 1, 2) : 0;
   for (let i = 0; i < add && port.board.length < T.boardSizeMax + T.bigLotsMax + 4; i++) {
-    const c = generateContract(world, g, portId, pickKind(g));
+    const c = generateContract(world, g, portId, pickKind(g), new Set(port.board.map((b) => b.dest)));
     if (c) port.board.push(c);
   }
 }
