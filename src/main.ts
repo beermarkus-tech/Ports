@@ -2,7 +2,7 @@ import './ui/style.css';
 import { activeEvents, closedCanals, priceLevel, routeFor } from './sim/economy';
 import {
   ActionError, LAID_UP, RULES, acceptContract, advance, atSea, borrow, buyFuel, buyShip, canCarry, cargoTons, clearOrders,
-  onOrders, resumeOrders, setOrders,
+  monthOf, monthProfit, onOrders, resumeOrders, setOrders,
   dailyUpkeep, daysUntilNextShip, fuelPrice, getShip, inDryDock, isReady, isWaiting, needsDecision, newGame,
   nextMilestone, planVoyage, portFee, repair, repairQuote, repayLoan, sail, saleQuote, sellShip,
   shipsNeedingDecision, takeReport, typeOf, unloadContract, voyageProgress, waitInPort, type VoyagePlan,
@@ -18,6 +18,7 @@ import { compactMoney, days, esc, gameDate, money, tons } from './ui/format';
 import { mapIconPath, shipFamily, shipSideView } from './ui/art';
 import { MapView, type LonLat, type PortMarker, type ShipMarker, type WeatherCell } from './ui/map';
 import { PortScene, type SceneShip, type TimeOfDay } from './ui/port-scene';
+import { barChart, lineChart, type ChartPoint } from './ui/charts';
 import { sound } from './ui/sound';
 import { BUILD, consumeUpdatedFrom, initServiceWorker, isNewer, latestBuild, reloadApp } from './ui/update';
 
@@ -126,6 +127,33 @@ class App {
       this.pointerDown = false;
       if (t.dataset.action === 'market-port') { this.marketPort = t.value; this.renderPanel(); }
     });
+    // Chart tooltips: hover on a computer, tap on a touch screen.
+    const tip = document.createElement('div');
+    tip.id = 'chart-tip';
+    tip.hidden = true;
+    document.body.appendChild(tip);
+    let tipFor: Element | null = null;
+    const showTip = (target: Element, x: number, y: number) => {
+      tipFor?.classList.remove('on');
+      tipFor = target;
+      target.classList.add('on');
+      tip.innerHTML = target.getAttribute('data-tip') ?? '';
+      tip.hidden = false;
+      const r = tip.getBoundingClientRect();
+      tip.style.left = `${Math.max(8, Math.min(window.innerWidth - r.width - 8, x - r.width / 2))}px`;
+      tip.style.top = `${y - r.height - 14 < 8 ? y + 18 : y - r.height - 14}px`;
+    };
+    const hideTip = () => { tip.hidden = true; tipFor?.classList.remove('on'); tipFor = null; };
+    document.addEventListener('pointermove', (ev) => {
+      const t = (ev.target as Element).closest?.('[data-tip]');
+      if (t) showTip(t, ev.clientX, ev.clientY);
+      else if (ev.pointerType === 'mouse') hideTip();
+    });
+    document.addEventListener('pointerdown', (ev) => {
+      const t = (ev.target as Element).closest?.('[data-tip]');
+      if (t) showTip(t, ev.clientX, ev.clientY); else hideTip();
+    });
+    document.addEventListener('scroll', hideTip, true);
     document.addEventListener('mouseover', (ev) => {
       const row = (ev.target as HTMLElement).closest<HTMLElement>('[data-hover-dest]');
       const id = row?.dataset.hoverDest ?? null;
@@ -200,7 +228,7 @@ class App {
     // The Cargo, Voyage and Ship tabs show day-to-day things (offers, deadlines, voyage progress, prices):
     // refresh them when the day changes, at most once a second. Market and Log only change on actions.
     const dayChanged = Math.floor(this.g.day) !== this.renderedDay;
-    const live = this.tab === 'contracts' || this.tab === 'voyage' || this.tab === 'ship';
+    const live = this.tab === 'contracts' || this.tab === 'voyage' || this.tab === 'ship' || this.tab === 'fleet';
     // Don't redraw under an open dropdown (it would snap shut).
     const picking = document.activeElement?.tagName === 'SELECT';
     if (dayChanged && live && !picking && performance.now() - this.lastPanel > 1000) this.renderPanel();
@@ -796,7 +824,7 @@ class App {
       ['voyage', 'Voyage'],
       ['ship', 'Ship'],
       ['market', 'Market'],
-      ['fleet', 'Fleet', g.fleet.length > 1 ? String(g.fleet.length) : undefined],
+      ['fleet', 'Company'],
       ['log', 'Log'],
     ];
     $('#tabs').innerHTML = tabs.map(([id, label, badge]) =>
@@ -1009,6 +1037,76 @@ class App {
     <ul class="dests">${options}</ul>`;
   }
 
+  /** How the company is doing: net worth and monthly results, from the books. */
+  private companyCard(): string {
+    const g = this.g;
+    const books = (g.books ?? []).slice(-24);
+    const now = monthOf(g.day);
+    const live = netWorth(g, world);
+    if (!books.length) {
+      return `<section class="card company"><h3>Company</h3>
+        <p class="hint">Your books start today. The charts fill in as the months go by.</p></section>`;
+    }
+    const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const name = (m: number) => `${MONTHS[m % 12]} ${2000 + Math.floor(m / 12)}`;
+    const every = Math.ceil(books.length / 7);
+    const label = (m: number, i: number) => (i % every === 0 || i === books.length - 1
+      ? (m % 12 === 0 ? String(2000 + Math.floor(m / 12)) : MONTHS[m % 12]) : '');
+    const tipLine = (k: string, v: number, cls = '') => `<div class="tl ${cls}"><span>${k}</span><b>${money(v, cls !== '')}</b></div>`;
+    const worth: ChartPoint[] = books.map((b, i) => {
+      const v = b.m === now ? live : b.netWorth;
+      return { label: label(b.m, i), value: v, tip: `<strong>${name(b.m)}${b.m === now ? ' (so far)' : ''}</strong>${tipLine('Net worth', v)}${tipLine('Cash', b.m === now ? g.cash : b.cash)}${tipLine('Loan', b.m === now ? g.loan : b.loan)}` };
+    });
+    const result: ChartPoint[] = books.map((b, i) => {
+      const p = monthProfit(b);
+      const costs = b.fuel + b.fees + b.upkeep + b.interest + b.repairs + b.incidents;
+      return { label: label(b.m, i), value: p, tip: `<strong>${name(b.m)}${b.m === now ? ' (so far)' : ''}</strong>${tipLine('Revenue', b.revenue)}${tipLine('Running costs', -costs)}${tipLine('Result', p, p >= 0 ? 'up' : 'down')}` };
+    });
+
+    const done = books.filter((b) => b.m < now);
+    const last = done[done.length - 1];
+    const before = done.slice(-4, -1);
+    let trend = '';
+    if (last && before.length) {
+      const avg = before.reduce((a, b) => a + monthProfit(b), 0) / before.length;
+      const diff = monthProfit(last) - avg;
+      trend = `<span class="trend ${diff >= 0 ? 'up' : 'down'}">${diff >= 0 ? '▲' : '▼'} ${compactMoney(Math.abs(diff))} vs the ${before.length === 1 ? 'month' : `${before.length} months`} before</span>`;
+    }
+    const cur = books[books.length - 1].m === now ? books[books.length - 1] : null;
+    const row = (k: string, f: (b: typeof books[number]) => number, sign: 1 | -1, cls = '') =>
+      `<tr class="${cls}"><th>${k}</th><td>${cur ? money(sign * f(cur), sign < 0 && f(cur) !== 0) : '—'}</td><td>${last ? money(sign * f(last), sign < 0 && f(last) !== 0) : '—'}</td></tr>`;
+    const resultRow = (b: typeof books[number] | null | undefined) => b ? `<span class="${monthProfit(b) >= 0 ? 'up' : 'down'}">${money(monthProfit(b), true)}</span>` : '—';
+    return `<section class="card company">
+      <h3>Company</h3>
+      <div class="kpis">
+        <div><span class="lbl">Net worth</span><strong>${compactMoney(live)}</strong></div>
+        <div><span class="lbl">${last ? `Result ${name(last.m)}` : 'Result'}</span><strong>${last ? resultRow(last) : '—'}</strong>${trend}</div>
+        <div><span class="lbl">This month so far</span><strong>${resultRow(cur)}</strong></div>
+      </div>
+      <h4>Net worth <span>end of each month</span></h4>
+      ${lineChart(worth, 'Net worth by month')}
+      <h4>Monthly result <span>revenue less running costs</span>
+        <span class="legend"><i class="up"></i>profit <i class="down"></i>loss</span></h4>
+      ${barChart(result, 'Profit or loss by month')}
+      <table class="books">
+        <thead><tr><th></th><th>${cur ? `${name(cur.m)} so far` : 'This month'}</th><th>${last ? name(last.m) : 'Last month'}</th></tr></thead>
+        <tbody>
+          ${row('Revenue', (b) => b.revenue, 1)}
+          ${row('Fuel', (b) => b.fuel, -1)}
+          ${row('Port fees & canals', (b) => b.fees, -1)}
+          ${row('Upkeep', (b) => b.upkeep, -1)}
+          ${row('Interest', (b) => b.interest, -1)}
+          ${row('Repairs', (b) => b.repairs, -1)}
+          ${row('Breakdowns & emergencies', (b) => b.incidents, -1)}
+          <tr class="total"><th>Result</th><td>${resultRow(cur)}</td><td>${resultRow(last)}</td></tr>
+          ${(cur?.shipsBought || cur?.shipsSold || last?.shipsBought || last?.shipsSold)
+            ? row('Ships bought (not in result)', (b) => b.shipsBought, -1, 'capital') + row('Ships sold (not in result)', (b) => b.shipsSold, 1, 'capital') : ''}
+        </tbody>
+      </table>
+      <p class="hint">Running costs are fuel bought, port fees, canal dues, upkeep, interest, repairs and incidents at sea. Buying and selling ships changes your net worth, not the result.</p>
+    </section>`;
+  }
+
   /** Every ship at a glance. */
   private fleetTab(): string {
     const g = this.g;
@@ -1036,6 +1134,7 @@ class App {
     const total = g.fleet.reduce((sum, s) => sum + (s.earnings ?? []).filter((e) => e.day > g.day - 30).reduce((a, e) => a + e.net, 0), 0);
     const routed = g.fleet.filter((s) => s.orders).length;
     return `
+      ${this.companyCard()}
       <header class="port-head"><div><h2>Your fleet</h2>
         <span class="sub">${g.fleet.length} ship${g.fleet.length > 1 ? 's' : ''} · ${routed} on routes · last 30 days ${money(total, true)} after fuel</span></div></header>
       <p class="hint">Tap a ship to select it. "30 days" is what its finished legs earned after port fees, canal dues, upkeep and fuel.</p>

@@ -15,7 +15,7 @@ import {
   regenerateMarket, saleValue, shipName,
 } from './ships';
 import type {
-  ActiveVoyage, Contract, Delivery, GameState, ShipState, ShipTypeDef, StandingOrders, VoyageEvent, VoyageReport,
+  ActiveVoyage, Contract, Delivery, GameState, MonthBook, ShipState, ShipTypeDef, StandingOrders, VoyageEvent, VoyageReport,
 } from './types';
 import { getWorld, type Route, type World } from './world';
 
@@ -52,6 +52,50 @@ export const RULES = {
 export class ActionError extends Error {}
 
 const clone = (g: GameState): GameState => structuredClone(g);
+
+// ---------------------------------------------------------------- books
+
+const DAY_MS = 86_400_000;
+const START_MS = Date.UTC(2000, 0, 1);
+
+/** Calendar month of a game day: months since January 2000. */
+export function monthOf(day: number): number {
+  const d = new Date(START_MS + Math.floor(day) * DAY_MS);
+  return (d.getUTCFullYear() - 2000) * 12 + d.getUTCMonth();
+}
+
+type BookField = 'revenue' | 'fuel' | 'fees' | 'upkeep' | 'interest' | 'repairs' | 'incidents' | 'shipsBought' | 'shipsSold';
+
+/** This month's page in the books (kept for 20 years). */
+function bookFor(g: GameState, world: World, day = g.day): MonthBook {
+  g.books ??= [];
+  const m = monthOf(day);
+  let b = g.books[g.books.length - 1];
+  if (!b || b.m !== m) {
+    b = { m, revenue: 0, fuel: 0, fees: 0, upkeep: 0, interest: 0, repairs: 0, incidents: 0, shipsBought: 0, shipsSold: 0,
+      netWorth: Math.round(netWorth(g, world)), cash: Math.round(g.cash), loan: g.loan };
+    g.books.push(b);
+    if (g.books.length > 240) g.books.shift();
+  }
+  return b;
+}
+
+function book(g: GameState, world: World, field: BookField, amount: number, day = g.day): void {
+  if (amount) bookFor(g, world, day)[field] += Math.round(amount);
+}
+
+/** Note where the company stands (end of day). */
+function snapshot(g: GameState, world: World, day = g.day): void {
+  const b = bookFor(g, world, day);
+  b.netWorth = Math.round(netWorth(g, world));
+  b.cash = Math.round(g.cash);
+  b.loan = g.loan;
+}
+
+/** Operating result of a month: revenue less running costs (ship purchases and sales aside). */
+export function monthProfit(b: MonthBook): number {
+  return b.revenue - b.fuel - b.fees - b.upkeep - b.interest - b.repairs - b.incidents;
+}
 
 // ---------------------------------------------------------------- lookups
 
@@ -210,6 +254,8 @@ function runClock(world: World, g: GameState, days: number): void {
     g.cash -= upkeep + interest;
     g.stats.interestPaid += interest;
     g.stats.upkeepPaid += upkeep;
+    book(g, world, 'upkeep', upkeep, d);
+    book(g, world, 'interest', interest, d);
     for (const p of world.portList) {
       const ps = g.ports[p.id];
       ps.fuelDev = Math.max(-limit, Math.min(limit, ps.fuelDev * reversion + randNormal(g) * volatility));
@@ -220,6 +266,7 @@ function runClock(world: World, g: GameState, days: number): void {
     for (const ship of g.fleet) {
       if (ship.busyUntil !== undefined && ship.busyUntil <= d) delete ship.busyUntil;
     }
+    snapshot(g, world, d);
   }
   g.day = end;
   for (const ship of g.fleet) ship.age += days / 365;
@@ -359,6 +406,7 @@ export function buyFuel(state: GameState, shipId: number, tons: number, world: W
   ship.fuel += amount;
   g.cash -= cost;
   g.stats.fuelSpent += cost;
+  book(g, world, 'fuel', cost);
   log(g, `${ship.name}: bunkered ${amount} t of fuel at $${price}/t${g.cash < 0 ? ' (on credit)' : ''}.`, -cost);
   coverShortfall(g, world);
   return g;
@@ -381,6 +429,7 @@ export function repair(state: GameState, shipId: number, points: number, world: 
   if (q.points <= 0) throw new ActionError('Nothing to repair.');
   if (q.cost > spendable(g, world)) throw new ActionError('Not enough cash or credit for that repair.');
   g.cash -= q.cost;
+  book(g, world, 'repairs', q.cost);
   ship.condition = Math.min(100, Math.floor(ship.condition) + q.points);
   ship.busyUntil = g.day + q.days;
   log(g, `${ship.name}: into dry dock for +${q.points}% condition, ready in ${q.days} day(s).`, -q.cost);
@@ -796,6 +845,9 @@ function arrive(world: World, g: GameState, ship: ShipState): void {
   const upkeep = Math.round((v.arriveDay - v.departDay) * type.dailyCost); // already paid day by day
   const fee = portFee(g, ship, dest, world);
   g.cash += revenue - fee - v.canalFees - v.eventCosts;
+  book(g, world, 'revenue', revenue);
+  book(g, world, 'fees', fee + v.canalFees);
+  book(g, world, 'incidents', v.eventCosts);
   g.stats.voyages++;
   g.stats.revenue += revenue;
   g.stats.fuelSpent += v.events.filter((e) => e.kind === 'emergencyFuel').reduce((s, e) => s + e.cost, 0);
@@ -873,6 +925,7 @@ export function buyShip(state: GameState, portId: string, offerId: number, world
   const [offer] = market.splice(idx, 1);
   g.cash -= q.fromCash;
   g.loan = q.loanAfter;
+  book(g, world, 'shipsBought', offer.price);
   const taken = g.fleet.map((s) => s.name);
   const name = taken.includes(offer.name) ? shipName(g, taken) : offer.name;
   g.fleet.push({
@@ -909,6 +962,7 @@ export function sellShip(state: GameState, shipId: number, world: World = getWor
   g.fleet = g.fleet.filter((s) => s.id !== shipId);
   g.cash += q.price + q.fuelRefund - q.repay;
   g.loan -= q.repay;
+  book(g, world, 'shipsSold', q.price);
   log(g, `Sold the ${typeOf(ship, world).name} ${ship.name} for $${q.price.toLocaleString('en-US')}${
     q.repay ? `, repaying $${q.repay.toLocaleString('en-US')} of the loan` : ''}.`, q.price);
   checkEnd(g, world);

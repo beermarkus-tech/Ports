@@ -246,9 +246,32 @@ export interface GameState {
   /** Arrival reports not yet shown to the player, oldest first. */
   reports: VoyageReport[];
   gameOver?: string;
+  /** Money by calendar month (oldest first), for the company charts. Missing in older saves. */
+  books?: MonthBook[];
   /** Net-worth milestones reached, with the day each was reached. */
   milestones: { amount: number; day: number }[];
   oil: OilMarket;
   /** World events: active and recently ended (kept for the news list). */
   events: WorldEvent[];
+}
+
+/** One calendar month of the company's money. Costs are positive numbers. */
+export interface MonthBook {
+  /** Months since January 2000 (0 = Jan 2000). */
+  m: number;
+  revenue: number;
+  fuel: number;
+  /** Port fees and canal dues. */
+  fees: number;
+  upkeep: number;
+  interest: number;
+  repairs: number;
+  /** Breakdowns at sea and emergency bunkers. */
+  incidents: number;
+  shipsBought: number;
+  shipsSold: number;
+  /** Position at the end of the month (or the latest day, for the current month). */
+  netWorth: number;
+  cash: number;
+  loan: number;
 }

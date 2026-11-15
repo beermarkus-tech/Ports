@@ -125,3 +125,22 @@ describe('standing orders', () => {
     expect(needsDecision(g, ship(g))).toBe(true);
   });
 });
+
+describe('company books', () => {
+  it('records each month and agrees with the running totals', async () => {
+    const { monthOf, monthProfit } = await import('../src/sim/game');
+    let g = newGame(5);
+    g = setOrders(g, ship(g).id, ['rotterdam', 'newyork', 'lagos', 'santos', 'genoa'], 50);
+    for (let d = 0; d < 120; d++) { g = advance(g, 1); g = { ...g, reports: [] }; }
+    const books = g.books!;
+    expect(books.map((b) => b.m)).toEqual([0, 1, 2, 3]);
+    expect(monthOf(g.day)).toBe(3);
+    const sum = (f: (b: (typeof books)[number]) => number) => books.reduce((a, b) => a + f(b), 0);
+    expect(sum((b) => b.revenue)).toBe(g.stats.revenue);
+    expect(sum((b) => b.upkeep)).toBe(g.stats.upkeepPaid);
+    expect(sum((b) => b.interest)).toBe(g.stats.interestPaid);
+    expect(books.every((b) => b.upkeep > 0)).toBe(true);
+    expect(typeof monthProfit(books[1])).toBe('number');
+    expect(books[books.length - 1].cash).toBe(Math.round(g.cash));
+  });
+});

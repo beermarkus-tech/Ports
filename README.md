@@ -104,8 +104,12 @@ close the app. The game saves after every action, so reloading is always safe.
    regional backdrops, time of day from the map's sun. An inset map shows the
    route of the destination you picked or the cargo you point at; tap it (or
    Map) for the world map, which also returns by itself when the clock runs.
-11. **Fleet tab:** every ship with its status, route, hold, fuel, condition and
-   what it earned in the last 30 days after fuel.
+11. **Company tab:** the books. Net worth at the end of each month (line) and
+   the monthly result, revenue less running costs (bars, profit teal, loss
+   orange), with hover/tap tooltips; this month and last month broken down into
+   revenue, fuel, port fees and canals, upkeep, interest, repairs and incidents.
+   Below: every ship with its status, route, hold, fuel, condition and what it
+   earned in the last 30 days after fuel.
 
 ### Ship classes
 

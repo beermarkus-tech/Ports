@@ -1,5 +1,7 @@
 :root {
   --bg: #08131f;
+  --profit: #1f9fb8;
+  --loss: #d46a3c;
   --surface: #0f2033;
   --surface-2: #142a42;
   --line: #21405f;
@@ -33,6 +35,8 @@
 @media (prefers-color-scheme: light) {
   :root:not([data-theme='dark']) {
     --bg: #eef3f8;
+    --profit: #0a8fb0;
+    --loss: #d0663b;
     --surface: #ffffff;
     --surface-2: #f3f7fb;
     --line: #d4e0ec;
@@ -636,3 +640,41 @@ h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 @media (max-width: 700px) {
   .ps-mini { left: 6px; top: 6px; width: 40%; aspect-ratio: 16 / 9; }
 }
+
+/* Company: books and charts */
+.card.company h3 { margin-top: 12px; }
+.kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 4px 0 6px; }
+.kpis > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.kpis strong { font-size: 19px; font-variant-numeric: tabular-nums; }
+.kpis .trend { font-size: 11.5px; color: var(--muted); }
+.kpis .trend.up::first-letter, .company .up { color: var(--profit); }
+.kpis .trend.down::first-letter, .company .down { color: var(--loss); }
+.company h4 { margin: 14px 0 2px; font-size: 13px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.company h4 > span:not(.legend) { font-weight: 400; color: var(--muted); font-size: 12px; }
+.company .legend { margin-left: auto; font-weight: 400; font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
+.company .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-left: 6px; }
+.company .legend i.up { background: var(--profit); }
+.company .legend i.down { background: var(--loss); }
+.chart { display: block; width: 100%; height: auto; overflow: visible; }
+.chart .ch-grid { stroke: var(--line); stroke-width: 1; }
+.chart .ch-grid.zero { stroke: var(--muted); stroke-opacity: 0.6; }
+.chart .ch-axis { fill: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.chart .ch-line { fill: none; stroke: var(--profit); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart .ch-area { fill: var(--profit); fill-opacity: 0.12; }
+.chart .ch-dot { fill: var(--profit); stroke: var(--surface-2); stroke-width: 2; }
+.chart .ch-bar.up { fill: var(--profit); }
+.chart .ch-bar.down { fill: var(--loss); }
+.chart .ch-hit { fill: transparent; cursor: crosshair; }
+.chart .ch-hit:hover, .chart .ch-hit.on { fill: var(--text); fill-opacity: 0.06; }
+table.books { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 12px; font-variant-numeric: tabular-nums; }
+table.books th, table.books td { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: right; font-weight: 400; }
+table.books th:first-child { text-align: left; color: var(--muted); }
+table.books thead th { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+table.books tr.total th, table.books tr.total td { font-weight: 700; color: var(--text); border-bottom: none; }
+table.books tr.capital th, table.books tr.capital td { color: var(--muted); font-size: 11.5px; }
+#chart-tip { position: fixed; z-index: 50; pointer-events: none; background: var(--surface); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 12px; box-shadow: 0 6px 18px rgba(0,0,0,0.25); min-width: 160px; font-variant-numeric: tabular-nums; }
+#chart-tip .tl { display: flex; justify-content: space-between; gap: 14px; }
+#chart-tip .tl.up b { color: var(--profit); }
+#chart-tip .tl.down b { color: var(--loss); }
+table.books td { white-space: nowrap; }
+@media (max-width: 420px) { .kpis strong { font-size: 16px; } }
