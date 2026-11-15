@@ -25,12 +25,13 @@ let deliveries = 0;
 for (let s = 1; s <= seeds; s++) {
   let g = newGame(s * 7919);
   for (let i = 0; i < legs && !g.gameOver; i++) {
-    const opts = evaluateOptions(g);
+    const opts = evaluateOptions(g, g.fleet[0].id);
     if (opts.length > 1 && opts[0].score > 0 && opts[1].score > opts[0].score * 0.85) closeCalls++;
     options++;
-    const from = g.ship.location;
+    const from = g.fleet[0].location;
     g = step(g);
-    const r = g.lastVoyage!;
+    const r = g.reports[g.reports.length - 1];
+    if (!r) continue;
     const key = `${world.ports[from].name} → ${world.ports[r.to].name}`;
     routes.set(key, (routes.get(key) ?? 0) + 1);
     for (const e of r.events) eventCounts[e.kind] = (eventCounts[e.kind] ?? 0) + 1;

@@ -1,6 +1,6 @@
 import { newOilMarket } from './economy';
 import { regenerateMarket } from './ships';
-import type { GameState } from './types';
+import type { GameState, ShipState } from './types';
 import { getWorld } from './world';
 
 // The storage key stays the same across versions; old saves are upgraded on load.
@@ -14,34 +14,43 @@ export function saveGame(g: GameState, storage: Storage | undefined = globalThis
   }
 }
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /** Bring an older save up to the current format. Returns null if it can't be used. */
 export function migrate(raw: unknown): GameState | null {
-  const g = raw as Record<string, unknown> & GameState;
+  const g = raw as any;
   if (!g || typeof g !== 'object') return null;
-  const version = () => g.version as number;
-  if (version() === 1) {
-    const world = getWorld();
-    const old = g as unknown as { wonAt?: number; stats: Record<string, number> };
-    (g as { version: number }).version = 2;
+  if (g.version === 1) {
+    // Phase 2: loans, ship age, milestones, ship markets.
+    g.version = 2;
     g.loan = 0;
     g.ship.age ??= 24;
-    g.milestones = old.wonAt !== undefined ? [{ amount: 1_000_000, day: old.wonAt }] : [];
-    delete old.wonAt;
-    g.stats = { ...g.stats, interestPaid: old.stats.interestPaid ?? 0, shipsOwned: old.stats.shipsOwned ?? 1 };
-    for (const p of world.portList) {
-      if (!g.ports[p.id]) continue;
-      g.ports[p.id].market ??= [];
-      regenerateMarket(world, g, p.id);
-    }
+    g.milestones = g.wonAt !== undefined ? [{ amount: 1_000_000, day: g.wonAt }] : [];
+    delete g.wonAt;
+    g.stats = { ...g.stats, interestPaid: g.stats.interestPaid ?? 0, shipsOwned: g.stats.shipsOwned ?? 1 };
+    for (const p of Object.values(g.ports) as any[]) p.market ??= [];
   }
-  if (version() === 2) {
+  if (g.version === 2) {
     // Phase 3: port price levels, the oil market and world events.
     g.version = 3;
     g.oil ??= newOilMarket();
     g.events ??= [];
-    for (const port of Object.values(g.ports)) port.prices ??= {};
+    for (const p of Object.values(g.ports) as any[]) p.prices ??= {};
   }
-  return version() === 3 ? g : null;
+  if (g.version === 3) {
+    // Fleet and world clock: the single ship becomes ship #1 of a fleet.
+    g.version = 4;
+    const ship: ShipState = { ...g.ship, id: g.nextId++ };
+    g.fleet = [ship];
+    delete g.ship;
+    delete g.lastVoyage;
+    g.reports = [];
+    g.stats.upkeepPaid ??= 0;
+    const world = getWorld();
+    for (const p of world.portList) {
+      if (g.ports[p.id] && !g.ports[p.id].market.length) regenerateMarket(world, g, p.id);
+    }
+  }
+  return g.version === 4 ? (g as GameState) : null;
 }
 
 export function loadGame(storage: Storage | undefined = globalThis.localStorage): GameState | null {

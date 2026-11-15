@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateContract } from '../src/sim/contracts';
 import { ECONOMY, activeEvents, closedCanals, priceLevel, recordDelivery } from '../src/sim/economy';
-import { buyFuel, fuelPrice, newGame, planVoyage, portFee, waitDay } from '../src/sim/game';
+import { advance, buyFuel, fuelPrice, newGame, planVoyage, portFee } from '../src/sim/game';
 import type { GameState, WorldEvent } from '../src/sim/types';
 import { getWorld } from '../src/sim/world';
 
@@ -22,7 +22,7 @@ describe('market prices', () => {
     const low = priceLevel(g, 'rotterdam', 'cocoa');
     expect(low).toBeLessThan(0.9);
     let later = g;
-    for (let i = 0; i < 60; i++) later = waitDay(later);
+    later = advance(later, 60);
     const recovered = priceLevel(later, 'rotterdam', 'cocoa');
     expect(recovered).toBeGreaterThan(low);
     expect(recovered).toBeLessThan(1);
@@ -56,7 +56,7 @@ describe('world events', () => {
     let g = newGame(4);
     const seen = new Set<number>();
     for (let i = 0; i < 1000; i++) {
-      g = waitDay({ ...g, cash: 1e9 });
+      g = advance({ ...g, cash: 1e9 }, 1);
       for (const e of g.events) seen.add(e.id);
       expect(g.oil.index).toBeGreaterThanOrEqual(ECONOMY.oil.min);
       expect(g.oil.index).toBeLessThanOrEqual(ECONOMY.oil.max);
@@ -68,12 +68,13 @@ describe('world events', () => {
 
   it('reroute ships when a canal closes', () => {
     let g = newGame(5);
-    g = buyFuel({ ...g, cash: 1e7, ship: { ...g.ship, typeId: 'general' } }, 1e6);
-    const open = planVoyage(g, 'singapore')!;
+    const id = g.fleet[0].id;
+    g = buyFuel({ ...g, cash: 1e7, fleet: [{ ...g.fleet[0], typeId: 'general' }] }, id, 1e6);
+    const open = planVoyage(g, id, 'singapore')!;
     expect(open.route.canals).toContain('suez');
     const closed = withEvent(g, { kind: 'canal', canal: 'suez' });
     expect(closedCanals(closed)).toEqual(['suez']);
-    const detour = planVoyage(closed, 'singapore')!;
+    const detour = planVoyage(closed, id, 'singapore')!;
     expect(detour.route.canals).not.toContain('suez');
     expect(detour.route.nm).toBeGreaterThan(open.route.nm + 2000);
   });
@@ -81,11 +82,12 @@ describe('world events', () => {
   it('make a strike port slow and expensive', () => {
     const g = newGame(6);
     const struck = withEvent(g, { kind: 'strike', port: 'genoa' });
-    expect(portFee(struck, 'genoa')).toBe(portFee(g, 'genoa') * ECONOMY.strike.feeMultiplier);
-    const plan = planVoyage(struck, 'genoa')!;
+    const ship = g.fleet[0];
+    expect(portFee(struck, ship, 'genoa')).toBe(portFee(g, ship, 'genoa') * ECONOMY.strike.feeMultiplier);
+    const plan = planVoyage(struck, ship.id, 'genoa')!;
     expect(plan.strike).toBe(true);
     expect(plan.strikeDays).toBe(ECONOMY.strike.extraDays);
-    expect(plan.upkeep).toBeGreaterThan(planVoyage(g, 'genoa')!.upkeep);
+    expect(plan.upkeep).toBeGreaterThan(planVoyage(g, ship.id, 'genoa')!.upkeep);
   });
 
   it('move bunker prices with the oil index', () => {

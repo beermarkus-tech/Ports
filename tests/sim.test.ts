@@ -2,13 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { botStep } from '../src/sim/bot';
 import { latePayFactor } from '../src/sim/contracts';
 import {
-  ActionError, RULES, acceptContract, buyFuel, canCarry, isStranded, newGame, planVoyage, repair, sail, shipType,
-  unloadContract, waitDay,
+  ActionError, RULES, acceptContract, advance, buyFuel, canCarry, daysUntilNextShip, isReady, isStranded, newGame,
+  planVoyage, repair, sail, takeReport, typeOf, unloadContract, voyageProgress,
 } from '../src/sim/game';
 import { maxLoan } from '../src/sim/ships';
+import type { GameState } from '../src/sim/types';
 import { getWorld } from '../src/sim/world';
 
 const world = getWorld();
+const first = (g: GameState) => g.fleet[0];
 
 describe('world', () => {
   it('connects every pair of ports', () => {
@@ -43,71 +45,69 @@ describe('world', () => {
   });
 });
 
-describe('game', () => {
+describe('port actions', () => {
   it('is deterministic for a seed', () => {
     expect(newGame(42)).toEqual(newGame(42));
   });
 
-  it('starts with contracts on every board', () => {
+  it('starts with one ship and contracts on every board', () => {
     const g = newGame(1);
+    expect(g.fleet).toHaveLength(1);
+    expect(isReady(g, first(g))).toBe(true);
     for (const p of world.portList) expect(g.ports[p.id].board.length).toBeGreaterThan(0);
   });
 
   it('never mutates the input state', () => {
     const g = newGame(3);
     const snapshot = structuredClone(g);
-    const c = g.ports[g.ship.location].board.find((x) => canCarry(g, x) === null)!;
-    acceptContract(g, c.id);
-    buyFuel(g, 10);
-    waitDay(g);
+    const ship = first(g);
+    const c = g.ports[ship.location].board.find((x) => canCarry(ship, x) === null)!;
+    acceptContract(g, ship.id, c.id);
+    buyFuel(g, ship.id, 10);
+    advance(g, 3);
     expect(g).toEqual(snapshot);
   });
 
   it('loads and unloads cargo, respecting capacity', () => {
     let g = newGame(5);
-    const cap = shipType(g).capacity;
-    const board = g.ports[g.ship.location].board;
-    const fit = board.find((c) => c.tons <= cap)!;
-    g = acceptContract(g, fit.id);
-    expect(g.ship.cargo.map((c) => c.id)).toContain(fit.id);
-    g = unloadContract(g, fit.id);
-    expect(g.ship.cargo).toHaveLength(0);
-    const tooBig = { ...fit, id: 9999, tons: cap + 1 };
-    g.ports[g.ship.location].board.push(tooBig);
-    expect(() => acceptContract(g, 9999)).toThrow(ActionError);
+    const ship = first(g);
+    const cap = typeOf(ship).capacity;
+    const fit = g.ports[ship.location].board.find((c) => c.tons <= cap)!;
+    g = acceptContract(g, ship.id, fit.id);
+    expect(first(g).cargo.map((c) => c.id)).toContain(fit.id);
+    g = unloadContract(g, ship.id, fit.id);
+    expect(first(g).cargo).toHaveLength(0);
+    g.ports[ship.location].board.push({ ...fit, id: 9999, tons: cap + 1 });
+    expect(() => acceptContract(g, ship.id, 9999)).toThrow(ActionError);
   });
 
   it('caps fuel purchases at bunker capacity and charges for it', () => {
     const g0 = newGame(7);
-    const g = buyFuel(g0, 10_000);
-    expect(g.ship.fuel).toBe(shipType(g).bunkerCapacity);
+    const g = buyFuel(g0, first(g0).id, 10_000);
+    expect(first(g).fuel).toBe(typeOf(first(g)).bunkerCapacity);
     expect(g.cash).toBeLessThan(g0.cash);
   });
 
   it('refuses to sail without enough fuel or beyond range', () => {
     let g = newGame(9);
-    g = { ...g, ship: { ...g.ship, fuel: 0 } };
-    expect(() => sail(g, 'genoa')).toThrow(/fuel/);
-    g = buyFuel(g, 10_000);
-    expect(planVoyage(g, 'sydney')!.inRange).toBe(false);
-    expect(() => sail(g, 'sydney')).toThrow(/range/);
+    const id = first(g).id;
+    g = { ...g, fleet: [{ ...first(g), fuel: 0 }] };
+    expect(() => sail(g, id, 'genoa')).toThrow(/fuel/);
+    g = buyFuel(g, id, 10_000);
+    expect(planVoyage(g, id, 'sydney')!.inRange).toBe(false);
+    expect(() => sail(g, id, 'sydney')).toThrow(/range/);
   });
 
-  it('delivers cargo and pays on arrival', () => {
-    let g = newGame(11);
-    const c = g.ports.rotterdam.board.find((x) => canCarry(g, x) === null && planVoyage(g, x.dest)!.inRange)!;
-    g = acceptContract(g, c.id);
-    g = buyFuel(g, 10_000);
-    const before = g.cash;
-    g = sail(g, c.dest);
-    const r = g.lastVoyage!;
-    expect(g.ship.location).toBe(c.dest);
-    expect(g.ship.cargo).toHaveLength(0);
-    expect(r.deliveries).toHaveLength(1);
-    expect(r.deliveries[0].paid).toBe(Math.round(c.pay * latePayFactor(r.deliveries[0].lateDays)));
-    expect(g.cash).toBe(before + r.net);
-    expect(g.day).toBeGreaterThan(0);
-    expect(r.fuelUsed).toBeGreaterThan(0);
+  it('puts a ship in dry dock for a few days', () => {
+    const g0 = newGame(13);
+    const id = first(g0).id;
+    const g = repair(g0, id, 20);
+    expect(first(g).condition).toBe(Math.floor(first(g0).condition) + 20);
+    expect(isReady(g, first(g))).toBe(false);
+    expect(g.cash).toBeLessThan(g0.cash);
+    expect(() => sail(buyFuel(g0, id, 1e6), id, 'genoa')).not.toThrow();
+    const later = advance(g, 2.01);
+    expect(isReady(later, first(later))).toBe(true);
   });
 
   it('penalises late delivery', () => {
@@ -116,20 +116,76 @@ describe('game', () => {
     expect(latePayFactor(3)).toBeCloseTo(0.55);
     expect(latePayFactor(20)).toBe(0);
   });
+});
 
-  it('repairs cost money and time', () => {
-    const g0 = newGame(13);
-    const g = repair(g0, 20);
-    expect(g.ship.condition).toBe(Math.floor(g0.ship.condition) + 20);
-    expect(g.day).toBe(2);
-    expect(g.cash).toBeLessThan(g0.cash);
+describe('the world clock', () => {
+  function departed(seed: number) {
+    let g = newGame(seed);
+    const ship = first(g);
+    const c = g.ports.rotterdam.board.find((x) => canCarry(ship, x) === null && planVoyage(g, ship.id, x.dest)!.inRange)!;
+    g = acceptContract(g, ship.id, c.id);
+    g = buyFuel(g, ship.id, 10_000);
+    return { g: sail(g, ship.id, c.dest), c, id: ship.id };
+  }
+
+  it('sends a ship to sea and plays the voyage out over time', () => {
+    const { g, c, id } = departed(11);
+    const ship = first(g);
+    expect(ship.voyage!.to).toBe(c.dest);
+    expect(isReady(g, ship)).toBe(false);
+    expect(g.day).toBe(0);
+    const halfway = advance(g, ship.voyage!.seaArrivalDay / 2);
+    expect(voyageProgress(halfway, first(halfway))).toBeCloseTo(0.5, 1);
+    expect(first(halfway).voyage).toBeDefined();
+    expect(() => sail(halfway, id, 'genoa')).toThrow(/at sea/);
   });
 
-  it('covers a shortfall from the ship loan before using the overdraft', () => {
+  it('delivers and pays when the arrival day comes, with a report', () => {
+    const { g, c, id } = departed(11);
+    const wait = daysUntilNextShip(g)!;
+    const cashBefore = g.cash;
+    const arrived = advance(g, wait + 0.001);
+    const ship = first(arrived);
+    expect(ship.voyage).toBeUndefined();
+    expect(ship.location).toBe(c.dest);
+    expect(ship.cargo).toHaveLength(0);
+    const { report, state } = takeReport(arrived);
+    expect(report!.shipId).toBe(id);
+    expect(report!.deliveries[0].paid).toBe(Math.round(c.pay * latePayFactor(report!.deliveries[0].lateDays)));
+    expect(state.reports).toHaveLength(0);
+    // Cash = before − daily upkeep and interest + revenue − fees − event costs.
+    const expected = cashBefore - arrived.stats.upkeepPaid - arrived.stats.interestPaid
+      + report!.revenue - report!.portFee - report!.canalFees - report!.eventCosts;
+    expect(arrived.cash).toBe(expected);
+  });
+
+  it('charges upkeep every day, at sea or in port', () => {
+    const g = newGame(12);
+    const later = advance(g, 10);
+    expect(later.cash).toBe(g.cash - 10 * typeOf(first(g)).dailyCost);
+    expect(later.day).toBe(10);
+  });
+
+  it('keeps the books consistent over a long bot playthrough', () => {
+    let g = newGame(2024);
+    for (let i = 0; i < 25 && !g.gameOver; i++) {
+      g = botStep(g);
+      expect(Number.isFinite(g.cash)).toBe(true);
+      expect(first(g).fuel).toBeGreaterThanOrEqual(0);
+      expect(first(g).condition).toBeGreaterThanOrEqual(0);
+      expect(first(g).condition).toBeLessThanOrEqual(100);
+    }
+    expect(g.stats.voyages).toBeGreaterThan(10);
+  });
+});
+
+describe('bank and bankruptcy', () => {
+  it('covers a shortfall from the loan before using the overdraft', () => {
     let g = newGame(17);
-    g = { ...g, cash: 1000, ship: { ...g.ship, fuel: 0 } };
-    g = buyFuel(g, 50);
-    expect(g.ship.fuel).toBe(50);
+    const id = first(g).id;
+    g = { ...g, cash: 1000, fleet: [{ ...first(g), fuel: 0 }] };
+    g = buyFuel(g, id, 50);
+    expect(first(g).fuel).toBe(50);
     expect(g.cash).toBeGreaterThanOrEqual(0);
     expect(g.loan).toBeGreaterThan(0);
     expect(g.log[0].text).toMatch(/covered your shortfall/);
@@ -137,43 +193,28 @@ describe('game', () => {
 
   it('uses the overdraft once the loan is maxed, and charges interest on it', () => {
     let g = newGame(17);
-    g = { ...g, cash: 1000, loan: maxLoan(g, world), ship: { ...g.ship, fuel: 0 } };
-    g = buyFuel(g, 50);
-    expect(g.ship.fuel).toBe(50);
+    const id = first(g).id;
+    g = { ...g, cash: 1000, loan: maxLoan(g, world), fleet: [{ ...first(g), fuel: 0 }] };
+    g = buyFuel(g, id, 50);
     expect(g.cash).toBeLessThan(0);
     expect(g.cash).toBeGreaterThanOrEqual(-RULES.overdraftLimit);
     const before = g.cash;
-    g = waitDay(g);
-    expect(g.cash).toBeLessThan(before - shipType(g).dailyCost); // upkeep plus interest
+    g = advance(g, 1);
+    expect(g.cash).toBeLessThan(before - typeOf(first(g)).dailyCost); // upkeep plus interest
     expect(g.gameOver).toBeUndefined();
   });
 
   it('goes bankrupt only when loan and overdraft are used up', () => {
     const base = newGame(19);
-    const covered = waitDay({ ...base, cash: -RULES.overdraftLimit + 500 });
-    expect(covered.gameOver).toBeUndefined(); // the ship loan covers it
-    const broke = waitDay({ ...base, cash: -RULES.overdraftLimit + 500, loan: maxLoan(base, world) });
+    expect(advance({ ...base, cash: -RULES.overdraftLimit + 500 }, 1).gameOver).toBeUndefined();
+    const broke = advance({ ...base, cash: -RULES.overdraftLimit + 500, loan: maxLoan(base, world) }, 1);
     expect(broke.gameOver).toMatch(/Bankrupt/);
   });
 
-  it('ends the game when the ship is stranded', () => {
+  it('ends the game when every ship is stranded', () => {
     const base = newGame(23);
-    const g = { ...base, cash: -RULES.overdraftLimit + 1000, loan: maxLoan(base, world), ship: { ...base.ship, fuel: 0 } };
-    expect(isStranded(g)).toBe(true);
-    expect(isStranded(base)).toBe(false);
-  });
-
-  it('survives a long bot playthrough with consistent books', () => {
-    let g = newGame(2024);
-    for (let i = 0; i < 25 && !g.gameOver; i++) {
-      const cash = g.cash;
-      g = botStep(g);
-      expect(Number.isFinite(g.cash)).toBe(true);
-      expect(g.ship.fuel).toBeGreaterThanOrEqual(0);
-      expect(g.ship.condition).toBeGreaterThanOrEqual(0);
-      expect(g.ship.condition).toBeLessThanOrEqual(100);
-      expect(cash).not.toBeNaN();
-    }
-    expect(g.stats.voyages).toBeGreaterThan(10);
+    const g = { ...base, cash: -RULES.overdraftLimit + 1000, loan: maxLoan(base, world), fleet: [{ ...first(base), fuel: 0 }] };
+    expect(isStranded(g, first(g).id)).toBe(true);
+    expect(isStranded(base, first(base).id)).toBe(false);
   });
 });

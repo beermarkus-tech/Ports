@@ -63,21 +63,26 @@ export function shipValue(type: ShipTypeDef, age: number, condition: number): nu
   return Math.round((type.newPrice * ageShare * (0.55 + 0.45 * (condition / 100))) / 1000) * 1000;
 }
 
-export function currentShipValue(g: GameState, world: World): number {
-  return shipValue(world.shipTypes[g.ship.typeId], g.ship.age, g.ship.condition);
+export function stateValue(ship: Pick<ShipState, 'typeId' | 'age' | 'condition'>, world: World): number {
+  return shipValue(world.shipTypes[ship.typeId], ship.age, ship.condition);
 }
 
-/** What a broker pays for your current ship. */
-export function saleValue(g: GameState, world: World): number {
-  return Math.round((currentShipValue(g, world) * SHIP_TUNING.saleShare) / 1000) * 1000;
+/** What a broker pays for one of your ships. */
+export function saleValue(ship: Pick<ShipState, 'typeId' | 'age' | 'condition'>, world: World): number {
+  return Math.round((stateValue(ship, world) * SHIP_TUNING.saleShare) / 1000) * 1000;
 }
 
+export function fleetValue(g: GameState, world: World): number {
+  return g.fleet.reduce((s, ship) => s + stateValue(ship, world), 0);
+}
+
+/** The bank lends up to a share of the whole fleet's value. */
 export function maxLoan(g: GameState, world: World): number {
-  return Math.round(currentShipValue(g, world) * SHIP_TUNING.loanToValue / 1000) * 1000;
+  return Math.round(fleetValue(g, world) * SHIP_TUNING.loanToValue / 1000) * 1000;
 }
 
 export function netWorth(g: GameState, world: World): number {
-  return g.cash + currentShipValue(g, world) - g.loan;
+  return g.cash + fleetValue(g, world) - g.loan;
 }
 
 // ---------------------------------------------------------------- market
@@ -93,7 +98,7 @@ export function regenerateMarket(world: World, g: GameState, portId: string): vo
   const offers: ShipOffer[] = [];
   const types = Object.values(world.shipTypes);
   const n = randInt(g, T.usedOffersMin, T.usedOffersMax);
-  const taken = [g.ship.name];
+  const taken = g.fleet.map((s) => s.name);
   for (let i = 0; i < n; i++) {
     const type = pickWeighted(g, types, (t) => T.marketWeights[t.id] ?? 1);
     const age = Math.round(3 + 27 * rand(g) ** 0.8);
@@ -118,8 +123,7 @@ export interface PurchaseQuote {
   offer: ShipOffer;
   type: ShipTypeDef;
   price: number;
-  tradeIn: number;
-  /** Cash that leaves (negative: cash comes in, e.g. when downsizing). */
+  /** Cash that leaves. */
   fromCash: number;
   /** New borrowing needed to complete the deal. */
   borrow: number;
@@ -131,31 +135,23 @@ export interface PurchaseQuote {
 }
 
 /**
- * Quote for swapping the current ship for `offer`: the old ship is sold to a
- * broker, cash pays what it can, and the bank lends the rest within its limit.
+ * Quote for adding `offer` to the fleet: cash pays what it can, and the bank
+ * lends the rest, up to its share of the fleet's value including the new ship.
  */
 export function quotePurchase(g: GameState, offer: ShipOffer, world: World): PurchaseQuote {
   const type = world.shipTypes[offer.typeId];
-  const tradeIn = saleValue(g, world);
-  const loanLimit = Math.round(shipValue(type, offer.age, offer.condition) * SHIP_TUNING.loanToValue / 1000) * 1000;
-  let need = offer.price - tradeIn;
-  let loanAfter = g.loan;
-  if (loanAfter > loanLimit) {
-    // The new ship can't secure the whole existing loan: pay the excess down.
-    need += loanAfter - loanLimit;
-    loanAfter = loanLimit;
-  }
+  const newValue = shipValue(type, offer.age, offer.condition);
+  const loanLimit = Math.round((fleetValue(g, world) + newValue) * SHIP_TUNING.loanToValue / 1000) * 1000;
   const available = Math.max(0, g.cash);
-  const borrow = Math.max(0, need - available);
-  const fromCash = need - borrow;
-  loanAfter += borrow;
+  const borrow = Math.max(0, offer.price - available);
+  const fromCash = offer.price - borrow;
+  const loanAfter = g.loan + borrow;
   let blocked: string | null = null;
-  if (g.ship.cargo.length > 0) blocked = 'Deliver or unload your cargo first.';
-  else if (loanAfter > loanLimit) {
-    blocked = `The bank lends at most ${Math.round(SHIP_TUNING.loanToValue * 100)}% of the ship's value. You're ${
+  if (loanAfter > loanLimit) {
+    blocked = `The bank lends at most ${Math.round(SHIP_TUNING.loanToValue * 100)}% of your fleet's value. You're ${
       '$' + (loanAfter - loanLimit).toLocaleString('en-US')} short.`;
   }
-  return { offer, type, price: offer.price, tradeIn, fromCash, borrow, loanAfter, loanLimit, blocked };
+  return { offer, type, price: offer.price, fromCash, borrow, loanAfter, loanLimit, blocked };
 }
 
 /** The goods a port exports that this ship type can carry. */

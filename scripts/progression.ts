@@ -31,13 +31,13 @@ for (let s = 1; s <= seeds; s++) {
       upgraded = true;
       firstUpgradeLeg.push(i);
       firstUpgradeDay.push(g.day);
-      firstTypes[g.ship.typeId] = (firstTypes[g.ship.typeId] ?? 0) + 1;
+      firstTypes[g.fleet[0].typeId] = (firstTypes[g.fleet[0].typeId] ?? 0) + 1;
     }
     if (worthAt[i]) worthAt[i].push(netWorth(g, world));
   }
   if (g.gameOver) bankrupt++;
   if (!upgraded) neverUpgraded++;
-  finalTypes[g.ship.typeId] = (finalTypes[g.ship.typeId] ?? 0) + 1;
+  finalTypes[g.fleet[0].typeId] = (finalTypes[g.fleet[0].typeId] ?? 0) + 1;
 }
 
 const sorted = (a: number[]) => [...a].sort((x, y) => x - y);

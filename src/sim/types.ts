@@ -59,15 +59,49 @@ export interface Contract {
 }
 
 export interface ShipState {
+  id: number;
   name: string;
   typeId: string;
+  /** The port the ship is in, or the port it last left while at sea. */
   location: string;
+  /** Fuel aboard (at sea: what it left with; see voyage for the arrival figure). */
   fuel: number;
   /** 0..100 */
   condition: number;
   /** Years. Older ships are slower, thirstier and break down more. */
   age: number;
   cargo: Contract[];
+  /** Set while the ship is at sea. */
+  voyage?: ActiveVoyage;
+  /** In dry dock until this day. */
+  busyUntil?: number;
+}
+
+/**
+ * A voyage in progress. Its course (storms, breakdowns, fuel burned) is worked
+ * out when the ship casts off; the world clock then plays it out.
+ */
+export interface ActiveVoyage {
+  from: string;
+  to: string;
+  path: string[];
+  distance: number;
+  departDay: number;
+  /** When the ship reaches the destination (after any delays at sea). */
+  seaArrivalDay: number;
+  /** When it has finished unloading and is ready for orders. */
+  arriveDay: number;
+  events: VoyageEvent[];
+  startFuel: number;
+  fuelAtArrival: number;
+  fuelUsed: number;
+  startCondition: number;
+  conditionAtArrival: number;
+  /** Breakdown repairs and emergency fuel, paid on arrival. */
+  eventCosts: number;
+  canalFees: number;
+  /** A strike delay has already been added on arrival. */
+  strikeApplied?: boolean;
 }
 
 /** A ship offered for sale in a port's market (new at shipyards, used anywhere). */
@@ -120,7 +154,10 @@ export interface OilMarket {
 export type VoyageEventKind = 'storm' | 'breakdown' | 'emergencyFuel' | 'strike';
 
 export interface VoyageEvent {
+  /** Day of the voyage (1 = first day). */
   day: number;
+  /** Absolute game day the event happens. */
+  atDay: number;
   kind: VoyageEventKind;
   text: string;
   delayDays: number;
@@ -134,6 +171,8 @@ export interface Delivery {
 }
 
 export interface VoyageReport {
+  shipId: number;
+  shipName: string;
   from: string;
   to: string;
   path: string[];
@@ -149,8 +188,7 @@ export interface VoyageReport {
   portFee: number;
   canalFees: number;
   eventCosts: number;
-  /** Loan and overdraft interest charged during the voyage (already taken from cash). */
-  interest: number;
+  /** Result of the leg: revenue minus upkeep, fees and event costs (fuel was paid when bunkering). */
   net: number;
   /** How the buyers' prices reacted to this delivery. */
   marketNotes: string[];
@@ -165,18 +203,19 @@ export interface LogEntry {
 }
 
 export interface GameState {
-  version: 3;
+  version: 4;
   rng: number;
   day: number;
   cash: number;
-  /** Outstanding bank loan, secured on the ship. */
+  /** Outstanding bank loan, secured on the fleet. */
   loan: number;
-  ship: ShipState;
+  fleet: ShipState[];
   ports: Record<string, PortState>;
   nextId: number;
   log: LogEntry[];
-  stats: { voyages: number; revenue: number; fuelSpent: number; delivered: number; interestPaid: number; shipsOwned: number };
-  lastVoyage?: VoyageReport;
+  stats: { voyages: number; revenue: number; fuelSpent: number; delivered: number; interestPaid: number; upkeepPaid: number; shipsOwned: number };
+  /** Arrival reports not yet shown to the player, oldest first. */
+  reports: VoyageReport[];
   gameOver?: string;
   /** Net-worth milestones reached, with the day each was reached. */
   milestones: { amount: number; day: number }[];

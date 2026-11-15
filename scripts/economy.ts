@@ -25,9 +25,9 @@ for (let s = 1; s <= seeds; s++) {
   const routes = new Map<string, number>();
   const seen = new Set<number>();
   for (let i = 0; i < legs && !g.gameOver; i++) {
-    const from = g.ship.location;
+    const from = g.fleet[0].location;
     g = botStep(g);
-    const key = `${from}>${g.lastVoyage!.to}`;
+    const key = `${from}>${g.reports[g.reports.length - 1]?.to}`;
     routes.set(key, (routes.get(key) ?? 0) + 1);
     oilMin = Math.min(oilMin, g.oil.index);
     oilMax = Math.max(oilMax, g.oil.index);
