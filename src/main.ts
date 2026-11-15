@@ -77,6 +77,8 @@ class App {
   private portScene!: PortScene;
   private portBtn!: HTMLButtonElement;
   private sunLon = 30;
+  /** Routes hidden from the map (tap the selected ship again to toggle). */
+  private routesHidden = false;
   private miniShown = false;
   /** A route being put together for a ship (stops in order), or null. */
   private routeDraft: { shipId: number; stops: string[]; repairBelow: number; mode: 'best' | 'loop' } | null = null;
@@ -119,7 +121,8 @@ class App {
 
     document.addEventListener('click', (ev) => {
       const t = (ev.target as HTMLElement).closest<HTMLElement>('[data-action]');
-      if (t && !t.hasAttribute('disabled')) this.handle(t.dataset.action!, t.dataset);
+      // Dropdowns act on 'change' (below); handling their click would redraw the panel and close them.
+      if (t && t.tagName !== 'SELECT' && !t.hasAttribute('disabled')) this.handle(t.dataset.action!, t.dataset);
     });
     document.addEventListener('change', (ev) => {
       const t = ev.target as HTMLSelectElement;
@@ -489,6 +492,10 @@ class App {
       this.activeId = id;
       this.dest = null;
       this.marketPort = null;
+      this.routesHidden = false;
+    } else if (!tab) {
+      // Tapping the selected ship again clears its route from the map (and again brings it back).
+      this.routesHidden = !this.routesHidden;
     }
     // A ship in port or dry dock is shown at its quay; one at sea on the map.
     this.view = atSea(this.ship()) ? 'map' : 'port';
@@ -501,6 +508,7 @@ class App {
     if (this.routeDraft?.shipId === ship.id) { this.addRouteStop(portId); return; }
     if (!isReady(this.g, ship)) return;
     this.dest = portId === ship.location ? null : portId;
+    this.routesHidden = false;
     this.tab = 'voyage';
     this.render();
   }
@@ -775,6 +783,11 @@ class App {
   private renderRoutes(): void {
     const ship = this.ship();
     const g = this.g;
+    if (this.routesHidden && !this.dest && this.routeDraft?.shipId !== ship.id) {
+      this.map.showRoutes(null, []);
+      this.portScene.showRoutes({ here: ship.voyage?.to ?? ship.location, primary: [], secondary: [] });
+      return;
+    }
     const path = (a: string, b: string) => (a === b ? null : routeFor(world, g, a, b)?.path ?? null);
     const some = (xs: (string[] | null)[]) => xs.filter((x): x is string[] => !!x);
     /** The legs of a route: in order and back to the start, or between every pair of ports. */
@@ -1141,19 +1154,17 @@ class App {
       <ul class="fleet-list">${rows}</ul>`;
   }
 
-  /** Arrivals of ships on routes don't stop the game: a toast and the coins instead of the report. */
+  /** Arrivals of ships on routes don't stop the game: just the payment on the map and the coins. */
   private drainAutoReports(): void {
     const autos = this.g.reports.filter((r) => r.auto);
     if (!autos.length) return;
     this.g = { ...this.g, reports: this.g.reports.filter((r) => !r.auto) };
     for (const r of autos) {
-      const port = world.ports[r.to].name;
       if (r.revenue > 0) {
         this.map.flashAt(this.map.portPosition(r.to), money(r.revenue, true), 'good');
         this.map.pulseAt(this.map.portPosition(r.to), 'good');
         sound.play('coins');
       }
-      this.toast(`↻ ${r.shipName} in ${port}: ${r.deliveries.length ? `delivered ${r.deliveries.length} lot${r.deliveries.length > 1 ? 's' : ''}, ` : ''}leg ${money(r.net, true)}.`, r.net >= 0 ? 'good' : 'bad');
     }
     saveGame(this.g);
   }
