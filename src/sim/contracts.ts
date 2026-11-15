@@ -5,7 +5,7 @@ import type { World } from './world';
 /** Balancing knobs for cargo pay. Kept together so they're easy to tune. */
 export const CONTRACT_TUNING = {
   /** Global multiplier on all cargo pay. The main balance dial. */
-  payScale: 1.3,
+  payScale: 1.6,
   /** Fixed share of the freight paid regardless of distance (loading/handling). */
   handlingNm: 500,
   /** Reference speed used to set deadlines, knots. */

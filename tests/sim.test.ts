@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { botStep } from '../src/sim/bot';
 import { latePayFactor } from '../src/sim/contracts';
 import {
-  ActionError, acceptContract, buyFuel, canCarry, newGame, planVoyage, repair, sail, shipType, unloadContract, waitDay,
+  ActionError, RULES, acceptContract, buyFuel, canCarry, isStranded, newGame, planVoyage, repair, sail, shipType,
+  unloadContract, waitDay,
 } from '../src/sim/game';
 import { getWorld } from '../src/sim/world';
 
@@ -121,6 +122,33 @@ describe('game', () => {
     expect(g.ship.condition).toBe(Math.floor(g0.ship.condition) + 20);
     expect(g.day).toBe(2);
     expect(g.cash).toBeLessThan(g0.cash);
+  });
+
+  it('lets you buy fuel on overdraft, up to the limit, and charges interest', () => {
+    let g = newGame(17);
+    g = { ...g, cash: 1000, ship: { ...g.ship, fuel: 0 } };
+    g = buyFuel(g, 50);
+    expect(g.ship.fuel).toBe(50);
+    expect(g.cash).toBeLessThan(0);
+    expect(g.cash).toBeGreaterThanOrEqual(-RULES.overdraftLimit);
+    const before = g.cash;
+    g = waitDay(g);
+    expect(g.cash).toBeLessThan(before - shipType(g).dailyCost); // upkeep plus interest
+    expect(g.gameOver).toBeUndefined();
+  });
+
+  it('goes bankrupt only past the overdraft limit', () => {
+    let g = newGame(19);
+    g = { ...g, cash: -RULES.overdraftLimit + 500 };
+    g = waitDay(g);
+    expect(g.gameOver).toMatch(/Bankrupt/);
+  });
+
+  it('ends the game when the ship is stranded', () => {
+    let g = newGame(23);
+    g = { ...g, cash: -RULES.overdraftLimit + 1000, ship: { ...g.ship, fuel: 0 } };
+    expect(isStranded(g)).toBe(true);
+    expect(isStranded(newGame(23))).toBe(false);
   });
 
   it('survives a long bot playthrough with consistent books', () => {

@@ -8,7 +8,7 @@ import type { Contract, Delivery, GameState, ShipTypeDef, VoyageEvent, VoyageRep
 import { getWorld, type Route, type World } from './world';
 
 export const RULES = {
-  startCash: 120_000,
+  startCash: 150_000,
   startPort: 'rotterdam',
   startFuel: 120,
   startCondition: 72,
@@ -24,6 +24,10 @@ export const RULES = {
   repairPointsPerDay: 10,
   fuelDrift: { reversion: 0.97, volatility: 0.012, limit: 0.3 },
   logLimit: 200,
+  /** The bank lets you go this far below zero before seizing the ship. */
+  overdraftLimit: 50_000,
+  /** Daily interest on a negative balance (about 18% a year). */
+  overdraftDailyRate: 0.0005,
 };
 
 export class ActionError extends Error {}
@@ -56,9 +60,28 @@ function log(g: GameState, text: string, amount?: number): void {
   if (g.log.length > RULES.logLimit) g.log.length = RULES.logLimit;
 }
 
-function checkEnd(g: GameState): void {
-  if (g.cash < 0 && !g.gameOver) {
-    g.gameOver = 'Bankrupt: the bank has seized your ship.';
+/** Cash available to spend, including the bank overdraft. */
+export function spendable(g: GameState): number {
+  return g.cash + RULES.overdraftLimit;
+}
+
+/** True when the ship can't reach any port, even after buying all the fuel it can afford. */
+export function isStranded(g: GameState, world: World = getWorld()): boolean {
+  const type = shipType(g, world);
+  const price = fuelPrice(g, g.ship.location, world);
+  const maxFuel = Math.min(type.bunkerCapacity, g.ship.fuel + Math.max(0, Math.floor(spendable(g) / price)));
+  return !world.portList.some((p) => {
+    const plan = planVoyage(g, p.id, world);
+    return plan !== null && plan.fuelNeeded <= maxFuel;
+  });
+}
+
+function checkEnd(g: GameState, world: World): void {
+  if (!g.gameOver && g.cash < -RULES.overdraftLimit) {
+    g.gameOver = 'Bankrupt: you went past your overdraft and the bank has seized your ship.';
+    log(g, g.gameOver);
+  } else if (!g.gameOver && isStranded(g, world)) {
+    g.gameOver = 'Stranded: there is not enough fuel or credit left to reach any port.';
     log(g, g.gameOver);
   }
   if (g.cash >= RULES.winCash && g.wonAt === undefined) {
@@ -67,17 +90,27 @@ function checkEnd(g: GameState): void {
   }
 }
 
-/** Advance the world clock by `days`, applying daily price drift at each day boundary. */
-function advanceClock(world: World, g: GameState, days: number): void {
+/**
+ * Advance the world clock by `days`, applying daily price drift (and overdraft
+ * interest) at each day boundary. Returns the interest charged.
+ */
+function advanceClock(world: World, g: GameState, days: number): number {
   const end = g.day + days;
   const { reversion, volatility, limit } = RULES.fuelDrift;
+  let interest = 0;
   for (let d = Math.floor(g.day) + 1; d <= end; d++) {
+    if (g.cash < 0) {
+      const i = Math.round(-g.cash * RULES.overdraftDailyRate);
+      g.cash -= i;
+      interest += i;
+    }
     for (const p of world.portList) {
       const ps = g.ports[p.id];
       ps.fuelDev = Math.max(-limit, Math.min(limit, ps.fuelDev * reversion + randNormal(g) * volatility));
     }
   }
   g.day = end;
+  return interest;
 }
 
 export function newGame(seed: number = Date.now() % 2 ** 31, world: World = getWorld()): GameState {
@@ -149,14 +182,14 @@ export function buyFuel(state: GameState, tons: number, world: World = getWorld(
   const type = shipType(g, world);
   const price = fuelPrice(g, g.ship.location, world);
   const space = type.bunkerCapacity - g.ship.fuel;
-  const affordable = Math.floor(g.cash / price);
+  const affordable = Math.floor(Math.max(0, spendable(g)) / price);
   const amount = Math.floor(Math.min(tons, space, affordable));
-  if (amount <= 0) throw new ActionError(space <= 0 ? 'Bunkers are full.' : 'Not enough cash for fuel.');
+  if (amount <= 0) throw new ActionError(space <= 0 ? 'Bunkers are full.' : 'Not enough cash or credit for fuel.');
   const cost = amount * price;
   g.ship.fuel += amount;
   g.cash -= cost;
   g.stats.fuelSpent += cost;
-  log(g, `Bunkered ${amount} t of fuel at $${price}/t.`, -cost);
+  log(g, `Bunkered ${amount} t of fuel at $${price}/t${g.cash < 0 ? ' (on overdraft)' : ''}.`, -cost);
   return g;
 }
 
@@ -174,13 +207,13 @@ export function repair(state: GameState, points: number, world: World = getWorld
   const q = repairQuote(g, points, world);
   if (q.points <= 0) throw new ActionError('Nothing to repair.');
   const upkeep = q.days * shipType(g, world).dailyCost;
-  if (q.cost + upkeep > g.cash) throw new ActionError('Not enough cash for that repair.');
+  if (q.cost + upkeep > spendable(g)) throw new ActionError('Not enough cash or credit for that repair.');
   g.cash -= q.cost + upkeep;
   g.ship.condition = Math.min(100, Math.floor(g.ship.condition) + q.points);
-  advanceClock(world, g, q.days);
+  const interest = advanceClock(world, g, q.days);
   churnBoard(world, g, g.ship.location);
-  log(g, `Dry dock: +${q.points}% condition in ${q.days} day(s).`, -(q.cost + upkeep));
-  checkEnd(g);
+  log(g, `Dry dock: +${q.points}% condition in ${q.days} day(s).`, -(q.cost + upkeep + interest));
+  checkEnd(g, world);
   return g;
 }
 
@@ -188,10 +221,10 @@ export function waitDay(state: GameState, world: World = getWorld()): GameState 
   const g = clone(state);
   const cost = shipType(g, world).dailyCost;
   g.cash -= cost;
-  advanceClock(world, g, 1);
+  const interest = advanceClock(world, g, 1);
   churnBoard(world, g, g.ship.location);
-  log(g, 'Waited a day in port for new offers.', -cost);
-  checkEnd(g);
+  log(g, 'Waited a day in port for new offers.', -(cost + interest));
+  checkEnd(g, world);
   return g;
 }
 
@@ -276,6 +309,7 @@ export function sail(state: GameState, dest: string, world: World = getWorld()):
   let remaining = plan.route.nm;
   let fuelUsed = 0;
   let eventCosts = 0;
+  let interest = 0;
   const startCondition = g.ship.condition;
   const dayLabel = () => Math.floor(g.day - departDay) + 1;
 
@@ -293,7 +327,7 @@ export function sail(state: GameState, dest: string, world: World = getWorld()):
       g.ship.fuel = Math.max(0, g.ship.fuel - idleFuel);
       fuelUsed += idleFuel;
       g.ship.condition = Math.max(0, g.ship.condition - randRange(g, 1, 3));
-      advanceClock(world, g, delay);
+      interest += advanceClock(world, g, delay);
     }
 
     const speedFactor = storm ? randRange(g, 0.45, 0.7) : 1;
@@ -320,18 +354,18 @@ export function sail(state: GameState, dest: string, world: World = getWorld()):
       eventCosts += cost;
       g.stats.fuelSpent += cost;
       g.ship.fuel += tons;
-      advanceClock(world, g, delay);
+      interest += advanceClock(world, g, delay);
     }
 
     g.ship.fuel -= burn;
     fuelUsed += burn;
     remaining -= dayDistance * frac;
     g.ship.condition = Math.max(0, g.ship.condition - RULES.wearPerDay * frac);
-    advanceClock(world, g, frac);
+    interest += advanceClock(world, g, frac);
   }
 
   const seaArrival = g.day;
-  advanceClock(world, g, RULES.portDays);
+  interest += advanceClock(world, g, RULES.portDays);
   g.ship.fuel = Math.max(0, Math.round(g.ship.fuel * 10) / 10);
   g.ship.condition = Math.round(g.ship.condition * 10) / 10;
   g.ship.location = dest;
@@ -357,7 +391,7 @@ export function sail(state: GameState, dest: string, world: World = getWorld()):
     from, to: dest, path: plan.route.path, distance: plan.route.nm,
     departDay, arriveDay: g.day, fuelUsed: Math.round(fuelUsed * 10) / 10,
     conditionLoss: Math.round((startCondition - g.ship.condition) * 10) / 10,
-    events, deliveries, revenue, upkeep, portFee: fee, canalFees: plan.canalFees, eventCosts, net,
+    events, deliveries, revenue, upkeep, portFee: fee, canalFees: plan.canalFees, eventCosts, interest, net: net - interest,
   };
   g.lastVoyage = report;
 
@@ -370,7 +404,7 @@ export function sail(state: GameState, dest: string, world: World = getWorld()):
     const late = d.lateDays > 0 ? ` (${Math.ceil(d.lateDays)} day(s) late)` : '';
     log(g, `Delivered ${world.goods[d.contract.good].name} to ${portName}${late}.`, d.paid);
   }
-  log(g, `Arrived in ${portName} after ${(g.day - departDay).toFixed(1)} days. Net for the leg: ${net >= 0 ? '+' : '-'}$${Math.abs(net).toLocaleString('en-US')}.`);
-  checkEnd(g);
+  log(g, `Arrived in ${portName} after ${(g.day - departDay).toFixed(1)} days. Net for the leg: ${report.net >= 0 ? '+' : '-'}$${Math.abs(report.net).toLocaleString('en-US')}.`);
+  checkEnd(g, world);
   return g;
 }

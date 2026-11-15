@@ -62,7 +62,12 @@ class App {
     const type = shipType(this.g);
     switch (action) {
       case 'tab': this.tab = data.tab as Tab; break;
-      case 'accept': this.act((g) => acceptContract(g, Number(data.id))); break;
+      case 'accept': {
+        const c = this.g.ports[this.g.ship.location].board.find((x) => x.id === Number(data.id));
+        // Pre-select where this cargo is going, so the plan is one tap away.
+        if (this.act((g) => acceptContract(g, Number(data.id))) && c && !this.dest) this.dest = c.dest;
+        break;
+      }
       case 'unload': this.act((g) => unloadContract(g, Number(data.id))); break;
       case 'fuel': {
         const amount = data.amount === 'fill' ? type.bunkerCapacity : Number(data.amount);
@@ -78,6 +83,16 @@ class App {
       case 'wait': this.act((g) => waitDay(g)); break;
       case 'dest': this.selectDest(data.id!); return;
       case 'sail': void this.sail(); return;
+      case 'bunker-sail': {
+        const plan = this.dest ? planVoyage(this.g, this.dest) : null;
+        if (!plan) break;
+        const target = Math.min(type.bunkerCapacity, Math.ceil(plan.fuelNeeded * 1.15));
+        if (this.act((g) => buyFuel(g, target - g.ship.fuel)) && this.g.ship.fuel >= plan.fuelNeeded) {
+          void this.sail();
+          return;
+        }
+        break;
+      }
       case 'close-report': $('#modal').hidden = true; break;
       case 'new-game':
         if (!this.g.gameOver && !confirm('Start a new game? Your current company will be lost.')) return;
@@ -151,9 +166,11 @@ class App {
     cash.classList.toggle('negative', g.cash < 0);
     const progress = Math.max(0, Math.min(1, g.cash / RULES.winCash));
     $('#goal-bar').style.width = `${progress * 100}%`;
-    $('#goal-text').textContent = g.wonAt !== undefined
-      ? `Goal reached on ${gameDate(g.wonAt)}`
-      : `Goal ${compactMoney(RULES.winCash)}`;
+    $('#goal-text').textContent = g.cash < 0
+      ? `Overdraft · limit ${compactMoney(RULES.overdraftLimit)} · 18%/yr`
+      : g.wonAt !== undefined
+        ? `Goal reached on ${gameDate(g.wonAt)}`
+        : `Goal ${compactMoney(RULES.winCash)}`;
   }
 
   private renderShipStrip(g: GameState): void {
@@ -245,7 +262,23 @@ class App {
       <p class="hint">Free hold space: <strong>${tons(free)}</strong>. Hover a contract to see its route; you can carry cargo for several ports at once.</p>
       ${board.length ? `<ul class="contracts">${board.map((c) => this.contractRow(g, c, 'board')).join('')}</ul>`
         : '<p class="empty">No cargo on offer. Wait a day or sail on.</p>'}
-      ${g.ship.cargo.length ? `<h3>In the hold</h3><ul class="contracts">${g.ship.cargo.map((c) => this.contractRow(g, c, 'hold')).join('')}</ul>` : ''}`;
+      ${g.ship.cargo.length ? `<h3>In the hold</h3><ul class="contracts">${g.ship.cargo.map((c) => this.contractRow(g, c, 'hold')).join('')}</ul>` : ''}
+      ${this.nextStepBar(g)}`;
+  }
+
+  /** Sticky bar under the contracts: one tap from loading cargo to planning the voyage. */
+  private nextStepBar(g: GameState): string {
+    if (g.ship.cargo.length === 0) return '';
+    const byDest = new Map<string, { lots: number; pay: number }>();
+    for (const c of g.ship.cargo) {
+      const d = byDest.get(c.dest) ?? { lots: 0, pay: 0 };
+      d.lots++;
+      d.pay += c.pay;
+      byDest.set(c.dest, d);
+    }
+    const buttons = [...byDest].sort((a, b) => b[1].pay - a[1].pay).map(([id, d]) =>
+      `<button class="btn primary" data-action="dest" data-id="${id}" data-hover-dest="${id}">Plan voyage → ${esc(world.ports[id].name)}<span>${d.lots} lot${d.lots > 1 ? 's' : ''} · ${compactMoney(d.pay)}</span></button>`).join('');
+    return `<div class="next-step">${buttons}</div>`;
   }
 
   private shipTab(g: GameState): string {
@@ -312,15 +345,34 @@ class App {
     const fuelValue = plan.fuelNeeded * price;
     const reserve = g.ship.fuel - plan.fuelNeeded;
     const undelivered = g.ship.cargo.filter((c) => c.dest !== plan.dest);
+    const type = shipType(g);
     const warnings: string[] = [];
-    if (!plan.inRange) warnings.push(`Beyond this ship's range (${plan.fuelNeeded} t needed, bunkers hold ${shipType(g).bunkerCapacity} t). Plan a stop on the way.`);
-    else if (plan.fuelShort > 0) warnings.push(`Short of fuel by ${Math.ceil(plan.fuelShort)} t. Bunker up first.`);
-    else if (reserve < plan.fuelNeeded * 0.12) warnings.push(`Thin reserve (${Math.floor(reserve)} t). A storm could leave you adrift.`);
+    if (!plan.inRange) warnings.push(`Beyond this ship's range (${plan.fuelNeeded} t needed, bunkers hold ${type.bunkerCapacity} t). Plan a stop on the way.`);
     for (const d of plan.deliveries) if (d.late) warnings.push(`${world.goods[d.contract.good].name} will arrive after its deadline.`);
     if (undelivered.length) warnings.push(`${undelivered.length} cargo lot(s) stay aboard for other ports.`);
     if (plan.deliveries.length === 0) warnings.push('Sailing in ballast: no cargo for this port.');
-    const canSail = plan.inRange && plan.fuelShort <= 0;
     const line = (label: string, v: number, cls = '') => `<div class="line ${cls}"><span>${label}</span><span>${money(v, true)}</span></div>`;
+
+    // Fuel, right here in the plan: no trip to the Ship tab needed.
+    const target = Math.min(type.bunkerCapacity, Math.ceil(plan.fuelNeeded * 1.15));
+    const topUp = Math.max(0, target - Math.floor(g.ship.fuel));
+    const short = plan.fuelShort > 0;
+    const fuelState = !plan.inRange ? 'bad' : short ? 'bad' : reserve < plan.fuelNeeded * 0.12 ? 'warn' : 'good';
+    const fuelText = !plan.inRange ? 'out of range'
+      : short ? `short by ${Math.ceil(plan.fuelShort)} t`
+        : `reserve ${Math.floor(reserve)} t${fuelState === 'warn' ? ', thin: a storm could leave you adrift' : ''}`;
+    const fuelBlock = `
+      <div class="fuel-row ${fuelState}">
+        <div><span class="lbl">Fuel</span> <strong>${Math.floor(g.ship.fuel)} t</strong> aboard · leg needs <strong>${plan.fuelNeeded} t</strong> · <em>${fuelText}</em></div>
+        ${plan.inRange && !short && topUp > 0 ? `<button class="btn small" data-action="fuel-for-leg">+${topUp} t reserve<span>${money(topUp * price)}</span></button>` : ''}
+      </div>`;
+
+    const loss = plan.estimatedNet < 0 ? ` <span>estimate ${money(plan.estimatedNet)}</span>` : '';
+    const sailButton = !plan.inRange
+      ? `<button class="btn primary wide" disabled>Out of range</button>`
+      : short
+        ? `<button class="btn primary wide ${loss ? 'loss' : ''}" data-action="bunker-sail">Bunker ${topUp} t (${money(topUp * price)}) &amp; cast off${loss}</button>`
+        : `<button class="btn primary wide ${loss ? 'loss' : ''}" data-action="sail">Cast off for ${esc(name)}${loss}</button>`;
     return `
       <section class="card plan">
         <h3>To ${esc(name)}</h3>
@@ -340,8 +392,9 @@ class App {
           <div class="line total ${plan.estimatedNet >= 0 ? 'good' : 'bad'}"><span>Estimated result</span><span>${money(plan.estimatedNet, true)}</span></div>
           <div class="line per-day"><span>per day</span><span>${money(plan.estimatedNet / (plan.seaDays + RULES.portDays), true)}</span></div>
         </div>
+        ${fuelBlock}
         ${warnings.length ? `<ul class="warnings">${warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
-        <button class="btn primary wide" data-action="sail" ${canSail ? '' : 'disabled'}>Cast off for ${esc(name)}</button>
+        ${sailButton}
       </section>`;
   }
 
@@ -377,6 +430,7 @@ class App {
         ${line('Port fee', -r.portFee)}
         ${r.canalFees ? line('Canal dues', -r.canalFees) : ''}
         ${r.eventCosts ? line('Repairs & emergencies', -r.eventCosts, 'bad') : ''}
+        ${r.interest ? line('Overdraft interest', -r.interest, 'bad') : ''}
         <div class="line total ${r.net >= 0 ? 'good' : 'bad'}"><span>Result for the leg</span><span>${money(r.net, true)}</span></div>
       </div>
       <div class="line memo"><span>Memo: fuel burned, paid when bunkering</span><span>≈ ${money(r.fuelUsed * fuelPrice(this.g, r.from))}</span></div>

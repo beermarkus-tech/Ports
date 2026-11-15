@@ -2,6 +2,7 @@
 // that the economy is playable, and as a baseline for later automation.
 
 import { acceptContract, buyFuel, canCarry, fuelPrice, planVoyage, repair, sail, shipType, waitDay } from './game';
+import { pickWeighted, rand } from './rng';
 import type { Contract, GameState } from './types';
 import { getWorld, type World } from './world';
 
@@ -75,4 +76,39 @@ export function botStep(g: GameState, world: World = getWorld()): GameState {
     return sail(g, fallback.dest, world);
   }
   return sail(g, best.dest, world);
+}
+
+/**
+ * A "casual" captain, closer to a person playing for the first time: picks an
+ * attractive-looking contract (big pay, not best $/day), adds anything else
+ * going the same way, tops up fuel wherever it is, never waits for offers.
+ */
+export function casualStep(g: GameState, world: World = getWorld()): GameState {
+  const type = shipType(g, world);
+  if (g.ship.condition < 50 && g.cash > 60_000) g = repair(g, 80 - g.ship.condition, world);
+  const here = g.ship.location;
+  const options = g.ports[here].board.filter((c) => {
+    const plan = planVoyage(g, c.dest, world);
+    return canCarry(g, c, world) === null && plan !== null && plan.fuelNeeded * 1.1 <= type.bunkerCapacity;
+  });
+  let dest: string;
+  if (g.ship.cargo.length > 0 && rand(g) < 0.5) {
+    dest = g.ship.cargo[0].dest; // deliver what's aboard
+  } else if (options.length > 0) {
+    dest = pickWeighted(g, options, (c) => c.pay).dest;
+  } else {
+    // Nothing loadable: head for the nearest port in ballast.
+    dest = world.portList.filter((p) => p.id !== here)
+      .map((p) => planVoyage(g, p.id, world)!).sort((a, b) => a.route.nm - b.route.nm)[0].dest;
+  }
+  for (const c of options.filter((c) => c.dest === dest)) {
+    if (canCarry(g, c, world) === null) g = acceptContract(g, c.id, world);
+  }
+  const plan = planVoyage(g, dest, world)!;
+  const want = Math.min(type.bunkerCapacity, Math.ceil(plan.fuelNeeded * 1.15)) - g.ship.fuel;
+  if (want > 1) {
+    try { g = buyFuel(g, want, world); } catch { /* broke */ }
+  }
+  if (g.ship.fuel < plan.fuelNeeded) return { ...g, gameOver: 'Stranded without fuel or money.' };
+  return sail(g, dest, world);
 }

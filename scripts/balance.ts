@@ -1,12 +1,14 @@
 // Headless balance check: run the greedy bot over many seeds and print how
 // the economy behaves. Usage: npm run balance [-- legs seeds]
 
-import { botStep, evaluateOptions } from '../src/sim/bot';
-import { newGame } from '../src/sim/game';
+import { botStep, casualStep, evaluateOptions } from '../src/sim/bot';
+import { RULES, newGame } from '../src/sim/game';
 import { getWorld } from '../src/sim/world';
 
 const legs = Number(process.argv[2] ?? 10);
 const seeds = Number(process.argv[3] ?? 50);
+const policy = process.argv[4] === 'casual' ? 'casual' : 'greedy';
+const step = policy === 'casual' ? casualStep : botStep;
 const world = getWorld();
 
 const finalCash: number[] = [];
@@ -26,7 +28,7 @@ for (let s = 1; s <= seeds; s++) {
     if (opts.length > 1 && opts[0].score > 0 && opts[1].score > opts[0].score * 0.85) closeCalls++;
     options++;
     const from = g.ship.location;
-    g = botStep(g);
+    g = step(g);
     const r = g.lastVoyage!;
     const key = `${world.ports[from].name} → ${world.ports[r.to].name}`;
     routes.set(key, (routes.get(key) ?? 0) + 1);
@@ -38,14 +40,14 @@ for (let s = 1; s <= seeds; s++) {
   }
   if (g.gameOver) bankrupt++;
   finalCash.push(g.cash);
-  perDay.push((g.cash - 120_000) / Math.max(1, g.day));
+  perDay.push((g.cash - RULES.startCash) / Math.max(1, g.day));
 }
 
 const sorted = (a: number[]) => [...a].sort((x, y) => x - y);
 const pct = (a: number[], p: number) => sorted(a)[Math.floor((a.length - 1) * p)];
 const fmt = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
 
-console.log(`Greedy bot, ${legs} legs × ${seeds} seeds`);
+console.log(`${policy} bot, ${legs} legs × ${seeds} seeds`);
 console.log(`Final cash  p10 ${fmt(pct(finalCash, 0.1))}  median ${fmt(pct(finalCash, 0.5))}  p90 ${fmt(pct(finalCash, 0.9))}`);
 console.log(`Profit/day  p10 ${fmt(pct(perDay, 0.1))}  median ${fmt(pct(perDay, 0.5))}  p90 ${fmt(pct(perDay, 0.9))}`);
 console.log(`Bankrupt: ${bankrupt}/${seeds}   Close calls (2nd best within 15%): ${((closeCalls / options) * 100).toFixed(0)}%`);

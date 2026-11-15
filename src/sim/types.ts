@@ -99,6 +99,8 @@ export interface VoyageReport {
   portFee: number;
   canalFees: number;
   eventCosts: number;
+  /** Overdraft interest charged during the voyage (already taken from cash). */
+  interest: number;
   net: number;
 }
 

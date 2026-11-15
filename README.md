@@ -1,7 +1,7 @@
 # Deadweight (working title)
 
 A calm, strategic shipping-company game built as a PWA. Start with one tired
-old coaster and $120,000, carry cargo between ten world ports, and grow from
+old coaster and $150,000, carry cargo between ten world ports, and grow from
 there. The full design is in [docs/design.md](docs/design.md).
 
 **Status: Phase 1 (numbers prototype).** One ship, ten ports, cargo contracts,
@@ -51,8 +51,9 @@ Source: GitHub Actions**.
 4. At sea you may hit storms (slower, more fuel, hull wear) or breakdowns
    (delay and repair bill). If you cut your fuel reserve too fine, a bunker
    tender rescues you at 2.5× the price.
-5. Late deliveries lose 15% of their pay for each day late. Going below $0
-   means bankruptcy.
+5. Late deliveries lose 15% of their pay for each day late. The bank allows an
+   overdraft of up to −$50,000 (about 18% a year interest) for fuel and repairs.
+   Past that limit, or with no way to reach any port, the game is over.
 
 ## Code layout
 
@@ -81,6 +82,14 @@ Suez closing and the route going round the Cape).
 - Fuel prices, port fees, and what each port produces and demands are in `src/data/ports.json`.
 - Storms, breakdowns, wear and the start conditions are in `RULES` in `src/sim/game.ts`.
 
-Run `npm run balance` after changes. At the current settings a greedy bot ends
-10 legs with a median of about $490k (p10 about $230k), with a few bankruptcies
-from bad luck.
+Run `scripts/compare.sh` after changes. It plays 300 games with two bots: a
+**greedy** one (best net $/day every time) and a **casual** one (picks a
+juicy-looking contract, never waits for offers), which is closer to a person
+playing for the first time. Current results after 10 legs, from $150k:
+
+| Bot    | p10   | median | p90    | bankrupt |
+|--------|-------|--------|--------|----------|
+| greedy | $680k | $970k  | $1.26M | 0%       |
+| casual | $245k | $610k  | $940k  | ~3%      |
+
+The aim is for casual play to make steady money and good play to make a lot more.
