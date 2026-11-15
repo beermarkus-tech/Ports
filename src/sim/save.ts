@@ -1,4 +1,6 @@
+import { regenerateBoard } from './contracts';
 import { newOilMarket } from './economy';
+import { randRange } from './rng';
 import { regenerateMarket } from './ships';
 import type { GameState, ShipState } from './types';
 import { getWorld } from './world';
@@ -50,7 +52,20 @@ export function migrate(raw: unknown): GameState | null {
       if (g.ports[p.id] && !g.ports[p.id].market.length) regenerateMarket(world, g, p.id);
     }
   }
-  return g.version === 4 ? (g as GameState) : null;
+  if (g.version !== 4) return null;
+  addNewPorts(g as GameState);
+  return g as GameState;
+}
+
+/** Ports added to the world after this game was started get a market, offers and a fuel price. */
+function addNewPorts(g: GameState): void {
+  const world = getWorld();
+  const added = world.portList.filter((p) => !g.ports[p.id]);
+  for (const p of added) g.ports[p.id] = { fuelDev: randRange(g, -0.12, 0.12), board: [], market: [], prices: {} };
+  for (const p of added) {
+    regenerateBoard(world, g, p.id);
+    regenerateMarket(world, g, p.id);
+  }
 }
 
 export function loadGame(storage: Storage | undefined = globalThis.localStorage): GameState | null {

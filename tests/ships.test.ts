@@ -171,4 +171,19 @@ describe('boards and saves', () => {
     expect(m.ports.rotterdam.market.length).toBeGreaterThan(0);
     expect(m.ports.rotterdam.prices).toEqual({});
   });
+
+  it('gives a save from a smaller world the ports added since, and keeps running', () => {
+    const fresh = newGame(4);
+    const g = JSON.parse(JSON.stringify(fresh));
+    const old = ['rotterdam', 'newyork', 'santos', 'lagos', 'capetown', 'mumbai', 'singapore', 'shanghai', 'sydney', 'genoa'];
+    for (const id of Object.keys(g.ports)) if (!old.includes(id)) delete g.ports[id];
+    const m = migrate(g)!;
+    for (const p of world.portList) {
+      expect(m.ports[p.id], p.id).toBeDefined();
+      expect(m.ports[p.id].market.length, p.id).toBeGreaterThan(0);
+    }
+    expect(m.ports.houston.board.length).toBeGreaterThan(0);
+    expect(m.ports.rotterdam.board).toEqual(fresh.ports.rotterdam.board);
+    expect(() => advance(m, 30)).not.toThrow();
+  });
 });
