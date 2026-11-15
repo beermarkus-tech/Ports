@@ -341,3 +341,19 @@ body:not(.sailing) .ship { display: none; }
 }
 .icon-btn.has-update { border-color: var(--accent-2); }
 .toast.info { border-left-color: var(--accent); }
+
+/* ---------------------------------------------------------------- market comparison */
+.o-stats em { font-style: normal; font-size: 11px; font-weight: 650; white-space: nowrap; margin-top: 1px; }
+.o-stats em.up { color: var(--good); }
+.o-stats em.up::before { content: '▲ '; font-size: 8px; vertical-align: 1px; }
+.o-stats em.down { color: var(--bad); }
+.o-stats em.down::before { content: '▼ '; font-size: 8px; vertical-align: 1px; }
+.o-stats em.same { color: var(--muted); font-weight: 500; }
+.offer.mine { border-color: var(--accent); }
+@media (min-width: 901px) {
+  /* Keep your ship in view while scrolling through the offers. */
+  .offer.mine { position: sticky; top: -12px; z-index: 2; box-shadow: 0 6px 16px rgb(0 0 0 / 0.3); }
+}
+.mine-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--accent); font-weight: 700; margin-right: 4px; }
+.o-price-note { display: block; font-size: 10.5px; font-weight: 500; color: var(--muted); text-align: right; }
+.tag.bad { color: var(--bad); }

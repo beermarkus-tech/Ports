@@ -398,23 +398,36 @@ class App {
       <p class="hint">Your ${esc(shipType(g).name)} would fetch <strong>${money(saleValue(g, world))}</strong> as a trade-in.
         ${port.shipyard ? '' : `New ships are built in ${esc(yards)}.`} Each port's market changes after every voyage.</p>
       ${g.ship.cargo.length ? '<p class="hint warn-text">Deliver or unload your cargo before swapping ships.</p>' : ''}
+      ${this.yourShipCard(g)}
       <ul class="offers">${offers.map((o) => this.offerCard(g, o)).join('')}</ul>`;
+  }
+
+  /** Your current ship in the same layout as the offers, as the baseline for comparing. */
+  private yourShipCard(g: GameState): string {
+    const type = shipType(g);
+    return `
+      <section class="offer mine">
+        <div class="o-head">
+          <div><span class="mine-label">Your ship</span> <strong>${esc(type.name)}</strong> <span class="sub">${esc(g.ship.name)}</span></div>
+          <div class="o-price">${compactMoney(saleValue(g, world))}<span class="o-price-note">trade-in</span></div>
+        </div>
+        <div class="o-tags">
+          <span class="tag">${Math.floor(g.ship.age)} years old</span>
+          <span class="tag ${g.ship.condition < 50 ? 'warn' : ''}">condition ${Math.round(g.ship.condition)}%</span>
+          <span class="tag">${type.cargoClasses.join(' & ')}</span>
+        </div>
+        ${statBoxes(shipSpec(type, g.ship))}
+      </section>`;
   }
 
   private offerCard(g: GameState, offer: ShipOffer): string {
     const cur = shipType(g);
     const type = world.shipTypes[offer.typeId];
     const q = quotePurchase(g, offer, world);
-    const spec = (t: ShipTypeDef, ship: { age: number; condition: number }) => {
-      const speed = effectiveSpeed(t, ship);
-      const burn = t.fuelPerDay * consumptionFactor(ship);
-      return { cap: t.capacity, speed, burn, upkeep: t.dailyCost, range: (t.bunkerCapacity / burn) * speed * 24 };
-    };
-    const a = spec(cur, g.ship);
-    const b = spec(type, offer);
-    const cmp = (label: string, val: string, better: boolean | null) =>
-      `<div><span>${label}</span><strong class="${better === null ? '' : better ? 'up' : 'down'}">${val}</strong></div>`;
-    const same = (x: number, y: number) => Math.abs(x - y) / Math.max(1, Math.abs(y)) < 0.02;
+    const a = shipSpec(cur, g.ship);
+    const b = shipSpec(type, offer);
+    const gained = type.cargoClasses.filter((c) => !cur.cargoClasses.includes(c));
+    const lost = cur.cargoClasses.filter((c) => !type.cargoClasses.includes(c));
     const afterCash = g.cash - q.fromCash;
     const running = Math.round(type.bunkerCapacity * fuelPrice(g, g.ship.location) + type.dailyCost * 30);
     const tight = !q.blocked && afterCash < running;
@@ -429,15 +442,11 @@ class App {
           <span class="tag ${offer.age === 0 ? 'good' : ''}">${offer.age === 0 ? 'New' : `${offer.age} years old`}</span>
           <span class="tag ${offer.condition < 50 ? 'warn' : ''}">condition ${offer.condition}%</span>
           <span class="tag">${type.cargoClasses.join(' & ')}</span>
+          ${gained.map((c) => `<span class="tag good">+ ${c}</span>`).join('')}
+          ${lost.map((c) => `<span class="tag bad">no ${c}</span>`).join('')}
         </div>
         <p class="o-desc">${esc(type.description)}</p>
-        <div class="o-stats">
-          ${cmp('Hold', b.cap >= 10_000 ? `${b.cap / 1000}k t` : tons(b.cap), same(b.cap, a.cap) ? null : b.cap > a.cap)}
-          ${cmp('Speed', `${b.speed.toFixed(1)} kn`, same(b.speed, a.speed) ? null : b.speed > a.speed)}
-          ${cmp('Burn', `${b.burn.toFixed(0)} t/day`, same(b.burn, a.burn) ? null : b.burn < a.burn)}
-          ${cmp('Upkeep', `$${(b.upkeep / 1000).toFixed(1)}k/d`, same(b.upkeep, a.upkeep) ? null : b.upkeep < a.upkeep)}
-          ${cmp('Range', `${(b.range / 1000).toFixed(1)}k nm`, same(b.range, a.range) ? null : b.range > a.range)}
-        </div>
+        ${statBoxes(b, a)}
         <details class="o-deal">
           <summary>${q.blocked ? 'Can’t buy yet' : q.borrow > 0 ? `Buy with a ${compactMoney(q.borrow)} loan` : 'Buy outright'} · details</summary>
           <div class="ledger">
@@ -593,6 +602,41 @@ function toast(text: string, kind: 'good' | 'bad' | 'info', ms = 3200): void {
   t.textContent = text;
   $('#toasts').appendChild(t);
   setTimeout(() => t.remove(), ms);
+}
+
+interface ShipSpec { cap: number; speed: number; burn: number; upkeep: number; range: number }
+
+/** A ship's effective numbers, after age and wear. */
+function shipSpec(t: ShipTypeDef, ship: { age: number; condition: number }): ShipSpec {
+  const speed = effectiveSpeed(t, ship);
+  const burn = t.fuelPerDay * consumptionFactor(ship);
+  return { cap: t.capacity, speed, burn, upkeep: t.dailyCost, range: (t.bunkerCapacity / burn) * speed * 24 };
+}
+
+/**
+ * The five stat boxes. With `base` (your ship), each box also shows the
+ * difference: green when it's an improvement, red when it's worse.
+ */
+function statBoxes(s: ShipSpec, base?: ShipSpec): string {
+  const sign = (d: number) => (d > 0 ? '+' : '−');
+  const kTons = (n: number) => (Math.abs(n) >= 10_000 ? `${(Math.abs(n) / 1000).toFixed(Math.abs(n) % 1000 ? 1 : 0)}k t` : tons(Math.abs(n)));
+  const rows: { label: string; val: string; key: keyof ShipSpec; higherIsBetter: boolean; diff: (d: number) => string }[] = [
+    { label: 'Hold', key: 'cap', val: kTons(s.cap), higherIsBetter: true, diff: (d) => `${sign(d)}${kTons(d)}` },
+    { label: 'Speed', key: 'speed', val: `${s.speed.toFixed(1)} kn`, higherIsBetter: true, diff: (d) => `${sign(d)}${Math.abs(d).toFixed(1)} kn` },
+    { label: 'Burn', key: 'burn', val: `${s.burn.toFixed(s.burn < 10 ? 1 : 0)} t/day`, higherIsBetter: false,
+      diff: (d) => `${sign(d)}${Math.abs(d).toFixed(Math.abs(d) < 10 ? 1 : 0)} t` },
+    { label: 'Upkeep', key: 'upkeep', val: `$${(s.upkeep / 1000).toFixed(1)}k/d`, higherIsBetter: false,
+      diff: (d) => `${sign(d)}$${(Math.abs(d) / 1000).toFixed(1)}k` },
+    { label: 'Range', key: 'range', val: `${(s.range / 1000).toFixed(1)}k nm`, higherIsBetter: true,
+      diff: (d) => `${sign(d)}${(Math.abs(d) / 1000).toFixed(1)}k nm` },
+  ];
+  return `<div class="o-stats">${rows.map((r) => {
+    if (!base) return `<div><span>${r.label}</span><strong>${r.val}</strong></div>`;
+    const d = s[r.key] - base[r.key];
+    const same = Math.abs(d) / Math.max(1e-9, Math.abs(base[r.key])) < 0.02;
+    const cls = same ? 'same' : (d > 0) === r.higherIsBetter ? 'up' : 'down';
+    return `<div><span>${r.label}</span><strong>${r.val}</strong><em class="${cls}">${same ? 'same' : r.diff(d)}</em></div>`;
+  }).join('')}</div>`;
 }
 
 function gauge(label: string, frac: number, text: string, cls: string): string {
