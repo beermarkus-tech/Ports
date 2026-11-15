@@ -4,7 +4,7 @@ A calm, strategic shipping-company game built as a PWA. Start with one tired
 old coaster and $150,000, carry cargo between ten world ports, and grow from
 there. The full design is in [docs/design.md](docs/design.md).
 
-**Status: Phase 2 (ships and market).** Six ship classes, a second-hand market
+**Status: Phase 2 (ships and market).** Twelve ship classes, a second-hand market
 in every port and new ships at three shipyards, bank loans, and age effects, on
 top of Phase 1: ten ports, cargo contracts, bunker fuel, wear and repairs,
 storms and breakdowns, an animated world map, and autosave.
@@ -56,9 +56,10 @@ close the app. The game saves after every action, so reloading is always safe.
 4. At sea you may hit storms (slower, more fuel, hull wear) or breakdowns
    (delay and repair bill). If you cut your fuel reserve too fine, a bunker
    tender rescues you at 2.5× the price.
-5. Late deliveries lose 15% of their pay for each day late. The bank allows an
-   overdraft of up to −$50,000 (about 18% a year interest) for fuel and repairs.
-   Past that limit, or with no way to reach any port, the game is over.
+5. Late deliveries lose 15% of their pay for each day late. If cash runs out,
+   the bank automatically extends your ship loan (up to 60% of the ship's value,
+   8% a year), then allows an overdraft of up to −$50,000 (18% a year). Past
+   that, or with no way to reach any port, the game is over.
 6. **Market:** trade your ship in for a better one. Every port has a few used
    ships; Rotterdam, Shanghai and Singapore also build new ones. The bank lends
    up to 60% of a ship's value at 8% a year. Keep cash for fuel: a bigger ship's
@@ -67,14 +68,26 @@ close the app. The game saves after every action, so reloading is always safe.
 
 ### Ship classes
 
-| Class          | Hold     | Speed | Carries          | New price |
-|----------------|----------|-------|------------------|-----------|
-| Coaster        | 3,000 t  | 10 kn | bulk, general    | $1.5M     |
-| General cargo  | 8,000 t  | 13 kn | bulk, general    | $4.5M     |
-| Reefer         | 5,000 t  | 17 kn | reefer, general  | $7.5M     |
-| Bulk carrier   | 25,000 t | 14 kn | bulk             | $9M       |
-| Product tanker | 30,000 t | 14 kn | liquid           | $10M      |
-| Container ship | 15,000 t | 20 kn | general, reefer  | $15M      |
+The main ladder carries bulk and general cargo; specialists sit beside it.
+
+| Class               | Hold     | Speed | Carries          | New price |
+|---------------------|----------|-------|------------------|-----------|
+| Coaster             | 3,000 t  | 10 kn | bulk, general    | $1.5M     |
+| Large coaster       | 5,000 t  | 11 kn | bulk, general    | $3.0M     |
+| General cargo ship  | 8,000 t  | 13 kn | bulk, general    | $5.5M     |
+| Handysize freighter | 15,000 t | 14 kn | bulk, general    | $8.5M     |
+| Bulk carrier        | 25,000 t | 14 kn | bulk             | $6.0M     |
+| Panamax bulker      | 45,000 t | 14 kn | bulk             | $13M      |
+| Small reefer        | 3,000 t  | 16 kn | reefer, general  | $3.8M     |
+| Reefer              | 5,000 t  | 17 kn | reefer, general  | $7.2M     |
+| Product tanker      | 12,000 t | 13 kn | liquid           | $3.5M     |
+| Crude tanker        | 40,000 t | 14 kn | liquid           | $12M      |
+| Container feeder    | 6,000 t  | 17 kn | general, reefer  | $7.0M     |
+| Container ship      | 15,000 t | 20 kn | general, reefer  | $13M      |
+
+Prices are set so a new ship pays for itself in roughly 280 days (coaster) to
+600 days (container ship) of typical trading (`npx tsx scripts/ships.ts`).
+Tweak ships with `python3 scripts/tune-ships.py id.field=value ...`.
 
 Stats are for a typical 15-year-old ship. Newer ships are a little faster, more
 economical and more reliable; older ones are worse. Values drop about 7% a year.
@@ -119,7 +132,7 @@ Current results (net worth, starting at about $380k including the old coaster):
 
 | Bot    | after 10 legs | after 40 legs | after 80 legs | bankrupt (80 legs) |
 |--------|---------------|---------------|---------------|--------------------|
-| greedy | $1.1M         | $7.0M         | $15.8M        | 0%                 |
-| casual | $0.8M         | $2.8M         | $5.8M         | ~8%                |
+| greedy | $1.3M         | $9.4M         | $22M          | 0%                 |
+| casual | $0.8M         | $3.2M         | $8.1M         | ~6%                |
 
 The aim is for casual play to make steady money and good play to make a lot more.

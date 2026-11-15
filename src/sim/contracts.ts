@@ -39,7 +39,13 @@ export interface ContractKind {
   classes: CargoClass[];
   /** A big shipment (from lotMax up to bigLotMax) instead of an ordinary lot. */
   big?: boolean;
+  /** Cap the lot at this many tons (so the smallest ships always find work). */
+  maxTons?: number;
 }
+
+/** Every board offers at least this many lots that fit the starting coaster. */
+const SMALL_LOT_TONS = 3000;
+const SMALL_LOTS_MIN = 2;
 
 const DRY: CargoClass[] = ['bulk', 'general'];
 
@@ -50,7 +56,8 @@ export function generateContract(
   const T = CONTRACT_TUNING;
   const options = origin.produces.filter((p) => {
     const good = world.goods[p.good];
-    return kind.classes.includes(good.cargoClass) && (!kind.big || good.bigLotMax !== undefined);
+    return kind.classes.includes(good.cargoClass) && (!kind.big || good.bigLotMax !== undefined) &&
+      (kind.maxTons === undefined || good.lotMin <= kind.maxTons);
   });
   if (options.length === 0) return null;
   const produced = pickWeighted(g, options, (p) => p.weight);
@@ -65,7 +72,7 @@ export function generateContract(
 
   const raw = kind.big && good.bigLotMax !== undefined
     ? randRange(g, good.lotMax, good.bigLotMax)
-    : randRange(g, good.lotMin, good.lotMax);
+    : randRange(g, good.lotMin, Math.min(good.lotMax, kind.maxTons ?? Infinity));
   const tons = Math.round(raw / 50) * 50;
   const slack = randRange(g, T.slackMin, T.slackMax);
   const refDays = nm / (T.referenceSpeedKn * 24);
@@ -107,9 +114,13 @@ export function regenerateBoard(world: World, g: GameState, portId: string): voi
   const T = CONTRACT_TUNING;
   const board: Contract[] = [];
   addContracts(world, g, portId, board, randInt(g, T.boardSizeMin, T.boardSizeMax), { classes: DRY });
+  const small = board.filter((c) => c.tons <= SMALL_LOT_TONS).length;
+  if (small < SMALL_LOTS_MIN) {
+    addContracts(world, g, portId, board, SMALL_LOTS_MIN - small, { classes: DRY, maxTons: SMALL_LOT_TONS });
+  }
   addContracts(world, g, portId, board, randInt(g, T.bigLotsMin, T.bigLotsMax), { classes: DRY, big: true });
   // Liquid cargo comes in volume where it's produced; refrigerated cargo less so.
-  for (const [cls, min, max] of [['liquid', 2, 4], ['reefer', T.specialtyMin, T.specialtyMax]] as [CargoClass, number, number][]) {
+  for (const [cls, min, max] of [['liquid', 3, 5], ['reefer', T.specialtyMin, T.specialtyMax]] as [CargoClass, number, number][]) {
     const n = randInt(g, min, max);
     for (let i = 0; i < n; i++) addContracts(world, g, portId, board, 1, { classes: [cls], big: rand(g) < 0.3 });
   }

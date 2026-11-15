@@ -15,10 +15,13 @@ export const SHIP_TUNING = {
   loanToValue: 0.6,
   /** Loan interest, per day (8% a year). */
   loanDailyRate: 0.08 / 365,
-  usedOffersMin: 2,
-  usedOffersMax: 4,
+  usedOffersMin: 3,
+  usedOffersMax: 5,
   /** How common each class is on the second-hand market. */
-  marketWeights: { coaster: 4, general: 3, reefer: 2, bulker: 2, tanker: 1.5, container: 1 } as Record<string, number>,
+  marketWeights: {
+    coaster: 4, largecoaster: 3.5, general: 3, handysize: 2.5, bulker: 2, panamax: 1,
+    smallreefer: 2, reefer: 1.5, smalltanker: 2, tanker: 1, feeder: 1.5, container: 1,
+  } as Record<string, number>,
 };
 
 const NAMES = [
@@ -153,4 +156,12 @@ export function quotePurchase(g: GameState, offer: ShipOffer, world: World): Pur
       '$' + (loanAfter - loanLimit).toLocaleString('en-US')} short.`;
   }
   return { offer, type, price: offer.price, tradeIn, fromCash, borrow, loanAfter, loanLimit, blocked };
+}
+
+/** The goods a port exports that this ship type can carry. */
+export function exportsFor(world: World, type: ShipTypeDef, portId: string): string[] {
+  return world.ports[portId].produces
+    .map((p) => world.goods[p.good])
+    .filter((good) => type.cargoClasses.includes(good.cargoClass))
+    .map((good) => good.id);
 }

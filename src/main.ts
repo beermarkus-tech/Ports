@@ -5,7 +5,7 @@ import {
 } from './sim/game';
 import { clearSave, loadGame, saveGame } from './sim/save';
 import {
-  SHIP_TUNING, consumptionFactor, currentShipValue, effectiveSpeed, maxLoan, netWorth, quotePurchase, saleValue,
+  SHIP_TUNING, consumptionFactor, currentShipValue, effectiveSpeed, exportsFor, maxLoan, netWorth, quotePurchase, saleValue,
 } from './sim/ships';
 import type { Contract, GameState, ShipOffer, ShipTypeDef } from './sim/types';
 import { getWorld } from './sim/world';
@@ -374,7 +374,7 @@ class App {
           <button class="btn small" data-action="repay" data-amount="100000" ${g.loan > 0 && g.cash > 0 ? '' : 'disabled'}>Repay<span>${money(Math.min(100_000, g.loan, Math.max(0, g.cash)))}</span></button>
           <button class="btn small" data-action="repay" data-amount="all" ${g.loan > 0 && g.cash > 0 ? '' : 'disabled'}>Repay all<span>${money(Math.min(g.loan, Math.max(0, g.cash)))}</span></button>
         </div>
-        <p class="hint">Separately, the bank covers an overdraft of up to ${money(RULES.overdraftLimit)} at 18% a year.</p>
+        <p class="hint">If you run short of cash, the bank automatically extends this loan up to the limit. Beyond that there's an overdraft of up to ${money(RULES.overdraftLimit)} at 18% a year.</p>
       </section>
       <section class="card">
         <h3>The ${esc(g.ship.name)}</h3>
@@ -467,15 +467,19 @@ class App {
     const here = g.ship.location;
     const rows = world.portList.filter((p) => p.id !== here).map((p) => ({ p, plan: planVoyage(g, p.id)! }))
       .sort((a, b) => a.plan.route.nm - b.plan.route.nm);
+    const type = shipType(g);
     const list = rows.map(({ p, plan }) => {
       const cargo = plan.deliveries.length;
+      const exports = exportsFor(world, type, p.id).map((id) => world.goods[id].name.toLowerCase());
       return `<li class="dest ${p.id === this.dest ? 'selected' : ''} ${plan.inRange ? '' : 'out'}" data-action="dest" data-id="${p.id}" data-hover-dest="${p.id}">
         <span class="d-name">${esc(p.name)}${cargo ? ` <span class="tag good">${cargo} to deliver</span>` : ''}</span>
         <span class="d-meta">${plan.route.nm.toLocaleString('en-US')} nm · ${days(plan.seaDays)} · ${plan.inRange ? `${plan.fuelNeeded} t` : 'out of range'}</span>
+        <span class="d-exports ${exports.length ? '' : 'none'}">${exports.length ? `Exports for you: ${esc(exports.join(', '))}` : 'Exports nothing this ship can carry'}</span>
       </li>`;
     }).join('');
     return `
       ${this.dest ? this.planCard(g, planVoyage(g, this.dest)!) : '<p class="hint">Pick a destination below or tap a port on the map.</p>'}
+      <p class="hint">"Exports for you" lists what each port ships that your ${esc(type.name.toLowerCase())} can carry.</p>
       <ul class="dests">${list}</ul>`;
   }
 

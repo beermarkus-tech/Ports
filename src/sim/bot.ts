@@ -2,9 +2,10 @@
 // that the economy is playable, and as a baseline for later automation.
 
 import {
-  acceptContract, buyFuel, buyShip, canCarry, fuelPrice, planVoyage, repair, repayLoan, sail, shipType, waitDay,
+  acceptContract, buyFuel, buyShip, canCarry, fuelPrice, planVoyage, repair, repayLoan, sail, shipType, spendable,
+  waitDay,
 } from './game';
-import { SHIP_TUNING, quotePurchase } from './ships';
+import { SHIP_TUNING, exportsFor, quotePurchase } from './ships';
 import { pickWeighted, rand } from './rng';
 import type { Contract, GameState, ShipTypeDef } from './types';
 import { getWorld, type World } from './world';
@@ -59,7 +60,10 @@ export function botStep(g: GameState, world: World = getWorld()): GameState {
     g = waitDay(g, world);
     [best] = evaluateOptions(g, world);
   }
-  for (const c of best.load) g = acceptContract(g, c.id, world);
+  // Only commit to cargo if we can pay for the fuel to deliver it.
+  const trialPlan = planVoyage({ ...g, ship: { ...g.ship, cargo: [...g.ship.cargo, ...best.load] } }, best.dest, world)!;
+  const fuelCost = Math.max(0, trialPlan.fuelNeeded - g.ship.fuel) * fuelPrice(g, g.ship.location, world);
+  if (fuelCost <= spendable(g)) for (const c of best.load) g = acceptContract(g, c.id, world);
   const plan = planVoyage(g, best.dest, world)!;
   const target = Math.min(type.bunkerCapacity, Math.ceil(plan.fuelNeeded * 1.2));
   const cheap = fuelPrice(g, g.ship.location, world) < 380;
@@ -105,9 +109,13 @@ export function casualStep(g: GameState, world: World = getWorld()): GameState {
   } else if (options.length > 0) {
     dest = pickWeighted(g, options, (c) => c.pay).dest;
   } else {
-    // Nothing loadable: head for the nearest port in ballast.
-    dest = world.portList.filter((p) => p.id !== here)
-      .map((p) => planVoyage(g, p.id, world)!).sort((a, b) => a.route.nm - b.route.nm)[0].dest;
+    // Nothing loadable: head in ballast for the nearest port that exports cargo this ship can carry.
+    const reachable = world.portList.filter((p) => p.id !== here)
+      .map((p) => planVoyage(g, p.id, world)!)
+      .filter((pl) => pl.fuelNeeded * 1.1 <= type.bunkerCapacity)
+      .sort((a, b) => a.route.nm - b.route.nm);
+    const useful = reachable.filter((pl) => exportsFor(world, type, pl.dest).length > 0);
+    dest = (useful[0] ?? reachable[0]).dest;
   }
   for (const c of options.filter((c) => c.dest === dest)) {
     if (canCarry(g, c, world) === null) g = acceptContract(g, c.id, world);

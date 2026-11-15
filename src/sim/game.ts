@@ -61,9 +61,23 @@ function log(g: GameState, text: string, amount?: number): void {
   if (g.log.length > RULES.logLimit) g.log.length = RULES.logLimit;
 }
 
-/** Cash available to spend, including the bank overdraft. */
-export function spendable(g: GameState): number {
-  return g.cash + RULES.overdraftLimit;
+/** Cash available to spend: cash, unused ship-loan credit, and the overdraft. */
+export function spendable(g: GameState, world: World = getWorld()): number {
+  return g.cash + Math.max(0, maxLoan(g, world) - g.loan) + RULES.overdraftLimit;
+}
+
+/**
+ * When cash goes negative, the bank first covers the shortfall from the ship
+ * loan (cheaper than the overdraft), as far as the loan limit allows.
+ */
+function coverShortfall(g: GameState, world: World): void {
+  if (g.cash >= 0) return;
+  const room = maxLoan(g, world) - g.loan;
+  const draw = Math.min(room, Math.ceil(-g.cash / 1000) * 1000);
+  if (draw <= 0) return;
+  g.loan += draw;
+  g.cash += draw;
+  log(g, `The bank covered your shortfall: your ship loan grew by $${draw.toLocaleString('en-US')}.`);
 }
 
 /** True when the ship can't reach any port, even after buying all the fuel it can afford. */
@@ -78,8 +92,9 @@ export function isStranded(g: GameState, world: World = getWorld()): boolean {
 }
 
 function checkEnd(g: GameState, world: World): void {
+  coverShortfall(g, world);
   if (!g.gameOver && g.cash < -RULES.overdraftLimit) {
-    g.gameOver = 'Bankrupt: you went past your overdraft and the bank has seized your ship.';
+    g.gameOver = 'Bankrupt: your loan and overdraft are used up, and the bank has seized your ship.';
     log(g, g.gameOver);
   } else if (!g.gameOver && isStranded(g, world)) {
     g.gameOver = 'Stranded: there is not enough fuel or credit left to reach any port.';
@@ -200,14 +215,15 @@ export function buyFuel(state: GameState, tons: number, world: World = getWorld(
   const type = shipType(g, world);
   const price = fuelPrice(g, g.ship.location, world);
   const space = type.bunkerCapacity - g.ship.fuel;
-  const affordable = Math.floor(Math.max(0, spendable(g)) / price);
+  const affordable = Math.floor(Math.max(0, spendable(g, world)) / price);
   const amount = Math.floor(Math.min(tons, space, affordable));
   if (amount <= 0) throw new ActionError(space <= 0 ? 'Bunkers are full.' : 'Not enough cash or credit for fuel.');
   const cost = amount * price;
   g.ship.fuel += amount;
   g.cash -= cost;
   g.stats.fuelSpent += cost;
-  log(g, `Bunkered ${amount} t of fuel at $${price}/t${g.cash < 0 ? ' (on overdraft)' : ''}.`, -cost);
+  log(g, `Bunkered ${amount} t of fuel at $${price}/t${g.cash < 0 ? ' (on credit)' : ''}.`, -cost);
+  coverShortfall(g, world);
   return g;
 }
 
@@ -225,7 +241,7 @@ export function repair(state: GameState, points: number, world: World = getWorld
   const q = repairQuote(g, points, world);
   if (q.points <= 0) throw new ActionError('Nothing to repair.');
   const upkeep = q.days * shipType(g, world).dailyCost;
-  if (q.cost + upkeep > spendable(g)) throw new ActionError('Not enough cash or credit for that repair.');
+  if (q.cost + upkeep > spendable(g, world)) throw new ActionError('Not enough cash or credit for that repair.');
   g.cash -= q.cost + upkeep;
   g.ship.condition = Math.min(100, Math.floor(g.ship.condition) + q.points);
   const interest = advanceClock(world, g, q.days);

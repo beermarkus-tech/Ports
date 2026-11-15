@@ -5,6 +5,7 @@ import {
   ActionError, RULES, acceptContract, buyFuel, canCarry, isStranded, newGame, planVoyage, repair, sail, shipType,
   unloadContract, waitDay,
 } from '../src/sim/game';
+import { maxLoan } from '../src/sim/ships';
 import { getWorld } from '../src/sim/world';
 
 const world = getWorld();
@@ -124,9 +125,19 @@ describe('game', () => {
     expect(g.cash).toBeLessThan(g0.cash);
   });
 
-  it('lets you buy fuel on overdraft, up to the limit, and charges interest', () => {
+  it('covers a shortfall from the ship loan before using the overdraft', () => {
     let g = newGame(17);
     g = { ...g, cash: 1000, ship: { ...g.ship, fuel: 0 } };
+    g = buyFuel(g, 50);
+    expect(g.ship.fuel).toBe(50);
+    expect(g.cash).toBeGreaterThanOrEqual(0);
+    expect(g.loan).toBeGreaterThan(0);
+    expect(g.log[0].text).toMatch(/covered your shortfall/);
+  });
+
+  it('uses the overdraft once the loan is maxed, and charges interest on it', () => {
+    let g = newGame(17);
+    g = { ...g, cash: 1000, loan: maxLoan(g, world), ship: { ...g.ship, fuel: 0 } };
     g = buyFuel(g, 50);
     expect(g.ship.fuel).toBe(50);
     expect(g.cash).toBeLessThan(0);
@@ -137,18 +148,19 @@ describe('game', () => {
     expect(g.gameOver).toBeUndefined();
   });
 
-  it('goes bankrupt only past the overdraft limit', () => {
-    let g = newGame(19);
-    g = { ...g, cash: -RULES.overdraftLimit + 500 };
-    g = waitDay(g);
-    expect(g.gameOver).toMatch(/Bankrupt/);
+  it('goes bankrupt only when loan and overdraft are used up', () => {
+    const base = newGame(19);
+    const covered = waitDay({ ...base, cash: -RULES.overdraftLimit + 500 });
+    expect(covered.gameOver).toBeUndefined(); // the ship loan covers it
+    const broke = waitDay({ ...base, cash: -RULES.overdraftLimit + 500, loan: maxLoan(base, world) });
+    expect(broke.gameOver).toMatch(/Bankrupt/);
   });
 
   it('ends the game when the ship is stranded', () => {
-    let g = newGame(23);
-    g = { ...g, cash: -RULES.overdraftLimit + 1000, ship: { ...g.ship, fuel: 0 } };
+    const base = newGame(23);
+    const g = { ...base, cash: -RULES.overdraftLimit + 1000, loan: maxLoan(base, world), ship: { ...base.ship, fuel: 0 } };
     expect(isStranded(g)).toBe(true);
-    expect(isStranded(newGame(23))).toBe(false);
+    expect(isStranded(base)).toBe(false);
   });
 
   it('survives a long bot playthrough with consistent books', () => {
