@@ -42,9 +42,8 @@ const AMBIENT_CLOUDS = [
 
 /** How the cargo board can be ordered. Cargo a ship can't take always goes last. */
 const CONTRACT_SORTS = {
-  pay: { label: 'Pay (highest first)', compare: (a: Contract, b: Contract) => b.pay - a.pay },
-  dest: { label: 'Destination (A–Z)', compare: (a: Contract, b: Contract) => world.ports[a.dest].name.localeCompare(world.ports[b.dest].name) },
-  good: { label: 'Cargo (A–Z)', compare: (a: Contract, b: Contract) => world.goods[a.good].name.localeCompare(world.goods[b.good].name) },
+  pay: { label: 'Pay, highest first', compare: (a: Contract, b: Contract) => b.pay - a.pay },
+  dest: { label: 'Destination A–Z', compare: (a: Contract, b: Contract) => world.ports[a.dest].name.localeCompare(world.ports[b.dest].name) },
 };
 type ContractSort = keyof typeof CONTRACT_SORTS;
 const SORT_KEY = 'deadweight.contractSort';
@@ -100,12 +99,9 @@ class App {
     });
     document.addEventListener('change', (ev) => {
       const t = ev.target as HTMLSelectElement;
+      // A native dropdown can swallow the pointerup, so don't wait for it here.
+      this.pointerDown = false;
       if (t.dataset.action === 'market-port') { this.marketPort = t.value; this.renderPanel(); }
-      if (t.dataset.action === 'contract-sort') {
-        this.contractSort = t.value as ContractSort;
-        try { localStorage.setItem(SORT_KEY, this.contractSort); } catch { /* not saved, still works */ }
-        this.renderPanel();
-      }
     });
     document.addEventListener('mouseover', (ev) => {
       const row = (ev.target as HTMLElement).closest<HTMLElement>('[data-hover-dest]');
@@ -114,7 +110,9 @@ class App {
     });
     // Don't redraw under the player's finger mid-click.
     document.addEventListener('pointerdown', () => { this.pointerDown = true; sound.unlock(); });
-    document.addEventListener('pointerup', () => { this.pointerDown = false; if (this.panelDirty) this.render(); });
+    const released = () => { this.pointerDown = false; if (this.panelDirty) this.render(); };
+    document.addEventListener('pointerup', released);
+    document.addEventListener('pointercancel', released);
     document.addEventListener('keydown', (ev) => {
       if (ev.code === 'Space' && !(ev.target instanceof HTMLInputElement) && $('#modal').hidden) {
         ev.preventDefault();
@@ -346,6 +344,11 @@ class App {
         this.act((g) => ({ ...g, fleet: g.fleet.map((s) => (s.id === id ? { ...s, waitUntil: undefined } : s)) }));
         this.pause('decision');
         break;
+      case 'contract-sort':
+        this.contractSort = this.contractSort === 'pay' ? 'dest' : 'pay';
+        try { localStorage.setItem(SORT_KEY, this.contractSort); } catch { /* not saved, still works */ }
+        this.renderPanel();
+        return;
       case 'mute':
         sound.setEnabled(!sound.enabled);
         this.renderMute();
@@ -723,10 +726,8 @@ class App {
     const order = CONTRACT_SORTS[this.contractSort].compare;
     const board = [...g.ports[port.id].board].sort((a, b) =>
       Number(canCarry(ship, a) !== null) - Number(canCarry(ship, b) !== null) || order(a, b) || b.pay - a.pay);
-    const sortPick = `<label class="port-pick">Sort by <select data-action="contract-sort">${
-      (Object.keys(CONTRACT_SORTS) as ContractSort[]).map((k) =>
-        `<option value="${k}"${k === this.contractSort ? ' selected' : ''}>${CONTRACT_SORTS[k].label}</option>`).join('')
-    }</select></label>`;
+    const sortPick = `<div class="sort-row">Sorted by <button class="btn small" data-action="contract-sort"
+      title="Switch the order">${CONTRACT_SORTS[this.contractSort].label} ⇅</button></div>`;
     const free = typeOf(ship).capacity - cargoTons(ship);
     return `
       <header class="port-head">

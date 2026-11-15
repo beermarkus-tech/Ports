@@ -556,3 +556,4 @@ h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 }
 .wait-bar .btn-row { margin: 0; }
 .wait-bar.waiting { background: var(--surface-2); border-color: var(--line); color: var(--muted); }
+.sort-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); margin: 8px 0; }
