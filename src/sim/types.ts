@@ -75,6 +75,8 @@ export interface ShipState {
   voyage?: ActiveVoyage;
   /** In dry dock until this day. */
   busyUntil?: number;
+  /** Ordered to wait in port until this day (a very large number = laid up until further notice). */
+  waitUntil?: number;
 }
 
 /**

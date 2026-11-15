@@ -547,3 +547,12 @@ h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 @keyframes cash-down { 20% { transform: scale(0.96); color: var(--warn); } }
 #cash { display: inline-block; transform-origin: right center; }
 #mute { font-size: 16px; }
+
+/* ---------------------------------------------------------------- orders: wait in port */
+.wait-bar {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px;
+  margin: 8px 0 12px; padding: 10px 12px; border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-2)); border: 1px solid var(--accent); font-size: 13px;
+}
+.wait-bar .btn-row { margin: 0; }
+.wait-bar.waiting { background: var(--surface-2); border-color: var(--line); color: var(--muted); }

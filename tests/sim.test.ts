@@ -218,3 +218,35 @@ describe('bank and bankruptcy', () => {
     expect(isStranded(base, first(base).id)).toBe(false);
   });
 });
+
+describe('orders and the clock', () => {
+  it('counts a ship in port without orders as needing a decision', async () => {
+    const { LAID_UP, isWaiting, needsDecision, shipsNeedingDecision, waitInPort } = await import('../src/sim/game');
+    const g = newGame(31);
+    const ship = first(g);
+    expect(needsDecision(g, ship)).toBe(true);
+    expect(shipsNeedingDecision(g)).toHaveLength(1);
+    const waiting = waitInPort(g, ship.id, 5);
+    expect(isWaiting(waiting, first(waiting))).toBe(true);
+    expect(needsDecision(waiting, first(waiting))).toBe(false);
+    expect(daysUntilNextShip(waiting)).toBeCloseTo(5, 6);
+    // When the wait is over, the ship needs orders again.
+    const later = advance(waiting, 5.001);
+    expect(needsDecision(later, first(later))).toBe(true);
+    // Laid up: no end date, so the clock never stops for it.
+    const laidUp = waitInPort(g, ship.id, Infinity);
+    expect(first(laidUp).waitUntil).toBe(LAID_UP);
+    expect(daysUntilNextShip(laidUp)).toBeNull();
+    expect(needsDecision(advance(laidUp, 100), first(advance(laidUp, 100)))).toBe(false);
+  });
+
+  it('clears a wait order when the ship casts off', async () => {
+    const { needsDecision, waitInPort } = await import('../src/sim/game');
+    let g = newGame(32);
+    const id = first(g).id;
+    g = buyFuel(waitInPort(g, id, Infinity), id, 1e6);
+    g = sail(g, id, 'genoa');
+    expect(first(g).waitUntil).toBeUndefined();
+    expect(needsDecision(g, first(g))).toBe(false);
+  });
+});

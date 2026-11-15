@@ -1,9 +1,10 @@
 import './ui/style.css';
 import { activeEvents, closedCanals, priceLevel, routeFor } from './sim/economy';
 import {
-  ActionError, RULES, acceptContract, advance, atSea, borrow, buyFuel, buyShip, canCarry, cargoTons, dailyUpkeep,
-  fuelPrice, getShip, inDryDock, isReady, newGame, nextMilestone, planVoyage, portFee, repair, repairQuote, repayLoan,
-  sail, saleQuote, sellShip, takeReport, typeOf, unloadContract, voyageProgress, type VoyagePlan,
+  ActionError, LAID_UP, RULES, acceptContract, advance, atSea, borrow, buyFuel, buyShip, canCarry, cargoTons,
+  dailyUpkeep, daysUntilNextShip, fuelPrice, getShip, inDryDock, isReady, isWaiting, needsDecision, newGame,
+  nextMilestone, planVoyage, portFee, repair, repairQuote, repayLoan, sail, saleQuote, sellShip,
+  shipsNeedingDecision, takeReport, typeOf, unloadContract, voyageProgress, waitInPort, type VoyagePlan,
 } from './sim/game';
 import { clearSave, loadGame, saveGame } from './sim/save';
 import {
@@ -19,8 +20,8 @@ import { sound } from './ui/sound';
 import { BUILD, consumeUpdatedFrom, initServiceWorker, isNewer, latestBuild, reloadApp } from './ui/update';
 
 type Tab = 'contracts' | 'voyage' | 'ship' | 'market' | 'log';
-/** Why the clock is stopped: the player paused, an arrival needs attention, or a fresh start. */
-type PauseReason = 'user' | 'arrival' | 'start';
+/** Why the clock is stopped: the player paused it, or a ship (or an arrival report) needs the player. */
+type PauseReason = 'user' | 'arrival' | 'decision';
 
 const world = getWorld();
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
@@ -46,7 +47,7 @@ class App {
   private hoverDest: string | null = null;
   private marketPort: string | null = null;
   private paused = true;
-  private pausedBy: PauseReason | null = 'start';
+  private pausedBy: PauseReason | null = 'decision';
   private speed = 1;
   private pointerDown = false;
   private panelDirty = false;
@@ -111,13 +112,36 @@ class App {
 
   private tick(): void {
     if (this.paused || !$('#modal').hidden || this.g.gameOver) return;
+    // Nothing moves while a ship is waiting for orders.
+    if (shipsNeedingDecision(this.g).length) {
+      this.pause('decision');
+      this.goToNextDecision();
+      return;
+    }
     const before = this.g;
     this.sceneTime += (TICK_MS / 1000) * this.speed;
-    this.g = advance(this.g, (DAYS_PER_SECOND * this.speed * TICK_MS) / 1000);
+    // Stop exactly when the next ship arrives, leaves dry dock or ends its wait.
+    let step = (DAYS_PER_SECOND * this.speed * TICK_MS) / 1000;
+    const next = daysUntilNextShip(this.g);
+    if (next !== null) step = Math.min(step, next + 1e-6);
+    this.g = advance(this.g, Math.max(1e-6, step));
     this.flashEvents(before, this.g);
     if (this.g.reports.length) {
       this.pause('arrival');
       this.showNextReport();
+      return;
+    }
+    const freed = shipsNeedingDecision(this.g).filter((s) => !shipsNeedingDecision(before).some((b) => b.id === s.id));
+    if (freed.length) {
+      saveGame(this.g);
+      this.pause('decision');
+      for (const s of freed) {
+        const wasDocked = before.fleet.find((b) => b.id === s.id)?.busyUntil !== undefined;
+        this.toast(`${s.name} ${wasDocked ? 'is out of dry dock' : 'has finished waiting'} in ${world.ports[s.location].name} and needs orders.`, 'good');
+      }
+      sound.play('bell');
+      this.goToNextDecision();
+      this.render();
       return;
     }
     if (Math.floor(this.g.day) !== Math.floor(before.day) || performance.now() - this.lastSave > 5000) {
@@ -159,6 +183,15 @@ class App {
 
   private resume(): void {
     if (this.g.gameOver) return;
+    const waiting = shipsNeedingDecision(this.g);
+    if (waiting.length) {
+      // The clock can't run while a ship waits for orders: take the player to it.
+      this.pause('decision');
+      this.goToNextDecision();
+      this.toast(`The ${waiting[0].name} needs orders first: cast off, or let it wait in port.`, 'bad');
+      this.render();
+      return;
+    }
     this.paused = false;
     this.pausedBy = null;
     this.renderTime();
@@ -167,6 +200,28 @@ class App {
   private togglePause(): void {
     if (this.paused) this.resume();
     else this.pause('user');
+  }
+
+  /** Select the next ship that needs orders (keeps the current one if it does). */
+  private goToNextDecision(): void {
+    const waiting = shipsNeedingDecision(this.g);
+    if (!waiting.length || waiting.some((s) => s.id === this.activeId)) return;
+    this.activeId = waiting[0].id;
+    this.dest = null;
+    this.marketPort = null;
+    if (this.tab === 'log' || this.tab === 'market') this.tab = 'contracts';
+  }
+
+  /** After an order: on to the next ship that needs one, or let the clock run again. */
+  private afterDecision(): void {
+    const waiting = shipsNeedingDecision(this.g);
+    if (waiting.length) {
+      this.goToNextDecision();
+      const next = waiting.find((s) => s.id === this.activeId) ?? waiting[0];
+      this.toast(`Next: the ${next.name} in ${world.ports[next.location].name} needs orders.`, 'good');
+    } else if (this.paused && this.pausedBy !== 'user' && !this.g.reports.length) {
+      this.resume();
+    }
   }
 
   // ------------------------------------------------------------ actions
@@ -237,6 +292,7 @@ class App {
           sound.play('coins');
           this.toast(`Sold the ${ship.name}.`, 'good');
           this.selectShip(this.g.fleet[0].id);
+          this.afterDecision();
           return;
         }
         break;
@@ -253,6 +309,18 @@ class App {
         }
         break;
       }
+      case 'wait': {
+        const days = data.days === 'layup' ? Infinity : Number(data.days);
+        if (this.act((g) => waitInPort(g, id, days))) {
+          this.dest = null;
+          this.afterDecision();
+        }
+        break;
+      }
+      case 'stop-wait':
+        this.act((g) => ({ ...g, fleet: g.fleet.map((s) => (s.id === id ? { ...s, waitUntil: undefined } : s)) }));
+        this.pause('decision');
+        break;
       case 'mute':
         sound.setEnabled(!sound.enabled);
         this.renderMute();
@@ -271,7 +339,7 @@ class App {
         this.tab = 'contracts';
         $('#modal').hidden = true;
         saveGame(this.g);
-        this.pause('start');
+        this.pause('decision');
         break;
     }
     this.render();
@@ -302,8 +370,7 @@ class App {
     sound.play('horn');
     this.dest = null;
     this.tab = 'voyage';
-    // Casting off restarts a clock that was stopped for an arrival or the start of the game.
-    if (this.paused && this.pausedBy !== 'user' && !this.g.reports.length) this.resume();
+    this.afterDecision();
     this.render();
   }
 
@@ -359,9 +426,12 @@ class App {
     document.querySelectorAll<HTMLElement>('[data-action=speed]').forEach((b) => {
       b.classList.toggle('active', Number(b.dataset.speed) === this.speed);
     });
-    const state = this.paused
-      ? (this.pausedBy === 'start' ? 'Paused: give orders, then cast off' : this.pausedBy === 'arrival' ? 'Paused for an arrival' : 'Paused')
-      : `${this.speed} day${this.speed > 1 ? 's' : ''} per second`;
+    const waiting = shipsNeedingDecision(this.g);
+    const state = !this.paused
+      ? `${this.speed} day${this.speed > 1 ? 's' : ''} per second`
+      : waiting.length
+        ? `Waiting for your orders: ${waiting.map((s) => s.name).join(', ')}`
+        : this.pausedBy === 'arrival' ? 'Paused for an arrival' : 'Paused';
     $('#clock-state').textContent = state;
     $('.time-ctl').dataset.state = state; // shown beside the buttons on phones
   }
@@ -433,7 +503,12 @@ class App {
       return { text: `→ ${world.ports[ship.voyage.to].name} · ${days(Math.ceil(left * 10) / 10)}`, state: 'sea', progress: voyageProgress(g, ship) };
     }
     if (inDryDock(g, ship)) return { text: `Dry dock, ${world.ports[ship.location].name} · ${days(Math.ceil((ship.busyUntil! - g.day) * 10) / 10)}`, state: 'busy' };
-    return { text: `Ready in ${world.ports[ship.location].name}`, state: 'ready' };
+    if (isWaiting(g, ship)) {
+      return ship.waitUntil! >= LAID_UP
+        ? { text: `Laid up in ${world.ports[ship.location].name}`, state: 'busy' }
+        : { text: `Waiting in ${world.ports[ship.location].name} · ${days(Math.ceil((ship.waitUntil! - g.day) * 10) / 10)}`, state: 'busy' };
+    }
+    return { text: `Needs orders in ${world.ports[ship.location].name}`, state: 'ready' };
   }
 
   private renderFleet(): void {
@@ -444,7 +519,7 @@ class App {
       const st = this.shipStatus(s);
       return `<button class="ship-chip ${st.state} ${s.id === ship.id ? 'selected' : ''}" data-action="select-ship" data-id="${s.id}">
         <span class="sc-art">${shipSideView(typeOf(s), 64)}</span>
-        <span class="sc-name">${esc(s.name)}${st.state === 'ready' ? '<span class="sc-ready">Ready</span>' : ''}</span>
+        <span class="sc-name">${esc(s.name)}${st.state === 'ready' ? '<span class="sc-ready">Orders</span>' : ''}</span>
         <span class="sc-status">${esc(st.text)}</span>
         ${st.progress !== undefined ? `<span class="sc-bar"><span style="width:${(st.progress * 100).toFixed(1)}%"></span></span>` : ''}
       </button>`;
@@ -627,12 +702,33 @@ class App {
       <header class="port-head">
         <div><h2>${esc(port.name)}</h2><span class="sub">${esc(ship.name)} · port fee ${money(portFee(g, ship, port.id))} · fuel ${money(fuelPrice(g, port.id))}/t</span></div>
       </header>
+      ${this.waitControls()}
       <p class="hint">Free hold space: <strong>${tons(free)}</strong>. New offers appear as days pass. Hover a contract to see its route.</p>
       ${this.priceHints(port.id)}
       ${board.length ? `<ul class="contracts">${board.map((c) => this.contractRow(c, 'board')).join('')}</ul>`
         : '<p class="empty">No cargo on offer right now. Let some time pass, or sail on.</p>'}
       ${hold}
       ${this.nextStepBar()}`;
+  }
+
+  /** The two kinds of order a ship in port can get: cast off (Voyage tab), or wait here. */
+  private waitControls(): string {
+    const g = this.g;
+    const ship = this.ship();
+    if (isWaiting(g, ship)) {
+      const until = ship.waitUntil! >= LAID_UP ? 'laid up until further notice' : `waiting until ${gameDate(ship.waitUntil!)}`;
+      return `<div class="wait-bar waiting"><span>The ${esc(ship.name)} is ${until}. You can still load it and cast off any time.</span>
+        <button class="btn small" data-action="stop-wait">Stop waiting</button></div>`;
+    }
+    if (!needsDecision(g, ship)) return '';
+    return `<div class="wait-bar">
+      <span><strong>${esc(ship.name)} needs orders.</strong> Cast off from the Voyage tab, or wait here:</span>
+      <span class="btn-row">
+        <button class="btn small" data-action="wait" data-days="1" title="New offers may appear; prices move">1 day</button>
+        <button class="btn small" data-action="wait" data-days="5">5 days</button>
+        <button class="btn small ghost" data-action="wait" data-days="layup" title="Park the ship until you give it new orders. Upkeep still runs.">Lay up</button>
+      </span>
+    </div>`;
   }
 
   /** Sticky bar under the contracts: one tap from loading cargo to planning the voyage. */
@@ -866,6 +962,7 @@ class App {
     }).join('');
     return `
       ${this.newsCard()}
+      ${this.waitControls()}
       ${this.dest ? this.planCard(planVoyage(g, ship.id, this.dest)!) : `<p class="hint">Where should the ${esc(ship.name)} go? Pick a destination below or tap a port on the map.</p>`}
       <p class="hint">"Exports for you" lists what each port ships that your ${esc(type.name.toLowerCase())} can carry.</p>
       <ul class="dests">${list}</ul>`;

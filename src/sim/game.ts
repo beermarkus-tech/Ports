@@ -76,6 +76,26 @@ export function isReady(g: GameState, ship: ShipState): boolean {
   return !atSea(ship) && !inDryDock(g, ship);
 }
 
+/** Laid up: waiting in port with no end date. */
+export const LAID_UP = 1e9;
+
+/** Ordered to wait in port (for a while or laid up). */
+export function isWaiting(g: GameState, ship: ShipState): boolean {
+  return ship.waitUntil !== undefined && ship.waitUntil > g.day && isReady(g, ship);
+}
+
+/**
+ * A ship in port with no orders: the world clock stops until the player has
+ * decided (cast off, or wait in port).
+ */
+export function needsDecision(g: GameState, ship: ShipState): boolean {
+  return isReady(g, ship) && !isWaiting(g, ship);
+}
+
+export function shipsNeedingDecision(g: GameState): ShipState[] {
+  return g.fleet.filter((s) => needsDecision(g, s));
+}
+
 /** Where a ship is right now, for display: 0..1 progress along its route while at sea. */
 export function voyageProgress(g: GameState, ship: ShipState): number {
   const v = ship.voyage;
@@ -226,8 +246,8 @@ export function advance(state: GameState, days: number, world: World = getWorld(
 
 /** Days until the next ship is ready (arrival or end of dry dock), or null if none is busy. */
 export function daysUntilNextShip(g: GameState): number | null {
-  const times = g.fleet.flatMap((s) => [s.voyage?.arriveDay, s.busyUntil]
-    .filter((t): t is number => t !== undefined && t > g.day - 1e-9 && (t !== s.busyUntil || t > g.day)));
+  const times = g.fleet.flatMap((s) => [s.voyage?.arriveDay, s.busyUntil, s.waitUntil]
+    .filter((t): t is number => t !== undefined && t < LAID_UP && t > g.day - 1e-9 && (t === s.voyage?.arriveDay || t > g.day)));
   return times.length ? Math.max(0, Math.min(...times) - g.day) : null;
 }
 
@@ -356,6 +376,22 @@ export function repair(state: GameState, shipId: number, points: number, world: 
   ship.busyUntil = g.day + q.days;
   log(g, `${ship.name}: into dry dock for +${q.points}% condition, ready in ${q.days} day(s).`, -q.cost);
   checkEnd(g, world);
+  return g;
+}
+
+/**
+ * Order a ship to wait in port for `days` (Infinity = lay it up until further
+ * notice). The clock can run meanwhile; when the wait is over, the ship needs
+ * orders again.
+ */
+export function waitInPort(state: GameState, shipId: number, days: number, world: World = getWorld()): GameState {
+  const g = clone(state);
+  const ship = readyShip(g, shipId);
+  ship.waitUntil = Number.isFinite(days) ? g.day + days : LAID_UP;
+  const port = world.ports[ship.location].name;
+  log(g, Number.isFinite(days)
+    ? `${ship.name} waits in ${port} for ${days} day${days === 1 ? '' : 's'}.`
+    : `${ship.name} is laid up in ${port} until further notice.`);
   return g;
 }
 
@@ -505,6 +541,7 @@ export function sail(state: GameState, shipId: number, dest: string, world: Worl
   }
   const g = clone(state);
   const ship = getShip(g, shipId);
+  delete ship.waitUntil;
   ship.voyage = plotVoyage(world, g, ship, dest, plan.route, plan.canalFees);
   log(g, `${ship.name} cast off from ${world.ports[ship.location].name} for ${world.ports[dest].name}.`);
   return g;

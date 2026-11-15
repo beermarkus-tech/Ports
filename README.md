@@ -50,10 +50,11 @@ close the app. The game saves after every action, so reloading is always safe.
 ## How to play
 
 0. **Time and the fleet.** The clock runs at 1 day per second (2× and 4× in the
-   header; space bar pauses). Ships at sea can't take orders; ships in port wait
-   for yours. When a ship arrives the game pauses and shows its report. Pick a
-   ship in the strip under the map (or on the map) and the tabs act on it.
-   Casting off restarts a clock that was paused for an arrival.
+   header; space bar pauses), but only while no ship needs a decision: a ship in
+   port without orders stops everything (prices too) until you cast it off or
+   tell it to wait (1 day, 5 days, or lay up until further notice). Arrivals,
+   the end of a dry-dock stay or a wait, and new ships all ask for orders. Pick
+   a ship in the strip under the map (or on the map) and the tabs act on it.
 1. **Contracts:** load cargo offered in your port. You can carry lots for
    several destinations at once, as long as they fit in the hold.
 2. **Ship:** bunker fuel (prices differ by port and drift daily), or repair
