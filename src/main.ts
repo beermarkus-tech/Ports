@@ -734,7 +734,9 @@ class App {
       id: p.id,
       name: p.name,
       fuelPrice: fuelPrice(g, p.id),
-      role: p.id === here ? 'here' : p.id === (this.dest ?? ship.voyage?.to) ? 'dest' : cargoDests.has(p.id) ? 'cargo' : 'normal',
+      role: p.id === here ? 'here'
+        : p.id === (this.dest ?? ship.voyage?.to) || (this.routeDraft?.shipId === ship.id && this.routeDraft.stops.includes(p.id)) ? 'dest'
+          : cargoDests.has(p.id) ? 'cargo' : 'normal',
       strike: events.some((e) => e.kind === 'strike' && e.port === p.id),
       boom: events.some((e) => e.kind === 'boom' && e.port === p.id),
     }));
@@ -744,16 +746,41 @@ class App {
 
   private renderRoutes(): void {
     const ship = this.ship();
+    const g = this.g;
+    const path = (a: string, b: string) => (a === b ? null : routeFor(world, g, a, b)?.path ?? null);
+    const some = (xs: (string[] | null)[]) => xs.filter((x): x is string[] => !!x);
+    /** The legs of a route: in order and back to the start, or between every pair of ports. */
+    const legsOf = (stops: string[], mode: 'best' | 'loop') => {
+      if (stops.length < 2) return [];
+      if (mode === 'loop') return some(stops.map((a, i) => path(a, stops[(i + 1) % stops.length])));
+      return some(stops.flatMap((a, i) => stops.slice(i + 1).map((b) => path(a, b))));
+    };
+
+    const d = this.routeDraft?.shipId === ship.id ? this.routeDraft : null;
+    if (d) {
+      // Drawing up a route: the whole route, plus a preview of the port being pointed at.
+      const legs = legsOf(d.stops, d.mode);
+      const h = this.hoverDest;
+      const last = d.stops[d.stops.length - 1];
+      const preview = !h ? [] : d.mode === 'loop'
+        ? (h === last ? [] : some([path(last, h), d.stops.length > 1 ? path(h, d.stops[0]) : null]))
+        : (d.stops.includes(h) ? [] : some(d.stops.map((s2) => path(s2, h))));
+      this.map.showRoutes(legs, preview);
+      this.portScene.showRoutes({ here: ship.voyage?.to ?? ship.location, primary: legs, secondary: preview, stops: d.stops });
+      return;
+    }
+    // A ship on a route shows its whole route faintly behind the current leg.
+    const orderLegs = ship.orders ? legsOf(ship.orders.stops, ship.orders.mode ?? 'loop') : [];
     if (ship.voyage) {
-      this.map.showRoutes(ship.voyage.path);
+      this.map.showRoutes(ship.voyage.path, orderLegs);
       return;
     }
     const here = ship.location;
-    const primary = this.dest ? routeFor(world, this.g, here, this.dest)?.path ?? null : null;
-    const hover = this.hoverDest && this.hoverDest !== this.dest && this.hoverDest !== here
-      ? routeFor(world, this.g, here, this.hoverDest)?.path : null;
-    this.map.showRoutes(primary, hover ? [hover] : []);
-    this.portScene.showRoutes({ here, primary, secondary: hover ? [hover] : [] });
+    const primary = this.dest ? path(here, this.dest) : null;
+    const hover = this.hoverDest && this.hoverDest !== this.dest && this.hoverDest !== here ? path(here, this.hoverDest) : null;
+    const secondary = hover ? [hover] : orderLegs;
+    this.map.showRoutes(primary, secondary);
+    this.portScene.showRoutes({ here, primary: primary ? [primary] : [], secondary, stops: hover ? undefined : ship.orders?.stops });
   }
 
   private renderPanel(): void {

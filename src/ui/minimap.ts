@@ -16,8 +16,10 @@ const LAND = feature(topo, topo.objects.land);
 
 export interface MiniRoutes {
   here: string;
-  /** The selected destination's route (node ids), drawn bold. */
-  primary: string[] | null;
+  /** The selected destination's route, or a whole route being planned (node ids), drawn bold. */
+  primary: string[][];
+  /** Ports to label (a route's stops); otherwise the ends of the routes shown. */
+  stops?: string[];
   /** Previews (hovered contract or port), drawn faint. */
   secondary: string[][];
 }
@@ -46,11 +48,11 @@ export class MiniMap {
     this.key = key;
     const pt = (id: string): [number, number] => [this.world.points[id].lon, this.world.points[id].lat];
     const here = pt(r.here);
-    const lines = [r.primary, ...r.secondary].filter((x): x is string[] => !!x && x.length > 1);
+    const lines = [...r.primary, ...r.secondary].filter((x) => x.length > 1);
 
     // Centre on the middle of what's shown, so routes across the date line don't split.
     const all = lines.flat().map(pt);
-    const ends = lines.map((l) => pt(l[l.length - 1]));
+    const ends = [...new Set([...(r.stops ?? []), ...lines.map((l) => l[l.length - 1])])].filter((id) => id !== r.here).map(pt);
     const centre = ends.length ? geoInterpolate(here, ends[0])(0.5) : here;
     const fit: GeoJSON.Feature[] = [
       { type: 'Feature', properties: {}, geometry: geoCircle().center(here).radius(ends.length ? 5 : 22)() },
@@ -66,7 +68,7 @@ export class MiniMap {
       `<path class="mm-land" d="${path(LAND) ?? ''}"/>`,
     ];
     for (const s of r.secondary) parts.push(`<path class="mm-route secondary" d="${line(s)}"/>`);
-    if (r.primary) parts.push(`<path class="mm-route primary" d="${line(r.primary)}"/>`);
+    for (const p of r.primary) parts.push(`<path class="mm-route primary" d="${line(p)}"/>`);
     const dot = (id: string, cls: string, label: boolean) => {
       const p = projection(pt(id));
       if (!p) return;
@@ -78,7 +80,7 @@ export class MiniMap {
       }
     };
     for (const p of this.world.portList) if (p.id !== r.here) dot(p.id, 'small', false);
-    const destIds = new Set(lines.map((l) => l[l.length - 1]));
+    const destIds = new Set([...(r.stops ?? []), ...lines.map((l) => l[l.length - 1])].filter((id) => id !== r.here));
     for (const id of destIds) dot(id, 'dest', true);
     dot(r.here, 'here', true);
     if (!lines.length) parts.push(`<text class="mm-hint" x="${W / 2}" y="${H - 10}" text-anchor="middle">Pick a destination to see its route</text>`);

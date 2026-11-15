@@ -218,13 +218,12 @@ export class MapView {
   }
 
   /** Draw highlighted routes. `primary` is the selected leg; `secondary` are faint previews. */
-  showRoutes(primary: string[] | null, secondary: string[][] = []): void {
+  showRoutes(primary: string[] | string[][] | null, secondary: string[][] = []): void {
     this.routeLayer.replaceChildren();
     for (const r of secondary) el('path', { d: this.path(this.line(r))!, class: 'route secondary' }, this.routeLayer);
-    if (primary) {
-      el('path', { d: this.path(this.line(primary))!, class: 'route primary-glow' }, this.routeLayer);
-      el('path', { d: this.path(this.line(primary))!, class: 'route primary' }, this.routeLayer);
-    }
+    const bold = !primary ? [] : typeof primary[0] === 'string' ? [primary as string[]] : (primary as string[][]);
+    for (const r of bold) el('path', { d: this.path(this.line(r))!, class: 'route primary-glow' }, this.routeLayer);
+    for (const r of bold) el('path', { d: this.path(this.line(r))!, class: 'route primary' }, this.routeLayer);
   }
 
   /** Where a ship is `t` (0..1) of the way along a route, by distance, and its heading on screen. */
