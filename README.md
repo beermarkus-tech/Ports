@@ -9,7 +9,9 @@ there. The full design is in [docs/design.md](docs/design.md).
 game. Built on Phase 3 (dynamic economy: reacting prices, oil trends, world
 events), Phase 2 (twelve ship classes, ship market, loans, ageing) and
 Phase 1 (ten ports, contracts, fuel, wear and repairs, storms, map, autosave).
-Next: graphics and polish, then automation.
+Graphics pass 1: ship art per family, a living map (night side, waves, coastal
+glow, clouds, storm cells, wakes), cash and payment effects, synthesised sound
+effects with a mute button. Next: automation.
 
 ## Running it
 
@@ -119,7 +121,7 @@ src/sim/         Pure simulation, no DOM (deterministic: seeded RNG stored in th
   economy.ts     Port price levels, oil market, world events (ECONOMY)
   bot.ts         Greedy and casual captains used for balancing (and a seed for automation later)
   save.ts        localStorage save/load, with upgrades for older saves
-src/ui/          Rendering: d3-geo world map, panels, styles
+src/ui/          Rendering: d3-geo world map (map.ts), ship art (art.ts), sound (sound.ts), panels, styles
 scripts/         balance.ts, compare.sh, progression.ts, ships.ts, economy.ts, tune-ships.py
 tests/           vitest
 ```

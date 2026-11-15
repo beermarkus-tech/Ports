@@ -13,7 +13,9 @@ import {
 import type { Contract, GameState, ShipOffer, ShipState, ShipTypeDef, VoyageReport } from './sim/types';
 import { getWorld } from './sim/world';
 import { compactMoney, days, esc, gameDate, money, tons } from './ui/format';
-import { MapView, type PortMarker, type ShipMarker } from './ui/map';
+import { mapIconPath, shipFamily, shipSideView } from './ui/art';
+import { MapView, type LonLat, type PortMarker, type ShipMarker, type WeatherCell } from './ui/map';
+import { sound } from './ui/sound';
 import { BUILD, consumeUpdatedFrom, initServiceWorker, isNewer, latestBuild, reloadApp } from './ui/update';
 
 type Tab = 'contracts' | 'voyage' | 'ship' | 'market' | 'log';
@@ -27,6 +29,14 @@ const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)
 const DAYS_PER_SECOND = 1;
 const TICK_MS = 100;
 const EVENT_LABELS = { storm: '⛈ Storm', breakdown: '⚙ Breakdown', emergencyFuel: '⛽ Out of fuel!', strike: '✊ Dock strike' } as const;
+const EVENT_SOUNDS = { storm: 'thunder', breakdown: 'clank', emergencyFuel: 'clank', strike: 'clank' } as const;
+const REDUCED_MOTION = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+/** Decorative weather systems drifting eastwards. */
+const AMBIENT_CLOUDS = [
+  { lon: -40, lat: 45, seed: 0.13 }, { lon: 20, lat: -42, seed: 0.37 }, { lon: 95, lat: 12, seed: 0.71 },
+  { lon: 150, lat: 38, seed: 0.52 }, { lon: -150, lat: -30, seed: 0.88 }, { lon: -95, lat: 25, seed: 0.24 },
+  { lon: 60, lat: -50, seed: 0.66 }, { lon: -10, lat: 5, seed: 0.05 },
+];
 
 class App {
   private g: GameState;
@@ -45,6 +55,12 @@ class App {
   private renderedDay = -1;
   private lastSave = 0;
   private lastPanel = 0;
+  /** Real seconds the clock has been running: drives the cosmetic day/night and weather. */
+  private sceneTime = 0;
+  private storms: { id: string; at: LonLat; from: number; until: number; seed: number }[] = [];
+  private shownCash: number | null = null;
+  private cashAnim = 0;
+  private cashTarget: number | null = null;
   private map: MapView;
 
   constructor() {
@@ -73,7 +89,7 @@ class App {
       if (id !== this.hoverDest) { this.hoverDest = id; this.renderRoutes(); }
     });
     // Don't redraw under the player's finger mid-click.
-    document.addEventListener('pointerdown', () => { this.pointerDown = true; });
+    document.addEventListener('pointerdown', () => { this.pointerDown = true; sound.unlock(); });
     document.addEventListener('pointerup', () => { this.pointerDown = false; if (this.panelDirty) this.render(); });
     document.addEventListener('keydown', (ev) => {
       if (ev.code === 'Space' && !(ev.target instanceof HTMLInputElement) && $('#modal').hidden) {
@@ -82,6 +98,7 @@ class App {
       }
     });
     setInterval(() => this.tick(), TICK_MS);
+    this.renderMute();
     this.render();
     if (this.g.reports.length) this.showNextReport();
   }
@@ -95,6 +112,7 @@ class App {
   private tick(): void {
     if (this.paused || !$('#modal').hidden || this.g.gameOver) return;
     const before = this.g;
+    this.sceneTime += (TICK_MS / 1000) * this.speed;
     this.g = advance(this.g, (DAYS_PER_SECOND * this.speed * TICK_MS) / 1000);
     this.flashEvents(before, this.g);
     if (this.g.reports.length) {
@@ -124,6 +142,10 @@ class App {
         if (e.atDay > before.day && e.atDay <= after.day) {
           const { at } = this.map.positionAlong(v.path, voyageProgress(after, ship));
           this.map.flashAt(at, `${ship.name}: ${EVENT_LABELS[e.kind]}`, 'bad');
+          sound.play(EVENT_SOUNDS[e.kind]);
+          if (e.kind === 'storm') {
+            this.storms.push({ id: `storm-${ship.id}-${e.atDay.toFixed(2)}`, at, from: after.day, until: after.day + 6, seed: (e.atDay * 7.31) % 1 });
+          }
         }
       }
     }
@@ -198,8 +220,10 @@ class App {
           q.borrow > 0 ? `\n\nThe bank lends ${money(q.borrow)} at 8% a year.` : ''}\n\nIt joins your fleet; your other ships are not affected.`);
         if (ok && this.act((g) => buyShip(g, port, offer.id))) {
           const bought = this.g.fleet[this.g.fleet.length - 1];
-          this.toast(`The ${bought.name} joins your fleet in ${world.ports[port].name}.`, 'good');
+          sound.play('fanfare');
+          this.map.pulseAt(this.map.portPosition(port), 'good');
           this.selectShip(bought.id, 'contracts');
+          this.showNewShip(bought.id);
           return;
         }
         break;
@@ -210,6 +234,7 @@ class App {
         const ok = confirm(`Sell the ${type.name} ${ship.name} for ${money(q.price)}${q.fuelRefund ? ` (plus ${money(q.fuelRefund)} for its fuel)` : ''}?${
           q.repay ? `\n\n${money(q.repay)} of that goes to repaying the loan, since the bank lends against your fleet.` : ''}`);
         if (ok && this.act((g) => sellShip(g, id))) {
+          sound.play('coins');
           this.toast(`Sold the ${ship.name}.`, 'good');
           this.selectShip(this.g.fleet[0].id);
           return;
@@ -228,6 +253,10 @@ class App {
         }
         break;
       }
+      case 'mute':
+        sound.setEnabled(!sound.enabled);
+        this.renderMute();
+        return;
       case 'close-report':
         $('#modal').hidden = true;
         if (this.g.reports.length) { this.showNextReport(); return; }
@@ -270,6 +299,7 @@ class App {
     if (!this.dest) return;
     const ship = this.ship();
     if (!this.act((g) => sail(g, ship.id, this.dest!))) { this.render(); return; }
+    sound.play('horn');
     this.dest = null;
     this.tab = 'voyage';
     // Casting off restarts a clock that was stopped for an arrival or the start of the game.
@@ -293,6 +323,32 @@ class App {
     this.renderHeader();
     if (!this.pointerDown) this.renderFleet();
     this.renderShips();
+    this.renderScenery();
+  }
+
+  /** Day and night, waves and weather. Cosmetic: the light circles the globe every 90 s of running time. */
+  private renderScenery(): void {
+    const t = REDUCED_MOTION ? 0 : this.sceneTime;
+    const doy = this.g.day % 365;
+    const declination = 23.44 * Math.sin((2 * Math.PI * (doy - 80)) / 365);
+    const sunLon = ((((-t * 4) + 30) % 360) + 540) % 360 - 180;
+    this.map.setSun([sunLon, declination]);
+    this.map.setWaves(t);
+    const day = this.g.day;
+    this.storms = this.storms.filter((s) => s.until > day && s.from <= day + 0.001);
+    const cells: WeatherCell[] = AMBIENT_CLOUDS.map((c, i) => ({
+      id: `cloud-${i}`,
+      kind: 'cloud',
+      at: [((((c.lon + t * 0.6) % 360) + 540) % 360) - 180, c.lat + Math.sin(t / 40 + i) * 3] as LonLat,
+      scale: 1 + (i % 3) * 0.35,
+      opacity: 0.55,
+      seed: c.seed,
+    }));
+    for (const st of this.storms) {
+      const life = (day - st.from) / (st.until - st.from);
+      cells.push({ id: st.id, kind: 'storm', at: st.at, scale: 1.3, opacity: life < 0.1 ? life * 10 : life > 0.7 ? (1 - life) / 0.3 : 1, seed: st.seed });
+    }
+    this.map.updateWeather(cells);
   }
 
   private renderTime(): void {
@@ -313,9 +369,7 @@ class App {
   private renderHeader(): void {
     const g = this.g;
     $('#date').textContent = gameDate(g.day);
-    const cash = $('#cash');
-    cash.textContent = money(g.cash);
-    cash.classList.toggle('negative', g.cash < 0);
+    this.animateCash(g.cash);
     const worth = netWorth(g, world);
     const next = nextMilestone(g);
     const prev = [...g.milestones].sort((a, b) => b.amount - a.amount)[0]?.amount ?? 0;
@@ -327,6 +381,49 @@ class App {
         ? `Worth ${compactMoney(worth)} → ${compactMoney(next)}`
         : `Worth ${compactMoney(worth)} · all goals reached`;
     $('#goal-text').title = 'Net worth: cash + fleet value − loan';
+  }
+
+  /** The cash figure counts towards its new value instead of jumping; big changes flash. */
+  private animateCash(target: number): void {
+    const el = $('#cash');
+    el.classList.toggle('negative', target < 0);
+    if (this.shownCash === null || REDUCED_MOTION) {
+      this.shownCash = target;
+      el.textContent = money(target);
+      return;
+    }
+    // Already counting towards (nearly) this value: let the animation run.
+    if (this.cashTarget !== null && Math.abs(target - this.cashTarget) < 20_000) {
+      this.cashTarget = target;
+      return;
+    }
+    const from = this.shownCash;
+    const diff = target - from;
+    if (Math.abs(diff) < 1) return;
+    // Small daily costs just tick; payments and purchases animate and flash.
+    if (Math.abs(diff) < 20_000) {
+      this.shownCash = target;
+      el.textContent = money(target);
+      return;
+    }
+    this.cashTarget = target;
+    el.classList.remove('up', 'down');
+    void el.offsetWidth;
+    el.classList.add(diff > 0 ? 'up' : 'down');
+    const start = performance.now();
+    const id = ++this.cashAnim;
+    const step = (now: number) => {
+      if (id !== this.cashAnim) return;
+      const k = Math.min(1, (now - start) / 700);
+      const eased = 1 - (1 - k) ** 3;
+      // Aim at the latest target, so small changes during the animation are included.
+      const end = this.cashTarget ?? target;
+      this.shownCash = from + (end - from) * eased;
+      el.textContent = money(this.shownCash);
+      if (k < 1) requestAnimationFrame(step);
+      else { this.shownCash = end; this.cashTarget = null; }
+    };
+    requestAnimationFrame(step);
   }
 
   private shipStatus(ship: ShipState): { text: string; state: 'sea' | 'ready' | 'busy'; progress?: number } {
@@ -346,6 +443,7 @@ class App {
     const chips = g.fleet.map((s) => {
       const st = this.shipStatus(s);
       return `<button class="ship-chip ${st.state} ${s.id === ship.id ? 'selected' : ''}" data-action="select-ship" data-id="${s.id}">
+        <span class="sc-art">${shipSideView(typeOf(s), 64)}</span>
         <span class="sc-name">${esc(s.name)}${st.state === 'ready' ? '<span class="sc-ready">Ready</span>' : ''}</span>
         <span class="sc-status">${esc(st.text)}</span>
         ${st.progress !== undefined ? `<span class="sc-bar"><span style="width:${(st.progress * 100).toFixed(1)}%"></span></span>` : ''}
@@ -369,15 +467,21 @@ class App {
     const docked = new Map<string, number>();
     const markers: ShipMarker[] = g.fleet.map((s) => {
       const st = this.shipStatus(s);
+      const type = typeOf(s);
+      const look = { family: shipFamily(type), icon: mapIconPath(type) };
       if (s.voyage) {
-        const { at, angle } = this.map.positionAlong(s.voyage.path, voyageProgress(g, s));
-        return { id: s.id, name: `${s.name} (${st.text})`, at, angle, state: 'sea', selected: s.id === this.activeId };
+        const p = voyageProgress(g, s);
+        const { at, angle } = this.map.positionAlong(s.voyage.path, p);
+        // A wake about 350 nm long, in five points.
+        const span = Math.min(p, 350 / s.voyage.distance);
+        const wake = span > 0.001 ? [0, 1, 2, 3, 4].map((k) => this.map.positionAlong(s.voyage!.path, p - (span * k) / 4).at) : undefined;
+        return { id: s.id, name: `${s.name} (${st.text})`, at, angle, state: 'sea', selected: s.id === this.activeId, wake, ...look };
       }
       // Fan out several ships in the same port.
       const n = docked.get(s.location) ?? 0;
       docked.set(s.location, n + 1);
       const offset: [number, number] = n === 0 ? [0, 0] : [Math.cos(n * 2.1) * 13, Math.sin(n * 2.1) * 13];
-      return { id: s.id, name: `${s.name} (${st.text})`, at: this.map.portPosition(s.location), angle: -90, offset, state: st.state, selected: s.id === this.activeId };
+      return { id: s.id, name: `${s.name} (${st.text})`, at: this.map.portPosition(s.location), angle: -90, offset, state: st.state, selected: s.id === this.activeId, ...look };
     });
     this.map.updateShips(markers);
   }
@@ -593,6 +697,7 @@ class App {
       </section>
       <section class="card">
         <h3>The ${esc(ship.name)}</h3>
+        <div class="o-art">${shipSideView(type, 260)}</div>
         <div class="kv"><span>Class</span><strong>${esc(type.name)}</strong><em>${Math.floor(ship.age)} years old</em></div>
         <div class="kv"><span>Capacity</span><strong>${tons(type.capacity)}</strong><em>${type.cargoClasses.join(' & ')} cargo</em></div>
         <div class="kv"><span>Speed</span><strong>${speed.toFixed(1)} kn</strong><em>${Math.round(speed * 24)} nm/day</em></div>
@@ -686,6 +791,7 @@ class App {
           <div><span class="mine-label">Your ship</span> <strong>${esc(type.name)}</strong> <span class="sub">${esc(ship.name)}</span></div>
           <div class="o-price">${compactMoney(saleValue(ship, world))}<span class="o-price-note">sale value</span></div>
         </div>
+        <div class="o-art">${shipSideView(type, 220)}</div>
         <div class="o-tags">
           <span class="tag">${Math.floor(ship.age)} years old</span>
           <span class="tag ${ship.condition < 50 ? 'warn' : ''}">condition ${Math.round(ship.condition)}%</span>
@@ -715,6 +821,7 @@ class App {
           <div><strong>${esc(type.name)}</strong> <span class="sub">${esc(offer.name)}</span></div>
           <div class="o-price">${compactMoney(offer.price)}</div>
         </div>
+        <div class="o-art">${shipSideView(type, 220)}</div>
         <div class="o-tags">
           <span class="tag ${offer.age === 0 ? 'good' : ''}">${offer.age === 0 ? 'New' : `${offer.age} years old`}</span>
           <span class="tag ${offer.condition < 50 ? 'warn' : ''}">condition ${offer.condition}%</span>
@@ -863,7 +970,12 @@ class App {
       this.marketPort = null;
       this.tab = 'contracts';
     }
-    if (report.revenue > 0) this.map.flashAt(this.map.portPosition(report.to), money(report.revenue, true), 'good');
+    sound.play('bell');
+    if (report.revenue > 0) {
+      this.map.flashAt(this.map.portPosition(report.to), money(report.revenue, true), 'good');
+      this.map.pulseAt(this.map.portPosition(report.to), 'good');
+      setTimeout(() => sound.play('coins'), 500);
+    }
     this.render();
     this.showReport(report);
   }
@@ -872,6 +984,7 @@ class App {
     const line = (label: string, v: number, cls = '') => `<div class="line ${cls}"><span>${esc(label)}</span><span>${money(v, true)}</span></div>`;
     const more = this.g.reports.length;
     $('#modal-body').innerHTML = `
+      ${this.g.fleet.some((s) => s.id === r.shipId) ? `<div class="report-art">${shipSideView(typeOf(getShip(this.g, r.shipId)), 240)}</div>` : ''}
       <h2>${esc(r.shipName)} arrived in ${esc(world.ports[r.to].name)}</h2>
       <p class="sub">${r.distance.toLocaleString('en-US')} nm from ${esc(world.ports[r.from].name)} in ${days(Math.round((r.arriveDay - r.departDay) * 10) / 10)} · ${r.fuelUsed} t fuel burned · condition −${r.conditionLoss}%</p>
       ${r.events.length ? `<ul class="events">${r.events.map((e) => `<li class="${e.kind}"><span>Day ${e.day}</span> ${esc(e.text)}</li>`).join('')}</ul>` : '<p class="calm">A calm passage.</p>'}
@@ -891,6 +1004,37 @@ class App {
     ($('#modal-body').querySelector('.btn.primary') as HTMLElement)?.focus();
   }
 
+  /** A short celebration for a new ship. */
+  private showNewShip(id: number): void {
+    const ship = getShip(this.g, id);
+    const type = typeOf(ship);
+    const speed = effectiveSpeed(type, ship);
+    $('#modal-body').dataset.kind = 'newship';
+    $('#modal-body').innerHTML = `
+      <div class="new-ship">
+        <p class="new-ship-kicker">New ship</p>
+        <div class="new-ship-art">${shipSideView(type, 340)}</div>
+        <h2>Welcome aboard the ${esc(ship.name)}</h2>
+        <p class="sub">${esc(type.name)} · ${ship.age === 0 ? 'brand new' : `${Math.floor(ship.age)} years old`} · in ${esc(world.ports[ship.location].name)}</p>
+        <div class="plan-facts">
+          <div><strong>${tons(type.capacity)}</strong><span>hold</span></div>
+          <div><strong>${speed.toFixed(1)} kn</strong><span>speed</span></div>
+          <div><strong>${type.cargoClasses.join(' & ')}</strong><span>carries</span></div>
+          <div><strong>${this.g.fleet.length}</strong><span>ships now</span></div>
+        </div>
+        <p class="hint">It has a little fuel aboard. Bunker up and find it some cargo.</p>
+        <button class="btn primary wide" data-action="close-report">Give it orders</button>
+      </div>`;
+    $('#modal').hidden = false;
+  }
+
+  private renderMute(): void {
+    const b = $('#mute');
+    b.textContent = sound.enabled ? '🔊' : '🔇';
+    b.title = sound.enabled ? 'Sound on: tap to mute' : 'Sound off: tap to unmute';
+    b.setAttribute('aria-pressed', String(!sound.enabled));
+  }
+
   private showGameOver(): void {
     if (!$('#modal').hidden && $('#modal-body').dataset.kind === 'gameover') return;
     this.paused = true;
@@ -907,6 +1051,7 @@ class App {
     toast(text, kind);
   }
 }
+
 
 function toast(text: string, kind: 'good' | 'bad' | 'info', ms = 3200): void {
   const t = document.createElement('div');

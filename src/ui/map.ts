@@ -1,7 +1,7 @@
 // World map rendering (SVG via d3-geo). Knows nothing about game rules:
 // it is handed positions, routes and highlights by the view.
 
-import { geoEqualEarth, geoGraticule10, geoInterpolate, geoPath, type GeoProjection } from 'd3-geo';
+import { geoCircle, geoDistance, geoEqualEarth, geoGraticule10, geoInterpolate, geoPath, type GeoProjection } from 'd3-geo';
 import { feature } from 'topojson-client';
 import type { Topology } from 'topojson-specification';
 import landTopo from 'world-atlas/land-110m.json';
@@ -38,7 +38,14 @@ export class MapView {
   private portLayer: SVGGElement;
   private routeLayer: SVGGElement;
   private shipLayer: SVGGElement;
+  private wakeLayer: SVGGElement;
+  private nightLayer: SVGGElement;
+  private weatherLayer: SVGGElement;
+  private effectLayer: SVGGElement;
+  private wavePattern: SVGPatternElement;
   private ships = new Map<number, SVGGElement>();
+  private wakes = new Map<number, SVGPathElement>();
+  private clouds = new Map<string, SVGGElement>();
   private ports: Record<string, SVGGElement> = {};
 
   constructor(
@@ -64,20 +71,38 @@ export class MapView {
       </radialGradient>
       <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
         <feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
-      </filter>`;
+      </filter>
+      <filter id="shallow" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="3.5"/></filter>
+      <filter id="cloud" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="4"/></filter>
+      <filter id="night-soft" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="10"/></filter>
+      <linearGradient id="land-shade" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="var(--land-hi)"/><stop offset="100%" stop-color="var(--land)"/>
+      </linearGradient>
+      <clipPath id="sphere-clip"><path d="${this.path({ type: 'Sphere' })}"/></clipPath>
+      <pattern id="waves" width="46" height="22" patternUnits="userSpaceOnUse">
+        <path d="M2 8 q5 -4 10 0 t10 0" class="wave"/><path d="M25 18 q5 -4 10 0 t10 0" class="wave"/>
+      </pattern>`;
+    this.wavePattern = defs.querySelector('#waves')!;
 
     el('path', { d: this.path({ type: 'Sphere' })!, fill: 'url(#ocean)', class: 'sphere' }, this.svg);
+    el('rect', { x: 0, y: 0, width: W, height: H, fill: 'url(#waves)', class: 'waves', 'clip-path': 'url(#sphere-clip)' }, this.svg);
     el('path', { d: this.path(geoGraticule10())!, class: 'graticule' }, this.svg);
     const topo = landTopo as unknown as Topology;
     const land = feature(topo, topo.objects.land);
-    el('path', { d: this.path(land)!, class: 'land' }, this.svg);
+    const landD = this.path(land)!;
+    // Shallow water: a soft light halo around every coast.
+    el('path', { d: landD, class: 'shallow', filter: 'url(#shallow)' }, this.svg);
+    el('path', { d: landD, class: 'land', fill: 'url(#land-shade)' }, this.svg);
 
     const lanes = el('g', { class: 'lanes' }, this.svg);
     for (const e of world.edges) {
       el('path', { d: this.path(this.line([e.a, e.b]))!, class: e.canal ? 'lane canal' : 'lane', ...(e.canal ? { 'data-canal': e.canal } : {}) }, lanes);
     }
 
+    this.nightLayer = el('g', { class: 'night', 'clip-path': 'url(#sphere-clip)' }, this.svg);
+    this.weatherLayer = el('g', { class: 'weather', 'clip-path': 'url(#sphere-clip)' }, this.svg);
     this.routeLayer = el('g', { class: 'routes' }, this.svg);
+    this.wakeLayer = el('g', { class: 'wakes' }, this.svg);
     this.portLayer = el('g', { class: 'ports' }, this.svg);
 
     for (const p of world.portList) {
@@ -85,7 +110,9 @@ export class MapView {
       const g = el('g', { class: 'port', transform: `translate(${x},${y})`, tabindex: 0, role: 'button', 'aria-label': p.name }, this.portLayer);
       el('circle', { r: 14, class: 'hit' }, g);
       el('circle', { r: 9, class: 'halo' }, g);
+      el('circle', { r: 7, class: 'lights' }, g);
       el('circle', { r: 4.5, class: 'dot' }, g);
+      el('circle', { r: 1.8, class: 'dot-core' }, g);
       const labelLeft = p.lon > 140 || p.id === 'shanghai';
       const label = el('text', { x: labelLeft ? -10 : 10, y: -6, class: 'label', 'text-anchor': labelLeft ? 'end' : 'start' }, g);
       label.textContent = p.name;
@@ -99,6 +126,70 @@ export class MapView {
     }
 
     this.shipLayer = el('g', { class: 'ships' }, this.svg);
+    this.effectLayer = el('g', { class: 'effects' }, this.svg);
+  }
+
+  // ------------------------------------------------------------ scenery
+
+  /**
+   * Night side of the world and port lights. `sun` is the point where the sun
+   * stands overhead; everything more than 90° from it is in darkness.
+   */
+  setSun(sun: LonLat): void {
+    const anti: LonLat = [((sun[0] + 360) % 360) - 180, -sun[1]];
+    const rings = [84, 90, 96];
+    if (this.nightLayer.childElementCount !== rings.length) {
+      this.nightLayer.replaceChildren(...rings.map(() => el('path', { class: 'night-shade' })));
+    }
+    rings.forEach((r, i) => {
+      const circle = geoCircle().center(anti).radius(r).precision(3)();
+      this.nightLayer.children[i].setAttribute('d', this.path(circle) ?? '');
+    });
+    for (const p of this.world.portList) {
+      const dark = geoDistance([p.lon, p.lat], sun) > Math.PI / 2 + 0.05;
+      this.ports[p.id].classList.toggle('night', dark);
+    }
+  }
+
+  /** Slide the wave texture (call with a slowly growing number). */
+  setWaves(offset: number): void {
+    this.wavePattern.setAttribute('patternTransform', `translate(${(offset * 9) % 46} ${(offset * 2) % 22})`);
+  }
+
+  /** Clouds and storm cells. Created, moved and removed to match the list. */
+  updateWeather(cells: WeatherCell[]): void {
+    const keep = new Set<string>();
+    for (const c of cells) {
+      keep.add(c.id);
+      let g = this.clouds.get(c.id);
+      if (!g) {
+        g = el('g', { class: `cloud ${c.kind}` }, this.weatherLayer);
+        const inner = el('g', { class: 'cloud-inner', filter: 'url(#cloud)' }, g);
+        const puffs = c.kind === 'storm' ? 7 : 5;
+        for (let i = 0; i < puffs; i++) {
+          const a = (i / puffs) * Math.PI * 2 + (c.seed % 1);
+          const d = i === 0 ? 0 : 6 + ((c.seed * (i + 3)) % 5);
+          el('ellipse', { cx: (Math.cos(a) * d).toFixed(1), cy: (Math.sin(a) * d * 0.6).toFixed(1), rx: 9 + (i % 3) * 3, ry: 6 + (i % 2) * 2 }, inner);
+        }
+        if (c.kind === 'storm') el('path', { class: 'bolt', d: 'M1 -4 L-3 3 L0 3 L-2 9 L4 0 L1 0 L3 -4 Z' }, g);
+        this.clouds.set(c.id, g);
+      }
+      const xy = this.projection(c.at);
+      if (!xy) continue;
+      g.setAttribute('transform', `translate(${xy[0].toFixed(1)},${xy[1].toFixed(1)}) scale(${c.scale.toFixed(2)})`);
+      g.style.opacity = c.opacity.toFixed(2);
+    }
+    for (const [id, g] of this.clouds) {
+      if (!keep.has(id)) { g.remove(); this.clouds.delete(id); }
+    }
+  }
+
+  /** A ring that spreads out from a point: payments, purchases. */
+  pulseAt(at: LonLat, kind: 'good' | 'info'): void {
+    const xy = this.projection(at);
+    if (!xy) return;
+    const c = el('circle', { cx: xy[0].toFixed(1), cy: xy[1].toFixed(1), r: 6, class: `pulse ${kind}` }, this.effectLayer);
+    setTimeout(() => c.remove(), 1600);
   }
 
   private line(ids: string[]): GeoJSON.LineString {
@@ -167,31 +258,46 @@ export class MapView {
     for (const m of markers) {
       keep.add(m.id);
       let g = this.ships.get(m.id);
-      if (!g) {
+      if (!g || g.dataset.icon !== m.icon.hull) {
+        g?.remove();
         g = el('g', { class: 'ship', tabindex: 0, role: 'button' }, this.shipLayer);
-        el('circle', { r: 12, class: 'ship-hit' }, g);
-        el('circle', { r: 9, class: 'ship-halo' }, g);
-        el('path', { d: 'M 7 0 L -5 -4.5 L -3 0 L -5 4.5 Z', class: 'ship-hull' }, g);
+        g.dataset.icon = m.icon.hull;
+        el('circle', { r: Math.max(12, m.icon.length * 0.7), class: 'ship-hit' }, g);
+        el('circle', { r: Math.max(8, m.icon.length * 0.55), class: 'ship-halo' }, g);
+        el('path', { d: m.icon.hull, class: 'ship-hull' }, g);
+        el('path', { d: m.icon.deck, class: 'ship-deck' }, g);
         el('title', {}, g);
         g.addEventListener('click', (ev) => { ev.stopPropagation(); this.onShipClick(m.id); });
         this.ships.set(m.id, g);
       }
+      // Wake: a fading trail behind ships under way.
+      let wake = this.wakes.get(m.id);
+      if (m.wake && m.wake.length > 1) {
+        if (!wake) { wake = el('path', { class: 'wake' }, this.wakeLayer); this.wakes.set(m.id, wake); }
+        wake.setAttribute('d', this.path({ type: 'LineString', coordinates: m.wake }) ?? '');
+      } else if (wake) {
+        wake.remove();
+        this.wakes.delete(m.id);
+      }
       const [x, y] = this.projection(m.at)!;
       const [dx, dy] = m.offset ?? [0, 0];
       g.setAttribute('transform', `translate(${(x + dx).toFixed(1)},${(y + dy).toFixed(1)}) rotate(${m.angle.toFixed(0)})`);
-      g.setAttribute('class', `ship ${m.state}${m.selected ? ' selected' : ''}`);
+      g.setAttribute('class', `ship ${m.state} ${m.family}${m.selected ? ' selected' : ''}`);
       g.setAttribute('aria-label', m.name);
       g.querySelector('title')!.textContent = m.name;
     }
     for (const [id, g] of this.ships) {
       if (!keep.has(id)) { g.remove(); this.ships.delete(id); }
     }
+    for (const [id, w] of this.wakes) {
+      if (!keep.has(id)) { w.remove(); this.wakes.delete(id); }
+    }
   }
 
   /** Brief floating label at a point on the map (events, payments). */
   flashAt(at: LonLat, text: string, kind: 'good' | 'bad' | 'info'): void {
     const [x, y] = this.projection(at)!;
-    const t = el('text', { x: x.toFixed(1), y: (y - 16).toFixed(1), class: `flash ${kind}`, 'text-anchor': 'middle' }, this.svg);
+    const t = el('text', { x: x.toFixed(1), y: (y - 16).toFixed(1), class: `flash ${kind}`, 'text-anchor': 'middle' }, this.effectLayer);
     t.textContent = text;
     setTimeout(() => t.remove(), 2200);
   }
@@ -206,4 +312,19 @@ export interface ShipMarker {
   offset?: [number, number];
   state: 'sea' | 'ready' | 'busy';
   selected: boolean;
+  /** Ship family (drives colour) and its top-down icon. */
+  family: string;
+  icon: { hull: string; deck: string; length: number };
+  /** Points behind the ship, for its wake. */
+  wake?: LonLat[];
+}
+
+export interface WeatherCell {
+  id: string;
+  kind: 'cloud' | 'storm';
+  at: LonLat;
+  scale: number;
+  opacity: number;
+  /** Stable 0..1 number that shapes the puffs. */
+  seed: number;
 }

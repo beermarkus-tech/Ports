@@ -14,6 +14,17 @@
   --ocean-2: #0a1a2c;
   --land: #2b4a63;
   --land-edge: #3d6683;
+  --land-hi: #36597a;
+  --shallow: #2a6f97;
+  --night: #020a14;
+  --night-alpha: 0.16;
+  --hull: #5d7d9b;
+  --hull-dark: #6f7785;
+  --hull-red: #8a3b35;
+  --hull-light: #e9eef3;
+  --super: #e9eef3;
+  --funnel: #f2b84b;
+  --sea-art: #1d4a6e;
   --halo: #0a1a2c;
   --radius: 10px;
   color-scheme: dark;
@@ -36,6 +47,17 @@
     --ocean-2: #a9cbe6;
     --land: #f4efe4;
     --land-edge: #c9bfa9;
+    --land-hi: #fbf8f1;
+    --shallow: #e6f4fb;
+    --night: #0b2340;
+    --night-alpha: 0.055;
+    --hull: #2f4a63;
+    --hull-dark: #444b57;
+    --hull-red: #9b3f37;
+    --hull-light: #ffffff;
+    --super: #ffffff;
+    --funnel: #d89a23;
+    --sea-art: #9cc7e4;
     --halo: rgb(255 255 255 / 0.85);
     color-scheme: light;
   }
@@ -447,3 +469,81 @@ h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   .time-ctl { flex-basis: auto; flex: 1; }
   .topbar .icon-btn { order: 11; }
 }
+
+/* ---------------------------------------------------------------- graphics: map scenery */
+.waves { opacity: 0.09; pointer-events: none; }
+.wave { fill: none; stroke: var(--text); stroke-width: 1; stroke-linecap: round; }
+.shallow { fill: none; stroke: var(--shallow); stroke-width: 7; stroke-opacity: 0.55; pointer-events: none; }
+.land { stroke: var(--land-edge); stroke-width: 0.6; }
+.night { pointer-events: none; }
+.night-shade { fill: var(--night); fill-opacity: var(--night-alpha); }
+.weather { pointer-events: none; }
+.cloud ellipse { fill: #f4f8fb; fill-opacity: 0.22; }
+.cloud.storm ellipse { fill: #5b6675; fill-opacity: 0.75; }
+.cloud.storm .cloud-inner { animation: swirl 9s linear infinite; transform-box: fill-box; transform-origin: center; }
+.cloud .bolt { fill: #ffd34d; opacity: 0; animation: bolt 2.3s steps(1) infinite; }
+@keyframes swirl { to { transform: rotate(360deg); } }
+@keyframes bolt { 0%, 70%, 100% { opacity: 0; } 72%, 76% { opacity: 1; } }
+.port .lights { fill: #ffd27a; fill-opacity: 0; transition: fill-opacity 0.8s; }
+.port.night .lights { fill-opacity: 0.35; }
+.port.night .dot-core { fill: #ffe39b; }
+.port .dot-core { fill: var(--bg); transition: fill 0.8s; }
+.wake { fill: none; stroke: #e8f4ff; stroke-opacity: 0.45; stroke-width: 1.6; stroke-linecap: round; stroke-dasharray: 2 3; pointer-events: none; }
+.pulse { fill: none; stroke-width: 2.5; animation: pulse-ring 1.5s ease-out forwards; pointer-events: none; }
+.pulse.good { stroke: var(--good); }
+.pulse.info { stroke: var(--accent); }
+@keyframes pulse-ring { from { r: 6; stroke-opacity: 1; } to { r: 42; stroke-opacity: 0; } }
+
+/* ships on the map, coloured by family */
+.ship .ship-hull { stroke: var(--bg); stroke-width: 0.8; }
+.ship .ship-deck { fill: var(--super); opacity: 0.9; }
+.ship.general .ship-hull { fill: var(--accent-2); }
+.ship.bulk .ship-hull { fill: #9aa4b2; }
+.ship.tanker .ship-hull { fill: #d0625a; }
+.ship.container .ship-hull { fill: #4f9fe0; }
+.ship.reefer .ship-hull { fill: #f2f6fa; }
+.ship.reefer .ship-deck { fill: #4f9fe0; }
+.ship.ready .ship-halo { fill: var(--accent); fill-opacity: 0.28; animation: halo-pulse 1.8s ease-in-out infinite; }
+.ship.busy { opacity: 0.6; }
+@keyframes halo-pulse { 50% { fill-opacity: 0.08; } }
+
+/* ---------------------------------------------------------------- graphics: ship art */
+.ship-art { display: block; overflow: visible; }
+.ship-art .hull { fill: var(--hull); }
+.ship-art .hull.dark { fill: var(--hull-dark); }
+.ship-art .hull.red { fill: var(--hull-red); }
+.ship-art .hull.light { fill: var(--hull-light); stroke: var(--line); stroke-width: 0.6; }
+.ship-art .boot { fill: #a7473f; }
+.ship-art .super { fill: var(--super); }
+.ship-art .window { fill: #2b3e52; }
+.ship-art .funnel { fill: var(--funnel); }
+.ship-art .funnel-band { fill: #1c2b3a; }
+.ship-art .hatch { fill: #6f7d8b; }
+.ship-art.bulk .hatch { fill: #8b6a4a; }
+.ship-art.reefer .hatch { fill: #4f9fe0; }
+.ship-art .crane, .ship-art .mast { stroke: #e2a83a; stroke-width: 1.4; stroke-linecap: round; }
+.ship-art .crane.boom { stroke-width: 1; }
+.ship-art .mast { stroke: var(--muted); }
+.ship-art .pipe { stroke: #c9ced6; stroke-width: 1.4; }
+.ship-art .pipe.thin { stroke-width: 0.8; }
+.ship-art .manifold { fill: #c9ced6; }
+.ship-art .sea { fill: var(--sea-art); opacity: 0.55; }
+.sc-art { display: block; margin: -2px 0 2px; height: 19px; }
+.sc-art .ship-art { width: 64px; height: 19px; }
+.o-art { display: flex; justify-content: center; margin: 4px 0 8px; }
+.o-art .ship-art { max-width: 100%; height: auto; }
+.report-art { display: flex; justify-content: center; margin: -6px 0 6px; }
+.new-ship { text-align: center; }
+.new-ship-kicker { font-size: 12px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent-2); margin: 0; }
+.new-ship-art { display: flex; justify-content: center; margin: 8px 0 4px; animation: sail-in 0.9s cubic-bezier(.2,.8,.2,1); }
+.new-ship-art .ship-art { max-width: 100%; height: auto; }
+.new-ship .plan-facts { margin: 12px 0 4px; }
+@keyframes sail-in { from { transform: translateX(-40px); opacity: 0; } }
+
+/* cash flashes on payments and purchases */
+#cash.up { animation: cash-up 0.9s ease-out; }
+#cash.down { animation: cash-down 0.9s ease-out; }
+@keyframes cash-up { 20% { transform: scale(1.08); text-shadow: 0 0 14px var(--good); } }
+@keyframes cash-down { 20% { transform: scale(0.96); color: var(--warn); } }
+#cash { display: inline-block; transform-origin: right center; }
+#mute { font-size: 16px; }
