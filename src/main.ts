@@ -752,7 +752,7 @@ class App {
         <span class="sc-art">${shipSideView(typeOf(s), 64)}</span>
         <span class="sc-name">${esc(s.name)}${st.state === 'ready' ? '<span class="sc-ready">Orders</span>' : ''}</span>
         <span class="sc-status">${esc(st.text)}</span>
-        ${st.progress !== undefined ? `<span class="sc-bar"><span style="width:${(st.progress * 100).toFixed(1)}%"></span></span>` : ''}
+        ${st.progress !== undefined ? `<span class="sc-bar"><span style="width:${(st.progress * 100).toFixed(1)}%"></span></span>` : '<span class="sc-bar placeholder"></span>'}
       </button>`;
     }).join('');
     const load = cargoTons(ship);
