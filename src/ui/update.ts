@@ -71,6 +71,15 @@ export async function reloadApp(): Promise<ReloadOutcome> {
   return 'updating';
 }
 
+/** Was the page just reloaded by an update? (Doesn't consume the note.) */
+export function justUpdated(): boolean {
+  try {
+    return sessionStorage.getItem(UPDATED_FLAG) !== null;
+  } catch {
+    return false;
+  }
+}
+
 /** If the page was just reloaded by an update, the build it came from. */
 export function consumeUpdatedFrom(): string | null {
   try {

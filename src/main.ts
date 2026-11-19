@@ -7,7 +7,9 @@ import {
   dockByHand, nextMilestone, planVoyage, portFee, repair, repairQuote, repayLoan, sail, saleQuote, sellShip,
   shipsNeedingDecision, takeReport, typeOf, unloadContract, voyageProgress, waitInPort, type VoyagePlan,
 } from './sim/game';
-import { clearSave, loadGame, saveGame } from './sim/save';
+import {
+  clearSave, createSlot, deleteSlot, listSlots, loadGame, loadSlot, renameSlot, saveGame, setActiveSlot, activeSlot, type SlotInfo,
+} from './sim/save';
 import {
   SHIP_TUNING, consumptionFactor, effectiveSpeed, exportsFor, fleetValue, legTrade, maxLoan, netWorth, quotePurchase, saleValue,
   stateValue,
@@ -23,7 +25,7 @@ import { barChart, lineChart, miniBars, type ChartPoint } from './ui/charts';
 import { captainSlots } from './sim/captains';
 import { REGIONS, areaName, areaPorts, region, regionOf } from './sim/regions';
 import { sound } from './ui/sound';
-import { BUILD, consumeUpdatedFrom, initServiceWorker, isNewer, latestBuild, reloadApp } from './ui/update';
+import { BUILD, consumeUpdatedFrom, initServiceWorker, isNewer, justUpdated, latestBuild, reloadApp } from './ui/update';
 
 type Tab = 'contracts' | 'voyage' | 'ship' | 'market' | 'fleet' | 'log';
 /** Why the clock is stopped: the player paused it, or a ship (or an arrival report) needs the player. */
@@ -108,7 +110,7 @@ class App {
   private cashTarget: number | null = null;
   private map: MapView;
 
-  constructor() {
+  constructor(opts: { showStart: boolean } = { showStart: false }) {
     this.g = loadGame() ?? newGame();
     saveGame(this.g);
     this.activeId = (this.g.fleet.find((s) => isReady(this.g, s)) ?? this.g.fleet[0]).id;
@@ -187,6 +189,8 @@ class App {
     this.drainAutoReports();
     if (this.g.reports.length) this.showNextReport();
     else if (shipsNeedingDecision(this.g).some((s) => s.id === this.activeId)) { this.view = 'port'; this.renderView(); }
+    // With more than one game saved, start on the start screen (not after an update reload).
+    if (opts.showStart && listSlots().length > 1 && $('#modal').hidden) this.showGames();
   }
 
   private ship(): ShipState {
@@ -503,10 +507,45 @@ class App {
         $('#modal').hidden = true;
         if (this.g.reports.length) { this.showNextReport(); return; }
         break;
+      case 'games': this.showGames(); return;
+      case 'close-games':
+        $('#modal').hidden = true;
+        $('#modal').classList.remove('wide');
+        break;
+      case 'slot-open': this.switchTo(data.id!); return;
+      case 'slot-rename': {
+        const slot = listSlots().find((x) => x.id === data.id);
+        const name = slot ? prompt('New name for this game:', slot.name)?.trim() : '';
+        if (slot && name) {
+          renameSlot(slot.id, name);
+          if (slot.id === activeSlot()) { this.g = { ...this.g, company: name }; saveGame(this.g); }
+        }
+        this.showGames();
+        return;
+      }
+      case 'slot-delete': {
+        const slot = listSlots().find((x) => x.id === data.id);
+        if (slot && confirm(`Delete "${slot.name}"? This can't be undone.`)) deleteSlot(slot.id);
+        this.showGames();
+        return;
+      }
+      case 'slot-new': {
+        if (data.era !== 'modern') return;
+        const input = document.getElementById('new-name') as HTMLInputElement | null;
+        const name = input?.value.trim() || 'My shipping company';
+        saveGame(this.g);
+        const g = newGame();
+        g.era = 'modern';
+        g.company = name;
+        createSlot(g, name);
+        this.loadInto(g);
+        this.toast(`${name} is founded. Good luck!`, 'good');
+        return;
+      }
       case 'new-game':
-        if (!this.g.gameOver && !confirm('Start a new game? Your current company will be lost.')) return;
+        if (!this.g.gameOver && !confirm('Start this company over? Its current game will be lost.')) return;
         clearSave();
-        this.g = newGame();
+        this.g = { ...newGame(), era: this.g.era ?? 'modern', company: this.g.company };
         this.activeId = this.g.fleet[0].id;
         this.dest = null;
         this.marketPort = null;
@@ -668,6 +707,8 @@ class App {
   private renderHeader(): void {
     const g = this.g;
     $('#date').textContent = gameDate(g.day);
+    const tag = document.querySelector('.brand .tagline');
+    if (tag) tag.textContent = g.company ?? 'shipping company';
     this.animateCash(g.cash);
     const worth = netWorth(g, world);
     const next = nextMilestone(g);
@@ -1611,7 +1652,7 @@ class App {
         <li><span class="l-day">${gameDate(e.day)}</span><span class="l-text">${esc(e.text)}</span>
         ${e.amount !== undefined ? `<span class="l-amt ${e.amount >= 0 ? 'good' : 'bad'}">${money(e.amount, true)}</span>` : ''}</li>`).join('')}
       </ul>
-      <button class="btn ghost wide" data-action="new-game">New game</button>
+      <button class="btn ghost wide" data-action="games">Your games · new game</button>
       <p class="build-info">Build ${esc(BUILD.number)} · ${esc(BUILD.sha)} · built ${esc(new Date(BUILD.time).toLocaleString())}</p>`;
   }
 
@@ -1637,6 +1678,86 @@ class App {
     }
     this.render();
     this.showReport(report);
+  }
+
+  /** The start screen: your saved games, and a new one. */
+  private showGames(): void {
+    saveGame(this.g);
+    const current = activeSlot();
+    const slots = listSlots();
+    const era = (x: SlotInfo) => (x.era === 'sail' ? 'Age of Sail · from 1650' : 'Modern · from 2000');
+    const ago = (t: number) => {
+      const d = Math.floor((Date.now() - t) / 86_400_000);
+      return d <= 0 ? 'played today' : d === 1 ? 'played yesterday' : `played ${new Date(t).toLocaleDateString()}`;
+    };
+    const rows = slots.map((x) => `
+      <li class="slot-row ${x.era} ${x.id === current ? 'current' : ''}">
+        <div class="slot-main">
+          <span class="slot-era">${esc(era(x))}${x.id === current ? ' · <b>open now</b>' : ''}</span>
+          <strong>${esc(x.name)}</strong>
+          <span class="sub">${gameDate(x.day)} · ${x.ships} ship${x.ships === 1 ? '' : 's'} · worth ${compactMoney(x.worth)} · ${ago(x.lastPlayed)}</span>
+        </div>
+        <div class="slot-btns">
+          ${x.id === current ? '<button class="btn small primary" data-action="close-games">Back to it</button>'
+            : `<button class="btn small primary" data-action="slot-open" data-id="${x.id}">Open</button>`}
+          <button class="btn small ghost" data-action="slot-rename" data-id="${x.id}">Rename</button>
+          ${x.id === current ? '' : `<button class="btn small ghost" data-action="slot-delete" data-id="${x.id}">Delete</button>`}
+        </div>
+      </li>`).join('');
+    $('#modal').classList.add('wide');
+    $('#modal-body').innerHTML = `
+      <h2>Your games</h2>
+      <p class="sub">Each game keeps its own clock. Open another, and this one waits where you left it.</p>
+      <ul class="slot-list">${rows}</ul>
+      <h3>New game</h3>
+      <label class="new-name">Company name <input id="new-name" type="text" maxlength="40" value="${esc(this.suggestName(slots))}"></label>
+      <div class="era-cards">
+        <button class="era-card modern" data-action="slot-new" data-era="modern">
+          <strong>Modern · from 2000</strong><span>Steel, diesel and containers: start with an old coaster and $150,000.</span><em>Start</em></button>
+        <div class="era-card sail" aria-disabled="true">
+          <strong>Age of Sail · from 1650</strong><span>Fluyts, monsoons and spice: found a merchant house in Amsterdam. Being built now.</span><em>Coming soon</em></div>
+      </div>
+      <button class="btn ghost wide" data-action="close-games">Close</button>`;
+    $('#modal').hidden = false;
+  }
+
+  private suggestName(slots: SlotInfo[]): string {
+    const base = ['Northern Star Lines', 'Blue Anchor Shipping', 'Harbour & Sons', 'Meridian Freight', 'Tradewind Co.', 'Albatross Line'];
+    return base.find((n) => !slots.some((x) => x.name === n)) ?? `Company ${slots.length + 1}`;
+  }
+
+  /** Open another saved game (this one is saved first). */
+  private switchTo(id: string): void {
+    saveGame(this.g);
+    const g = loadSlot(id);
+    if (!g) { this.toast('That game could not be read.', 'bad'); return; }
+    setActiveSlot(id);
+    this.loadInto(g);
+    this.toast(`Opened ${listSlots().find((x) => x.id === id)?.name ?? 'the game'}.`, 'good');
+  }
+
+  /** Put a game on the table: reset what the screen remembers about the last one. */
+  private loadInto(g: GameState): void {
+    this.g = g;
+    const waiting = shipsNeedingDecision(g);
+    this.activeId = (waiting[0] ?? g.fleet[0]).id;
+    this.dest = null;
+    this.hoverDest = null;
+    this.marketPort = null;
+    this.areaDraft = null;
+    this.routesHidden = false;
+    this.storms = [];
+    this.tab = 'contracts';
+    // Show the new game's cash straight away (no counting from the old game's figure).
+    this.shownCash = null;
+    this.cashTarget = null;
+    this.view = waiting.length ? 'port' : 'map';
+    $('#modal').hidden = true;
+    $('#modal').classList.remove('wide');
+    this.pause(waiting.length ? 'decision' : 'user');
+    this.drainAutoReports();
+    this.render();
+    if (this.g.reports.length) this.showNextReport();
   }
 
   /** For a ship you command: take her in yourself instead of the pilot. */
@@ -1679,6 +1800,7 @@ class App {
   }
 
   private showReport(r: VoyageReport): void {
+    $('#modal').classList.remove('wide');
     const line = (label: string, v: number, cls = '') => `<div class="line ${cls}"><span>${esc(label)}</span><span>${money(v, true)}</span></div>`;
     const more = this.g.reports.length;
     $('#modal-body').innerHTML = `
@@ -1866,7 +1988,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 initServiceWorker();
-new App();
+new App({ showStart: !justUpdated() });
 const updatedFrom = consumeUpdatedFrom();
 if (updatedFrom) toast(`Updated from build ${updatedFrom} to build ${BUILD.number}.`, 'good', 4500);
 void checkForUpdate();

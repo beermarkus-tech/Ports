@@ -767,3 +767,27 @@ table.books td { white-space: nowrap; }
   .dg-btn { min-width: 44px; min-height: 40px; font-size: 15px; padding: 4px 10px; }
   .dg-btn.small { min-height: 34px; }
 }
+
+/* Start screen: your games */
+.modal.wide .modal-body { width: min(620px, 100%); }
+.slot-list { list-style: none; margin: 8px 0 16px; padding: 0; display: grid; gap: 8px; }
+.slot-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
+.slot-row.current { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.slot-row.sail { background: #efe3c4; color: #2b1d0e; border-color: #c9b68a; }
+.slot-row.sail .sub, .slot-row.sail .slot-era { color: #5a4630; }
+.slot-main { display: grid; gap: 1px; min-width: 0; }
+.slot-main strong { font-size: 16px; }
+.slot-main .sub { margin: 0; font-size: 12.5px; }
+.slot-era { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
+.slot-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.new-name { display: grid; gap: 4px; font-size: 13px; color: var(--muted); margin: 6px 0 10px; }
+.new-name input { font: inherit; font-size: 15px; color: var(--text); background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.era-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.era-card { font: inherit; text-align: left; display: grid; gap: 4px; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); color: var(--text); }
+button.era-card { cursor: pointer; }
+button.era-card:hover { border-color: var(--accent); }
+.era-card span { font-size: 13px; color: var(--muted); }
+.era-card em { font-style: normal; font-weight: 700; font-size: 13px; color: var(--accent); }
+.era-card.sail { background: #efe3c4; color: #2b1d0e; border-color: #c9b68a; font-family: "EB Garamond", Georgia, serif; opacity: 0.85; }
+.era-card.sail span { color: #5a4630; font-size: 14.5px; }
+.era-card.sail em { color: #7b2d26; }

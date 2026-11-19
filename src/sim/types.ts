@@ -266,6 +266,10 @@ export interface LogEntry {
 
 export interface GameState {
   version: 4;
+  /** Which era the game is set in (missing = modern). */
+  era?: 'modern' | 'sail';
+  /** The company's name, as on the start screen. */
+  company?: string;
   rng: number;
   day: number;
   cash: number;

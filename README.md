@@ -51,6 +51,15 @@ bottom of the Log tab (with the commit id and build time). The ↻ button in the
 header checks for a new version, installs it and reloads, with no need to
 close the app. The game saves after every action, so reloading is always safe.
 
+## Several games
+
+The ☰ button (top right) opens **Your games**: every saved game with its era,
+date, fleet and net worth. Open another and the current one waits where you left
+it; each keeps its own clock. Start a new company there (pick a name and an
+era: Modern from 2000 now, the Age of Sail from 1650 is being built), rename or
+delete games. With more than one game saved, the app opens on this screen.
+A save from before slots becomes the first game automatically.
+
 ## How to play
 
 0. **Time and the fleet.** The clock runs at 1 day per second (2× and 4× in the
