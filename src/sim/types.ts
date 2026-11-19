@@ -108,6 +108,8 @@ export interface ShipState {
   books?: ShipMonth[];
   /** The hired captain running this ship (it then sails its orders by itself). */
   captainId?: number;
+  /** Just arrived under your command: you may dock it yourself and save the pilot (until it sails). */
+  docking?: { port: string; services: number; portFee: number };
 }
 
 /** A programmed round trip: the ship works through `stops` in a loop on its own. */
@@ -244,6 +246,8 @@ export interface VoyageReport {
   revenue: number;
   upkeep: number;
   portFee: number;
+  /** Pilot and tugs on arrival (missing in older reports). */
+  services?: number;
   canalFees: number;
   eventCosts: number;
   /** Result of the leg: revenue minus upkeep, fees and event costs (fuel was paid when bunkering). */

@@ -61,6 +61,11 @@ function dimsFor(s: SceneShip): Dims {
   return { L, D: L * 0.08, d0: L * 0.025, d1: L * 0.06, sup: 8 + L * 0.04 };
 }
 
+/** A ship's length in metres (the same scale as the port view). */
+export function shipLength(typeId: string, capacity: number): number {
+  return DIMS[typeId]?.L ?? Math.round(60 + 40 * Math.log2(capacity / 2000));
+}
+
 const FAMILY: Record<ShipFamily, { hull: string; band: string }> = {
   general: { hull: '#24486e', band: '#e0a92b' },
   bulk: { hull: '#7a2626', band: '#f0f0f0' },

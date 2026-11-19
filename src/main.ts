@@ -4,7 +4,7 @@ import {
   ActionError, LAID_UP, RULES, acceptContract, advance, atSea, borrow, buyFuel, buyShip, canCarry, cargoTons, clearOrders,
   assignCaptain, captainOf, fireCaptain, hireCaptain, monthOf, monthProfit, onOrders, resumeOrders,
   dailyUpkeep, daysUntilNextShip, fuelPrice, getShip, inDryDock, isReady, isWaiting, needsDecision, newGame,
-  nextMilestone, planVoyage, portFee, repair, repairQuote, repayLoan, sail, saleQuote, sellShip,
+  dockByHand, nextMilestone, planVoyage, portFee, repair, repairQuote, repayLoan, sail, saleQuote, sellShip,
   shipsNeedingDecision, takeReport, typeOf, unloadContract, voyageProgress, waitInPort, type VoyagePlan,
 } from './sim/game';
 import { clearSave, loadGame, saveGame } from './sim/save';
@@ -17,7 +17,8 @@ import { getWorld } from './sim/world';
 import { compactMoney, days, esc, gameDate, money, tons } from './ui/format';
 import { mapIconPath, shipFamily, shipSideView } from './ui/art';
 import { MapView, type LonLat, type PortMarker, type ShipMarker, type WeatherCell } from './ui/map';
-import { PortScene, type SceneShip, type TimeOfDay } from './ui/port-scene';
+import { PortScene, shipLength, type SceneShip, type TimeOfDay } from './ui/port-scene';
+import { DockingGame } from './ui/docking-game';
 import { barChart, lineChart, miniBars, type ChartPoint } from './ui/charts';
 import { captainSlots } from './sim/captains';
 import { REGIONS, areaName, areaPorts, region, regionOf } from './sim/regions';
@@ -195,7 +196,7 @@ class App {
   // ------------------------------------------------------------ the clock
 
   private tick(): void {
-    if (this.paused || !$('#modal').hidden || this.g.gameOver) return;
+    if (this.paused || !$('#modal').hidden || this.dockingGame || this.g.gameOver) return;
     // Nothing moves while a ship is waiting for orders.
     if (shipsNeedingDecision(this.g).length) {
       this.pause('decision');
@@ -494,6 +495,9 @@ class App {
       case 'mute':
         sound.setEnabled(!sound.enabled);
         this.renderMute();
+        return;
+      case 'dock-yourself':
+        this.startDocking(Number(data.id));
         return;
       case 'close-report':
         $('#modal').hidden = true;
@@ -1579,6 +1583,7 @@ class App {
           ${line('Freight revenue', plan.revenue, 'good')}
           ${line('Upkeep', -plan.upkeep)}
           ${line(`Port fee ${name}`, -plan.portFee)}
+          ${line('Pilot & tugs (dock yourself to save it)', -plan.services)}
           ${plan.canalFees ? line('Canal dues', -plan.canalFees) : ''}
           ${line(`Fuel burned (at ${money(price)}/t)`, -fuelValue)}
           <div class="line total ${plan.estimatedNet >= 0 ? 'good' : 'bad'}"><span>Estimated result</span><span>${money(plan.estimatedNet, true)}</span></div>
@@ -1634,6 +1639,45 @@ class App {
     this.showReport(report);
   }
 
+  /** For a ship you command: take her in yourself instead of the pilot. */
+  private dockOffer(r: VoyageReport): string {
+    const s = this.g.fleet.find((x) => x.id === r.shipId);
+    const d = s?.docking;
+    if (!s || !d || s.voyage || s.location !== r.to) return '';
+    return `<div class="dock-offer">
+      <button class="btn wide" data-action="dock-yourself" data-id="${s.id}">⚓ Dock her yourself · save ${money(d.services)}</button>
+      <span class="hint">A perfect docking also gets the port fee (${money(d.portFee)}) waived. Bumps cost condition. Or the pilot takes her in (paid above).</span>
+    </div>`;
+  }
+
+  private dockingGame: DockingGame | null = null;
+
+  private startDocking(shipId: number): void {
+    const s = this.g.fleet.find((x) => x.id === shipId);
+    const d = s?.docking;
+    if (!s || !d) return;
+    const type = typeOf(s);
+    const port = world.ports[s.location];
+    $('#modal').hidden = true;
+    // Wind and current vary from day to day.
+    const strength = 0.25 + 0.6 * ((Math.sin(this.g.day * 1.37 + port.lon) + 1) / 2);
+    this.dockingGame = new DockingGame({
+      portId: port.id, portName: port.name, shipName: s.name, length: shipLength(type.id, type.capacity), family: shipFamily(type),
+      strength, services: d.services, portFee: d.portFee, money,
+      onDone: (result) => {
+        this.dockingGame = null;
+        if (result) {
+          if (this.act((g) => dockByHand(g, shipId, result))) {
+            sound.play('coins');
+            this.toast(result.perfect ? `Perfect! Pilot, tugs and port fee saved.` : `Moored: pilot and tugs saved${result.damage ? `, ${result.damage}% condition lost to bumps` : ''}.`, 'good');
+          }
+        }
+        if (this.g.reports.length) this.showNextReport();
+        else this.render();
+      },
+    });
+  }
+
   private showReport(r: VoyageReport): void {
     const line = (label: string, v: number, cls = '') => `<div class="line ${cls}"><span>${esc(label)}</span><span>${money(v, true)}</span></div>`;
     const more = this.g.reports.length;
@@ -1647,12 +1691,14 @@ class App {
         ${r.deliveries.map((d) => line(`${world.goods[d.contract.good].name}, ${tons(d.contract.tons)}${d.lateDays > 0 ? ` (late, ${Math.round((d.paid / d.contract.pay) * 100)}% paid)` : ''}`, d.paid, 'good')).join('')}
         ${line('Upkeep on the way (paid daily)', -r.upkeep)}
         ${line('Port fee', -r.portFee)}
+        ${r.services ? line('Pilot & tugs', -r.services) : ''}
         ${r.canalFees ? line('Canal dues', -r.canalFees) : ''}
         ${r.eventCosts ? line('Repairs & emergencies', -r.eventCosts, 'bad') : ''}
         <div class="line total ${r.net >= 0 ? 'good' : 'bad'}"><span>Result for the leg</span><span>${money(r.net, true)}</span></div>
       </div>
       ${r.marketNotes.length ? `<ul class="market-notes">${r.marketNotes.map((n) => `<li>▼ ${esc(n)}</li>`).join('')}</ul>` : ''}
       <div class="line memo"><span>Memo: fuel burned, paid when bunkering</span><span>≈ ${money(r.fuelUsed * fuelPrice(this.g, r.from))}</span></div>
+      ${this.dockOffer(r)}
       <button class="btn primary wide" data-action="close-report">${more ? `Next arrival (${more} more)` : `Give the ${esc(r.shipName)} new orders`}</button>`;
     $('#modal').hidden = false;
     ($('#modal-body').querySelector('.btn.primary') as HTMLElement)?.focus();

@@ -155,7 +155,7 @@ describe('the world clock', () => {
     expect(state.reports).toHaveLength(0);
     // Cash = before − daily upkeep and interest + revenue − fees − event costs.
     const expected = cashBefore - arrived.stats.upkeepPaid - arrived.stats.interestPaid
-      + report!.revenue - report!.portFee - report!.canalFees - report!.eventCosts;
+      + report!.revenue - report!.portFee - (report!.services ?? 0) - report!.canalFees - report!.eventCosts;
     expect(arrived.cash).toBe(expected);
   });
 

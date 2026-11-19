@@ -109,7 +109,16 @@ close the app. The game saves after every action, so reloading is always safe.
    regional backdrops, time of day from the map's sun. An inset map shows the
    route of the destination you picked or the cargo you point at; tap it (or
    Map) for the world map, which also returns by itself when the clock runs.
-11. **Company tab:** the books. Net worth at the end of each month (line) and
+11. **Docking yourself.** Every arrival costs pilot and tugs (60% of the port
+   fee). When a ship you command arrives, the report offers "Dock her yourself":
+   a top-down harbour at true scale (five layouts: breakwater, river, bay,
+   dogleg channel, open jetty; big ships use outer or deep-water berths), with
+   wind and current. Engine in steps (W/S), rudder (A/D, Space midships), tugs
+   pushing sideways while held (Q/E). Moor slowly alongside the yellow berth:
+   you keep the pilot and tugs money, a perfect docking also gets the port fee
+   waived, bumps above 0.7 knots cost condition. "Hand over to the pilot" any
+   time. Ships with captains always take the pilot.
+12. **Company tab:** the books. Net worth at the end of each month (line) and
    the monthly result, revenue less running costs (bars, profit teal, loss
    orange), with hover/tap tooltips; this month and last month broken down into
    revenue, fuel, port fees and canals, upkeep, interest, repairs and incidents.

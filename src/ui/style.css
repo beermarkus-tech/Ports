@@ -714,3 +714,54 @@ table.books td { white-space: nowrap; }
 .fr-nochart { font-size: 11.5px; color: var(--muted); }
 .chart.mini { width: 100%; max-width: 260px; height: 40px; }
 @media (max-width: 480px) { .fr-chart { grid-column: 1 / -1; } }
+
+/* Docking mini game */
+.dock-offer { display: grid; gap: 4px; margin: 12px 0 8px; }
+.dock-offer .btn { border-color: var(--accent-2); color: var(--text); }
+.dock-game { position: fixed; inset: 0; z-index: 60; background: #0d2a3c; color: #f3f8fc; touch-action: none; user-select: none; -webkit-user-select: none; }
+.dock-game [hidden] { display: none !important; }
+.dock-game canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.dg-top { position: absolute; left: 0; right: 0; top: 0; display: flex; justify-content: space-between; align-items: flex-start; gap: 10px;
+  padding: max(10px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 10px max(12px, env(safe-area-inset-left));
+  background: linear-gradient(rgba(6,18,30,0.85), rgba(6,18,30,0)); pointer-events: none; }
+.dg-top > * { pointer-events: auto; }
+.dg-title { display: grid; gap: 2px; font-size: 12.5px; color: rgba(243,248,252,0.85); min-width: 0; }
+.dg-title strong { font-size: 17px; color: #fff; }
+.dg-hud { position: absolute; left: 12px; top: 92px; display: flex; flex-wrap: wrap; gap: 6px; max-width: calc(100% - 24px); pointer-events: none; }
+.dg-hud span { background: rgba(6,18,30,0.7); padding: 3px 9px; border-radius: 999px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.dg-hud .warn { background: rgba(190,110,10,0.9); }
+.dg-hud .good { background: rgba(20,130,80,0.9); }
+.dg-flash { position: absolute; left: 50%; top: 40%; transform: translate(-50%, -50%); background: rgba(190,45,35,0.92); padding: 10px 18px; border-radius: 10px; font-weight: 700; font-size: 18px; pointer-events: none; }
+.dg-controls { position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 10px 22px;
+  padding: 12px max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  background: linear-gradient(rgba(6,18,30,0), rgba(6,18,30,0.9) 30%); }
+.dg-group { display: flex; align-items: center; gap: 6px; }
+.dg-lbl { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(243,248,252,0.7); margin-right: 2px; }
+.dg-val { min-width: 92px; text-align: center; font-weight: 700; font-size: 14px; font-variant-numeric: tabular-nums; }
+.dg-btn { font: inherit; font-weight: 700; font-size: 16px; min-width: 48px; min-height: 44px; padding: 6px 12px; border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.35); background: rgba(20,45,66,0.92); color: #fff; cursor: pointer; touch-action: none; }
+.dg-btn:active { background: #3ec7e0; color: #08131f; }
+.dg-btn.small { font-size: 12.5px; min-height: 36px; }
+.dg-btn.primary { background: #3ec7e0; color: #08131f; border-color: transparent; width: 100%; }
+.dg-top .dg-btn { font-size: 13px; min-height: 36px; }
+.dg-result { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(380px, calc(100% - 32px)); background: #0f2033;
+  border: 1px solid #21405f; border-radius: 14px; padding: 18px 20px; display: grid; gap: 10px; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
+.dg-result h2 { margin: 0; font-size: 22px; }
+.dg-score { margin: 0; color: #8ba3bb; }
+.dg-lines { display: grid; gap: 4px; font-variant-numeric: tabular-nums; }
+.dg-lines div { display: flex; justify-content: space-between; gap: 12px; }
+.dg-lines .up { color: #4fd18b; }
+.dg-lines .down { color: #ff6b6b; }
+.dg-tip { margin: 0; font-size: 13px; color: #8ba3bb; }
+@media (max-width: 600px) {
+  .dg-hud { top: 84px; }
+  .dg-hud span { font-size: 12px; padding: 2px 8px; }
+  .dg-title strong { font-size: 15px; }
+  .dg-title span { font-size: 11.5px; }
+  .dg-title span:last-child { display: none; }
+  .dg-controls { gap: 6px 10px; padding-top: 8px; }
+  .dg-lbl { display: none; }
+  .dg-val { min-width: 70px; font-size: 12.5px; }
+  .dg-btn { min-width: 44px; min-height: 40px; font-size: 15px; padding: 4px 10px; }
+  .dg-btn.small { min-height: 34px; }
+}

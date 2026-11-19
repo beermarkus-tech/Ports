@@ -49,6 +49,8 @@ export const RULES = {
   /** A newly bought ship comes with this share of its bunkers filled. */
   newShipFuel: 0.1,
   maxReports: 20,
+  /** Pilot and tugs on arrival, as a share of the port fee (saved by docking yourself). */
+  harbourServices: 0.6,
 };
 
 export class ActionError extends Error {}
@@ -179,6 +181,11 @@ export function fuelPrice(g: GameState, portId: string, world: World = getWorld(
 export function portFee(g: GameState, ship: Pick<ShipState, 'typeId'>, portId: string, world: World = getWorld()): number {
   const strike = strikeAt(g, portId) ? ECONOMY.strike.feeMultiplier : 1;
   return Math.round(world.ports[portId].portFee * typeOf(ship, world).sizeFactor * strike);
+}
+
+/** Pilot and tugs on arrival: a share of the port fee. Dock yourself and you keep it. */
+export function harbourServices(g: GameState, ship: Pick<ShipState, 'typeId'>, portId: string, world: World = getWorld()): number {
+  return Math.round(portFee(g, ship, portId, world) * RULES.harbourServices / 100) * 100;
 }
 
 export function cargoTons(ship: ShipState): number {
@@ -752,7 +759,7 @@ function legCost(g: GameState, ship: ShipState, from: string, to: string, world:
     fuel,
     inRange: fuel <= type.bunkerCapacity,
     /** Fuel valued at the price where the leg starts. */
-    costs: fuel * fuelPrice(g, from, world) + portFee(g, ship, to, world) + canal,
+    costs: fuel * fuelPrice(g, from, world) + portFee(g, ship, to, world) + harbourServices(g, ship, to, world) + canal,
   };
 }
 
@@ -939,6 +946,8 @@ export interface VoyagePlan {
   inRange: boolean;
   upkeep: number;
   portFee: number;
+  /** Pilot and tugs on arrival. */
+  services: number;
   canalFees: number;
   deliveries: { contract: Contract; pay: number; late: boolean }[];
   revenue: number;
@@ -970,6 +979,7 @@ export function planVoyage(g: GameState, shipId: number, dest: string, world: Wo
   const revenue = deliveries.reduce((s, d) => s + d.pay, 0);
   const upkeep = Math.round((seaDays + RULES.portDays + strikeDays) * type.dailyCost);
   const fee = portFee(g, ship, dest, world);
+  const services = harbourServices(g, ship, dest, world);
   const canalFees = route.canals.reduce((s, c) => s + Math.round(world.canals[c].fee * type.sizeFactor), 0);
   const fuelCost = fuelNeeded * fuelPrice(g, ship.location, world);
   return {
@@ -981,10 +991,11 @@ export function planVoyage(g: GameState, shipId: number, dest: string, world: Wo
     inRange: fuelNeeded <= type.bunkerCapacity,
     upkeep,
     portFee: fee,
+    services,
     canalFees,
     deliveries,
     revenue,
-    estimatedNet: revenue - upkeep - fee - canalFees - fuelCost,
+    estimatedNet: revenue - upkeep - fee - services - canalFees - fuelCost,
     strike,
     strikeDays,
   };
@@ -1074,6 +1085,7 @@ export function sail(state: GameState, shipId: number, dest: string, world: Worl
   const g = clone(state);
   const ship = getShip(g, shipId);
   delete ship.waitUntil;
+  delete ship.docking;
   ship.voyage = plotVoyage(world, g, ship, dest, plan.route, plan.canalFees);
   log(g, `${ship.name} cast off from ${world.ports[ship.location].name} for ${world.ports[dest].name}.`);
   return g;
@@ -1116,12 +1128,13 @@ function arrive(world: World, g: GameState, ship: ShipState): void {
   const news = g.events.filter((e) => e.startDay > v.departDay && e.startDay <= g.day).map((e) => e.headline);
   const upkeep = Math.round((v.arriveDay - v.departDay) * type.dailyCost); // already paid day by day
   const fee = portFee(g, ship, dest, world);
-  g.cash += revenue - fee - v.canalFees - v.eventCosts;
+  const services = harbourServices(g, ship, dest, world);
+  g.cash += revenue - fee - services - v.canalFees - v.eventCosts;
   book(g, world, 'revenue', revenue);
-  book(g, world, 'fees', fee + v.canalFees);
+  book(g, world, 'fees', fee + services + v.canalFees);
   book(g, world, 'incidents', v.eventCosts);
   shipBook(ship, 'revenue', revenue, g.day);
-  shipBook(ship, 'costs', fee + v.canalFees + v.eventCosts, g.day);
+  shipBook(ship, 'costs', fee + services + v.canalFees + v.eventCosts, g.day);
   g.stats.voyages++;
   g.stats.revenue += revenue;
   g.stats.fuelSpent += v.events.filter((e) => e.kind === 'emergencyFuel').reduce((s, e) => s + e.cost, 0);
@@ -1132,11 +1145,14 @@ function arrive(world: World, g: GameState, ship: ShipState): void {
     from: v.from, to: dest, path: v.path, distance: v.distance,
     departDay: v.departDay, arriveDay: v.arriveDay, fuelUsed: v.fuelUsed,
     conditionLoss: Math.round((v.startCondition - ship.condition) * 10) / 10,
-    events: v.events, deliveries, revenue, upkeep, portFee: fee, canalFees: v.canalFees, eventCosts: v.eventCosts,
-    net: revenue - upkeep - fee - v.canalFees - v.eventCosts,
+    events: v.events, deliveries, revenue, upkeep, portFee: fee, services, canalFees: v.canalFees, eventCosts: v.eventCosts,
+    net: revenue - upkeep - fee - services - v.canalFees - v.eventCosts,
     marketNotes, news,
   };
   if (onOrders(ship)) report.auto = true;
+  // Under your command: you may take her in yourself instead of the pilot (until she sails).
+  if (ship.captainId === undefined) ship.docking = { port: dest, services, portFee: fee };
+  else delete ship.docking;
   // For the fleet overview: the leg's result including the fuel it burned (at the price where it bunkered).
   const fuelCost = Math.round(v.fuelUsed * fuelPrice(g, v.from, world));
   ship.earnings = [...(ship.earnings ?? []).filter((e) => e.day > g.day - ORDERS.earningsDays), { day: g.day, net: report.net - fuelCost }];
@@ -1155,6 +1171,29 @@ function arrive(world: World, g: GameState, ship: ShipState): void {
   for (const note of marketNotes) log(g, note);
   log(g, `${ship.name} arrived in ${portName} after ${(v.arriveDay - v.departDay).toFixed(1)} days. Result for the leg: ${
     report.net >= 0 ? '+' : '-'}$${Math.abs(report.net).toLocaleString('en-US')}.`);
+}
+
+/**
+ * You took her in yourself: the pilot and tugs are refunded (and the port fee too
+ * for a perfect docking); bumps cost condition. Once per arrival.
+ */
+export function dockByHand(state: GameState, shipId: number, result: { perfect: boolean; damage: number; score: number }, world: World = getWorld()): GameState {
+  const before = getShip(state, shipId);
+  const d = before.docking;
+  if (!d || d.port !== before.location || before.voyage) throw new ActionError('The pilot has already brought her in.');
+  const g = clone(state);
+  const ship = getShip(g, shipId);
+  const refund = d.services + (result.perfect ? d.portFee : 0);
+  g.cash += refund;
+  book(g, world, 'fees', -refund);
+  shipBook(ship, 'costs', -refund, g.day);
+  ship.condition = Math.max(0, ship.condition - result.damage);
+  delete ship.docking;
+  const port = world.ports[ship.location].name;
+  log(g, result.perfect
+    ? `You took the ${ship.name} into ${port} yourself, perfectly (score ${result.score}): no pilot, and the harbour master waived the port fee.`
+    : `You took the ${ship.name} into ${port} yourself (score ${result.score}): no pilot needed.${result.damage ? ` Bumps cost ${result.damage}% condition.` : ''}`, refund);
+  return g;
 }
 
 /** Remove and return the oldest unseen arrival report. */
