@@ -95,49 +95,58 @@ export class World {
    * route keeps to charted water where it reasonably can (nm is the real length).
    */
   route(from: string, to: string, closedCanals: string[] = [], fog?: { key: string; known: Set<string> }, penalty = 1.6): Route | null {
-    const key = `${from}>${to}>${closedCanals.slice().sort().join(',')}${fog ? `>${fog.key}` : ''}`;
-    if (this.routeCache.has(key)) return this.routeCache.get(key)!;
+    const suffix = `>${closedCanals.slice().sort().join(',')}${fog ? `>${fog.key}` : ''}`;
+    const key = `${from}>${to}${suffix}`;
+    const hit = this.routeCache.get(key);
+    if (hit !== undefined) return hit;
 
-    const dist: Record<string, number> = { [from]: 0 };
-    const prev: Record<string, { node: string; edge: Edge }> = {};
+    // One search from `from` answers every destination: run it to the end and cache
+    // the routes to all ports at once (the same paths an early-stopping search finds).
+    const dist = new Map<string, number>([[from, 0]]);
+    const prev = new Map<string, { node: string; edge: Edge }>();
     const done = new Set<string>();
-
     for (;;) {
       let current: string | null = null;
-      for (const [node, d] of Object.entries(dist)) {
-        if (!done.has(node) && (current === null || d < dist[current])) current = node;
+      let best = Infinity;
+      for (const [node, d] of dist) {
+        if (d < best && !done.has(node)) { current = node; best = d; }
       }
-      if (current === null || current === to) break;
+      if (current === null) break;
       done.add(current);
       for (const edge of this.adjacency[current] ?? []) {
         if (edge.canal && closedCanals.includes(edge.canal)) continue;
         const next = edge.a === current ? edge.b : edge.a;
         const dark = fog && (!fog.known.has(edge.a) || !fog.known.has(edge.b));
-        const nd = dist[current] + (dark ? edge.nm * penalty : edge.nm);
-        if (dist[next] === undefined || nd < dist[next]) {
-          dist[next] = nd;
-          prev[next] = { node: current, edge };
+        const nd = best + (dark ? edge.nm * penalty : edge.nm);
+        const old = dist.get(next);
+        if (old === undefined || nd < old) {
+          dist.set(next, nd);
+          prev.set(next, { node: current, edge });
         }
       }
     }
 
-    let result: Route | null = null;
-    if (dist[to] !== undefined) {
-      const path = [to];
+    const build = (target: string): Route | null => {
+      if (!dist.has(target)) return null;
+      const path = [target];
       const canals: string[] = [];
-      let n = to;
+      let n = target;
       let nm = 0;
       while (n !== from) {
-        const p = prev[n];
+        const p = prev.get(n)!;
         if (p.edge.canal) canals.unshift(p.edge.canal);
         nm += p.edge.nm;
         n = p.node;
         path.unshift(n);
       }
-      result = { path, nm: Math.round(nm), canals };
+      return { path, nm: Math.round(nm), canals };
+    };
+    for (const p of this.portList) {
+      const k = `${from}>${p.id}${suffix}`;
+      if (!this.routeCache.has(k)) this.routeCache.set(k, build(p.id));
     }
-    this.routeCache.set(key, result);
-    return result;
+    if (!this.routeCache.has(key)) this.routeCache.set(key, build(to));
+    return this.routeCache.get(key)!;
   }
 
   distance(from: string, to: string): number {

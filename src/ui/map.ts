@@ -32,6 +32,20 @@ function el<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, 
   return node;
 }
 
+type LabelKey = 'right' | 'left' | 'above' | 'below' | 'ne' | 'se' | 'nw' | 'sw';
+interface LabelSpot { x: number; y: number; fy: number; anchor: 'start' | 'end' | 'middle' }
+/** Where a port's name (baseline y) and price (baseline fy) can sit round its dot. */
+const LABEL_SPOTS: Record<LabelKey, LabelSpot> = {
+  right: { x: 10, y: -6, fy: 8, anchor: 'start' },
+  left: { x: -10, y: -6, fy: 8, anchor: 'end' },
+  above: { x: 0, y: -21, fy: -9, anchor: 'middle' },
+  below: { x: 0, y: 18, fy: 29, anchor: 'middle' },
+  ne: { x: 6, y: -16, fy: -4, anchor: 'start' },
+  se: { x: 6, y: 15, fy: 27, anchor: 'start' },
+  nw: { x: -6, y: -16, fy: -4, anchor: 'end' },
+  sw: { x: -6, y: 15, fy: 27, anchor: 'end' },
+};
+
 export class MapView {
   readonly svg: SVGSVGElement;
   private projection: GeoProjection;
@@ -48,8 +62,13 @@ export class MapView {
   private wakes = new Map<number, SVGPathElement>();
   private clouds = new Map<string, SVGGElement>();
   private ports: Record<string, SVGGElement> = {};
+  private portXY: Record<string, [number, number]> = {};
+  private labelsPlaced = false;
+  private notesKey = '';
   private fogLayer: SVGGElement;
-  private fogKnown: SVGGElement;
+  private fogImage: SVGImageElement;
+  private fogTexts: { lon: number; lat: number; el: SVGTextElement }[] = [];
+  private fogKnownSet: Set<string> | null = null;
   private laneEls: { a: string; b: string; el: SVGPathElement }[] = [];
   private fogKey = '';
 
@@ -84,14 +103,6 @@ export class MapView {
         <stop offset="0%" stop-color="var(--land-hi)"/><stop offset="100%" stop-color="var(--land)"/>
       </linearGradient>
       <clipPath id="sphere-clip"><path d="${this.path({ type: 'Sphere' })}"/></clipPath>
-      <filter id="fog-soft" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="9"/></filter>
-      <filter id="fog-tex" x="0" y="0" width="100%" height="100%">
-        <feTurbulence type="fractalNoise" baseFrequency="0.012 0.02" numOctaves="3" seed="7"/>
-        <feColorMatrix values="0 0 0 0 0.5  0 0 0 0 0.45  0 0 0 0 0.38  0 0 0 0.55 0"/>
-      </filter>
-      <mask id="fog-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="${W}" height="${H}">
-        <rect width="${W}" height="${H}" fill="white"/><g class="fog-known" fill="black" stroke="black" filter="url(#fog-soft)"></g>
-      </mask>
       <pattern id="waves" width="46" height="22" patternUnits="userSpaceOnUse">
         <path d="M2 8 q5 -4 10 0 t10 0" class="wave"/><path d="M25 18 q5 -4 10 0 t10 0" class="wave"/>
       </pattern>`;
@@ -113,18 +124,24 @@ export class MapView {
       this.laneEls.push({ a: e.a, b: e.b, el: lane as SVGPathElement });
     }
 
-    // Fog of war (Age of Sail): unknown water lies under a parchment haze.
-    this.fogKnown = defs.querySelector('.fog-known')!;
-    this.fogLayer = el('g', { class: 'fog', mask: 'url(#fog-mask)', 'clip-path': 'url(#sphere-clip)' }, this.svg);
+    // Fog of war (Age of Sail): unknown water lies under a parchment haze. It is drawn
+    // once into a still image (blur and texture are far too costly as live SVG filters
+    // on a map that redraws every tick) and redrawn only when the charts change.
+    this.fogLayer = el('g', { class: 'fog' }, this.svg);
     this.fogLayer.style.display = 'none';
-    el('rect', { width: W, height: H, class: 'fog-base' }, this.fogLayer);
-    el('rect', { width: W, height: H, class: 'fog-tex', filter: 'url(#fog-tex)' }, this.fogLayer);
+    this.fogImage = el('image', { x: 0, y: 0, width: W, height: H, preserveAspectRatio: 'none' }, this.fogLayer) as SVGImageElement;
     for (const [lon, lat, text, size] of [[-150, 5, 'Mare Incognitum', 22], [-120, -30, 'Mare del Sur', 18], [-140, 40, 'Here be dragons', 15],
       [50, -8, 'Zanguebar', 14], [140, -58, 'Terra Australis Incognita', 16], [175, 20, 'Mare Pacificum', 16]] as const) {
       const [x, y] = this.projection([lon, lat])!;
-      const t = el('text', { x, y, class: 'fog-text', 'font-size': size, 'text-anchor': 'middle' }, this.fogLayer);
+      const t = el('text', { x, y, class: 'fog-text', 'font-size': size, 'text-anchor': 'middle' }, this.fogLayer) as SVGTextElement;
       t.textContent = text;
+      this.fogTexts.push({ lon, lat, el: t });
     }
+    // The fog's colour follows light and dark mode.
+    window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener?.('change', () => {
+      this.fogKey = '';
+      this.setCharted(this.fogKnownSet);
+    });
 
     this.nightLayer = el('g', { class: 'night', 'clip-path': 'url(#sphere-clip)' }, this.svg);
     this.weatherLayer = el('g', { class: 'weather', 'clip-path': 'url(#sphere-clip)' }, this.svg);
@@ -132,21 +149,33 @@ export class MapView {
     this.wakeLayer = el('g', { class: 'wakes' }, this.svg);
     this.portLayer = el('g', { class: 'ports' }, this.svg);
 
+    // Ports a few miles apart (Canton and Macau, Bantam and Batavia) would sit on one
+    // dot: nudge such dots apart on the chart, a few map units at most.
+    const at: Record<string, [number, number]> = {};
+    for (const p of world.portList) at[p.id] = this.projection([p.lon, p.lat])! as [number, number];
+    const MIN_GAP = 12;
+    for (let pass = 0; pass < 6; pass++) {
+      for (let i = 0; i < world.portList.length; i++) for (let j = i + 1; j < world.portList.length; j++) {
+        const a = at[world.portList[i].id], b = at[world.portList[j].id];
+        let dx = b[0] - a[0], dy = b[1] - a[1];
+        let d = Math.hypot(dx, dy);
+        if (d >= MIN_GAP) continue;
+        if (d < 0.01) { dx = 1; dy = 0; d = 1; }
+        const push = (MIN_GAP - d) / 2;
+        a[0] -= (dx / d) * push; a[1] -= (dy / d) * push;
+        b[0] += (dx / d) * push; b[1] += (dy / d) * push;
+      }
+    }
     for (const p of world.portList) {
-      const [x, y] = this.projection([p.lon, p.lat])!;
+      const [x, y] = at[p.id];
       const g = el('g', { class: 'port', transform: `translate(${x},${y})`, tabindex: 0, role: 'button', 'aria-label': p.name }, this.portLayer);
       el('circle', { r: 14, class: 'hit' }, g);
       el('circle', { r: 9, class: 'halo' }, g);
       el('circle', { r: 7, class: 'lights' }, g);
       el('circle', { r: 4.5, class: 'dot' }, g);
       el('circle', { r: 1.8, class: 'dot-core' }, g);
-      // Label placement comes from the port data, so crowded regions can be tuned there.
-      const place = {
-        right: { x: 10, y: -6, fy: 8, anchor: 'start' },
-        left: { x: -10, y: -6, fy: 8, anchor: 'end' },
-        above: { x: 0, y: -21, fy: -9, anchor: 'middle' },
-        below: { x: 0, y: 18, fy: 29, anchor: 'middle' },
-      }[p.label ?? 'right'];
+      // Label placement starts from the port data; placeLabels() moves the ones that collide.
+      const place = LABEL_SPOTS[p.label ?? 'right'];
       const label = el('text', { x: place.x, y: place.y, class: 'label', 'text-anchor': place.anchor }, g);
       label.textContent = p.name;
       const fuel = el('text', { x: place.x, y: place.fy, class: 'fuel', 'text-anchor': place.anchor }, g);
@@ -156,7 +185,10 @@ export class MapView {
       g.addEventListener('mouseenter', () => onPortHover(p.id));
       g.addEventListener('mouseleave', () => onPortHover(null));
       this.ports[p.id] = g;
+      this.portXY[p.id] = [x, y];
     }
+    // Once the web fonts are in, names have their final widths: place them again.
+    document.fonts?.ready.then(() => this.placeLabels());
 
     this.shipLayer = el('g', { class: 'ships' }, this.svg);
     this.effectLayer = el('g', { class: 'effects' }, this.svg);
@@ -170,6 +202,7 @@ export class MapView {
     const key = known ? `${known.size}:${[...known].sort().join(',').length}` : '';
     if (key === this.fogKey) return;
     this.fogKey = key;
+    this.fogKnownSet = known;
     this.fogLayer.style.display = known ? '' : 'none';
     const lit = (id: string) => !known || known.has(id);
     for (const l of this.laneEls) l.el.classList.toggle('uncharted', !(lit(l.a) && lit(l.b)));
@@ -195,7 +228,47 @@ export class MapView {
     for (const l of this.laneEls) {
       if (lit(l.a) && lit(l.b)) parts.push(`<path d="${l.el.getAttribute('d')}" fill="none" stroke-width="34" stroke-linecap="round"/>`);
     }
-    this.fogKnown.innerHTML = parts.join('');
+    // Names on the fog fade once someone has charted water near them.
+    for (const t of this.fogTexts) {
+      const near = [...known].some((id) => {
+        const pt = this.world.points[id];
+        return pt && geoDistance([pt.lon, pt.lat], [t.lon, t.lat]) < 0.22;
+      });
+      t.el.style.display = near ? 'none' : '';
+    }
+    const css = getComputedStyle(document.documentElement);
+    const fog = css.getPropertyValue('--fog').trim() || '#d8d1c0';
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">
+      <defs>
+        <filter id="s" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="9"/></filter>
+        <filter id="t" x="0" y="0" width="100%" height="100%">
+          <feTurbulence type="fractalNoise" baseFrequency="0.012 0.02" numOctaves="3" seed="7"/>
+          <feColorMatrix values="0 0 0 0 0.5  0 0 0 0 0.45  0 0 0 0 0.38  0 0 0 0.55 0"/>
+        </filter>
+        <mask id="m" maskUnits="userSpaceOnUse" x="0" y="0" width="${W}" height="${H}">
+          <rect width="${W}" height="${H}" fill="white"/><g fill="black" stroke="black" filter="url(#s)">${parts.join('')}</g>
+        </mask>
+        <clipPath id="c"><path d="${this.path({ type: 'Sphere' })}"/></clipPath>
+      </defs>
+      <g mask="url(#m)" clip-path="url(#c)">
+        <rect width="${W}" height="${H}" fill="${fog}" opacity="0.88"/>
+        <rect width="${W}" height="${H}" filter="url(#t)" opacity="0.5"/>
+      </g></svg>`;
+    // Rasterise it once to a bitmap: an SVG image with filters gets re-rendered on every frame.
+    const img = new Image();
+    const key0 = key;
+    img.onload = () => {
+      if (this.fogKey !== key0) return;
+      const scale = Math.min(2, window.devicePixelRatio || 1);
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(W * scale);
+      canvas.height = Math.round(H * scale);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      this.fogImage.setAttribute('href', canvas.toDataURL('image/png'));
+    };
+    img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
   }
 
   // ------------------------------------------------------------ scenery
@@ -272,14 +345,96 @@ export class MapView {
     });
   }
 
+  /**
+   * Keep port names clear of each other: every name tries eight spots round its
+   * dot (the port data's choice first) and takes the one that overlaps least with
+   * other names, prices and dots. Crowded ports choose first; three passes.
+   */
+  placeLabels(): void {
+    type Box = [number, number, number, number]; // x0, y0, x1, y1 (map units)
+    const ids = this.world.portList.map((p) => p.id);
+    const size: Record<string, { lw: number; lh: number; la: number; fw: number; fh: number; fa: number }> = {};
+    for (const id of ids) {
+      const g = this.ports[id];
+      const label = g.querySelector<SVGTextElement>('.label')!, fuel = g.querySelector<SVGTextElement>('.fuel')!;
+      let lb: DOMRect, fb: DOMRect;
+      try { lb = label.getBBox(); fb = fuel.getBBox(); } catch { return; } // not rendered yet
+      if (!lb.width) return;
+      // Ascent above the baseline, so a box can be rebuilt for any spot.
+      size[id] = { lw: lb.width, lh: lb.height, la: Number(label.getAttribute('y')) - lb.y,
+        // Modern prices change width as they move: reserve a little. An empty line takes no room.
+        fw: this.world.era.wind ? fb.width : Math.max(fb.width, 24), fh: fb.height || 10, fa: fb.height ? Number(fuel.getAttribute('y')) - fb.y : 8 };
+    }
+    const boxesFor = (id: string, spot: LabelSpot): Box[] => {
+      const [px, py] = this.portXY[id];
+      const sz = size[id];
+      const rect = (w: number, h: number, a: number, base: number): Box => {
+        const x0 = spot.anchor === 'start' ? spot.x : spot.anchor === 'end' ? spot.x - w : spot.x - w / 2;
+        return [px + x0, py + base - a, px + x0 + w, py + base - a + h];
+      };
+      return sz.fw ? [rect(sz.lw, sz.lh, sz.la, spot.y), rect(sz.fw, sz.fh, sz.fa, spot.fy)] : [rect(sz.lw, sz.lh, sz.la, spot.y)];
+    };
+    const overlap = (a: Box, b: Box) =>
+      Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])) * Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
+    // Other ports' dots, with a margin: a name right beside a foreign dot reads as that port's.
+    const dots: Box[] = ids.map((id) => { const [x, y] = this.portXY[id]; return [x - 13, y - 9, x + 13, y + 9]; });
+    const near = (a: string) => ids.filter((b) => b !== a && Math.hypot(this.portXY[a][0] - this.portXY[b][0], this.portXY[a][1] - this.portXY[b][1]) < 90).length;
+    const order = [...ids].sort((a, b) => near(b) - near(a) || ids.indexOf(a) - ids.indexOf(b));
+    const chosen: Record<string, LabelKey> = {};
+    for (const p of this.world.portList) chosen[p.id] = p.label ?? 'right';
+    const cost = (id: string, key: LabelKey): number => {
+      const mine = boxesFor(id, LABEL_SPOTS[key]);
+      let c = key === (this.world.ports[id].label ?? 'right') ? 0 : 4; // a small preference for the data's choice
+      for (const other of ids) {
+        if (other === id) continue;
+        for (const b of boxesFor(other, LABEL_SPOTS[chosen[other]])) for (const m of mine) c += overlap(m, b);
+      }
+      for (let i = 0; i < ids.length; i++) if (ids[i] !== id) for (const m of mine) c += 2 * overlap(m, dots[i]);
+      // A name must sit nearer its own dot than any other, or it reads as the other port's.
+      const nb = mine[0];
+      const gap = (q: [number, number]) => Math.hypot(Math.max(nb[0] - q[0], 0, q[0] - nb[2]), Math.max(nb[1] - q[1], 0, q[1] - nb[3]));
+      const own = gap(this.portXY[id]);
+      for (const other of ids) if (other !== id && gap(this.portXY[other]) < own + 4) c += 300;
+      // Off the edge of the map counts too.
+      for (const m of mine) c += Math.max(0, -m[0]) * 20 + Math.max(0, m[2] - W) * 20 + Math.max(0, -m[1]) * 20 + Math.max(0, m[3] - H) * 20;
+      return c;
+    };
+    for (let pass = 0; pass < 3; pass++) {
+      for (const id of order) {
+        let best = chosen[id], bestCost = cost(id, best);
+        if (bestCost < 1) continue;
+        for (const key of Object.keys(LABEL_SPOTS) as LabelKey[]) {
+          const c = cost(id, key);
+          if (c < bestCost - 0.5) { best = key; bestCost = c; }
+        }
+        chosen[id] = best;
+      }
+    }
+    for (const id of ids) {
+      const spot = LABEL_SPOTS[chosen[id]];
+      const g = this.ports[id];
+      const label = g.querySelector('.label')!, fuel = g.querySelector('.fuel')!;
+      label.setAttribute('x', String(spot.x)); label.setAttribute('y', String(spot.y)); label.setAttribute('text-anchor', spot.anchor);
+      fuel.setAttribute('x', String(spot.x)); fuel.setAttribute('y', String(spot.fy)); fuel.setAttribute('text-anchor', spot.anchor);
+    }
+    this.labelsPlaced = true;
+  }
+
   updatePorts(markers: PortMarker[]): void {
     for (const m of markers) {
       const g = this.ports[m.id];
       const rumour = g.classList.contains('rumour');
       g.setAttribute('class', `port ${m.role}${m.strike ? ' strike' : ''}${m.boom ? ' boom' : ''}${rumour ? ' rumour' : ''}`);
       if (rumour) { g.querySelector('.fuel')!.textContent = 'uncharted'; continue; }
-      g.querySelector('.fuel')!.textContent = `${this.world.era.wind ? '' : '⛽ '}${currency()}${m.fuelPrice}${m.strike ? (this.world.era.wind ? ' · ☠ quarantine' : ' · ✊ strike') : ''}${m.boom ? ' · ▲ boom' : ''}`;
+      // The 1650 chart is crowded: no victual prices on it, only what's news (they're in the Ship tab).
+      g.querySelector('.fuel')!.textContent = this.world.era.wind
+        ? [m.strike ? '☠ quarantine' : '', m.boom ? '▲ boom' : ''].filter(Boolean).join(' · ')
+        : `⛽ ${currency()}${m.fuelPrice}${m.strike ? ' · ✊ strike' : ''}${m.boom ? ' · ▲ boom' : ''}`;
     }
+    // Notes come and go on the 1650 chart: place the names again when they do.
+    const notes = markers.map((m) => (this.ports[m.id].querySelector('.fuel')!.textContent ? '1' : '0')).join('');
+    if (!this.labelsPlaced || (this.world.era.wind && notes !== this.notesKey)) this.placeLabels();
+    this.notesKey = notes;
   }
 
   /** Draw highlighted routes. `primary` is the selected leg; `secondary` are faint previews. */
