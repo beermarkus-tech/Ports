@@ -11,6 +11,13 @@ import { CAPTAIN_TUNING, captainSlots, churnCaptainPool, fillCaptainPool } from 
 import { bookServiceCargo, churnBoard, latePayFactor, regenerateBoard } from './contracts';
 import { areaName, areaPorts, region, regionOf } from './regions';
 import { routeWind } from './wind';
+import { applyChart, CHART_TUNING, chartOffers, chartPath, ensureCharts, isCharted, unchartedShare } from './charts';
+
+/** Speed factor on a route: the wind (Age of Sail), and slower going in uncharted water. */
+function seaFactor(world: World, g: GameState, path: string[], day: number): number {
+  const dark = unchartedShare(world, g, path);
+  return routeWind(world, path, day) * (1 - (1 - CHART_TUNING.unchartedSpeed) * dark);
+}
 import { ECONOMY, economyDay, newOilMarket, recordDelivery, routeFor, strikeAt } from './economy';
 import { rand, randNormal, randRange } from './rng';
 import {
@@ -380,6 +387,7 @@ export function newGame(seed: number = Date.now() % 2 ** 31, world: World = getW
   for (const p of world.portList) {
     g.ports[p.id] = { fuelDev: randRange(g, -0.12, 0.12), board: [], market: [], prices: {} };
   }
+  ensureCharts(g, world);
   for (const p of world.portList) {
     regenerateBoard(world, g, p.id);
     regenerateMarket(world, g, p.id);
@@ -620,7 +628,7 @@ export function assignCaptain(
   c.shipId = shipId;
   ship.captainId = c.id;
   log(g, `Captain ${c.name} takes command of the ${ship.name}.`);
-  return setOrders(g, shipId, areaPorts(regions), repairBelow, 'best', regions, world);
+  return setOrders(g, shipId, areaPorts(regions).filter((p) => isCharted(g, p)), repairBelow, 'best', regions, world);
 }
 
 /** Carry on with a route that stopped on a problem. */
@@ -755,7 +763,7 @@ function legCost(g: GameState, ship: ShipState, from: string, to: string, world:
   const route = routeFor(world, g, from, to);
   if (!route) return null;
   const type = typeOf(ship, world);
-  const days = route.nm / (effectiveSpeed(type, ship) * routeWind(world, route.path, g.day) * 24);
+  const days = route.nm / (effectiveSpeed(type, ship) * seaFactor(world, g, route.path, g.day) * 24);
   const fuel = Math.ceil(days * type.fuelPerDay * consumptionFactor(ship));
   const canal = route.canals.reduce((s, c) => s + Math.round(world.canals[c].fee * type.sizeFactor), 0);
   const strikeDays = strikeAt(g, to) ? ECONOMY.strike.extraDays : 0;
@@ -926,7 +934,7 @@ function loadForRoute(state: GameState, shipId: number, world: World): GameState
     if (stop === ship.location) break;
     const route = routeFor(world, g, from, stop);
     if (!route) break;
-    t += route.nm / (speed * routeWind(world, route.path, t));
+    t += route.nm / (speed * seaFactor(world, g, route.path, t));
     if (!eta.has(stop)) eta.set(stop, t);
     t += RULES.portDays;
     from = stop;
@@ -974,7 +982,7 @@ export function planVoyage(g: GameState, shipId: number, dest: string, world: Wo
   const strike = strikeAt(g, dest) !== undefined;
   const strikeDays = strike ? ECONOMY.strike.extraDays : 0;
   // Sailing ships go as fast as the season's winds along the route allow.
-  const seaDays = route.nm / (effectiveSpeed(type, ship) * routeWind(world, route.path, g.day) * 24);
+  const seaDays = route.nm / (effectiveSpeed(type, ship) * seaFactor(world, g, route.path, g.day) * 24);
   const fuelNeeded = Math.ceil(seaDays * type.fuelPerDay * consumptionFactor(ship));
   const arrive = g.day + seaDays;
   const deliveries = ship.cargo
@@ -1015,7 +1023,9 @@ function breakdownChance(ship: Pick<ShipState, 'condition' | 'age'>): number {
 /** Work out a voyage's course up front: storms, breakdowns, fuel, wear and timing. */
 function plotVoyage(world: World, g: GameState, ship: ShipState, dest: string, route: Route, canalFees: number): ActiveVoyage {
   const type = typeOf(ship, world);
-  const speed = effectiveSpeed(type, ship) * routeWind(world, route.path, g.day);
+  const speed = effectiveSpeed(type, ship) * seaFactor(world, g, route.path, g.day);
+  // Uncharted water: shoals, reefs and squalls nobody warned you about.
+  const risk = 1 + (CHART_TUNING.unchartedRisk - 1) * unchartedShare(world, g, route.path);
   const departDay = g.day;
   const events: VoyageEvent[] = [];
   let remaining = route.nm;
@@ -1028,7 +1038,7 @@ function plotVoyage(world: World, g: GameState, ship: ShipState, dest: string, r
     events.push({ day: Math.floor(t) + 1, atDay: departDay + t, kind, text, delayDays, cost });
 
   while (remaining > 0.01) {
-    const storm = rand(g) < RULES.stormChancePerDay;
+    const storm = rand(g) < RULES.stormChancePerDay * risk;
     if (rand(g) < breakdownChance({ condition, age: ship.age })) {
       const delay = Math.round(randRange(g, 0.5, 2) * 10) / 10;
       const cost = Math.round(randRange(g, 4000, 12000) * type.sizeFactor / 100) * 100;
@@ -1133,6 +1143,10 @@ function arrive(world: World, g: GameState, ship: ShipState): void {
     if (drop >= 0.03) marketNotes.push(`${portName} now pays ${Math.round(drop * 100)}% less for ${world.goods[good].name.toLowerCase()}.`);
   }
   const news = g.events.filter((e) => e.startDay > v.departDay && e.startDay <= g.day).map((e) => e.headline);
+  // Every league sailed is charted; a port found for the first time pays well for a while.
+  const chartedBefore = g.charted?.length ?? 0;
+  const discovered = chartPath(world, g, v.path);
+  const newlyCharted = (g.charted?.length ?? 0) - chartedBefore;
   const upkeep = Math.round((v.arriveDay - v.departDay) * type.dailyCost); // already paid day by day
   const fee = portFee(g, ship, dest, world);
   const services = harbourServices(g, ship, dest, world);
@@ -1156,6 +1170,8 @@ function arrive(world: World, g: GameState, ship: ShipState): void {
     net: revenue - upkeep - fee - services - v.canalFees - v.eventCosts,
     marketNotes, news,
   };
+  if (newlyCharted) report.charted = newlyCharted;
+  if (discovered.length) report.discovered = discovered;
   if (onOrders(ship)) report.auto = true;
   // Under your command: you may take her in yourself instead of the pilot (until she sails).
   if (ship.captainId === undefined && services > 0) ship.docking = { port: dest, services, portFee: fee };
@@ -1176,8 +1192,24 @@ function arrive(world: World, g: GameState, ship: ShipState): void {
     log(g, `${ship.name} delivered ${world.goods[d.contract.good].name} to ${portName}${late}.`, d.paid);
   }
   for (const note of marketNotes) log(g, note);
+  for (const id of discovered) log(g, `Discovery! ${ship.name} is the first of our ships to reach ${world.ports[id].name}.`);
+  if (newlyCharted && !discovered.length) log(g, `${ship.name} charted new waters on the way to ${portName}.`);
   log(g, `${ship.name} arrived in ${portName} after ${(v.arriveDay - v.departDay).toFixed(1)} days. Result for the leg: ${
     report.net >= 0 ? '+' : '-'}${cur()}${Math.abs(report.net).toLocaleString('en-US')}.`);
+}
+
+/** Buy another nation's chart in the port where a ship of yours lies. */
+export function buyChart(state: GameState, offerId: string, world: World = getWorld()): GameState {
+  const here = new Set(state.fleet.filter((s) => !atSea(s)).map((s) => s.location));
+  const offer = [...here].flatMap((p) => chartOffers(world, state, p)).find((o) => o.id === offerId);
+  if (!offer) throw new ActionError('That chart is not for sale where your ships are.');
+  if (state.cash < offer.price) throw new ActionError(`It costs ${cur()}${offer.price.toLocaleString('en-US')}.`);
+  const g = clone(state);
+  g.cash -= offer.price;
+  book(g, world, 'incidents', offer.price);
+  const ports = applyChart(world, g, offer);
+  log(g, `Bought ${offer.name.replace(/^A /, 'a ')} in ${world.ports[offer.port].name}${ports.length ? `: it shows the way to ${ports.map((id) => world.ports[id].name).join(', ')}` : ''}.`, -offer.price);
+  return g;
 }
 
 /**

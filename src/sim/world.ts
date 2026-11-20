@@ -84,9 +84,18 @@ export class World {
     }
   }
 
-  /** Shortest sea route between two ports (Dijkstra). Null if unreachable. */
-  route(from: string, to: string, closedCanals: string[] = []): Route | null {
-    const key = `${from}>${to}>${closedCanals.slice().sort().join(',')}`;
+  /** Straight-line length of a leg between two nodes, nautical miles. */
+  legNm(a: string, b: string): number {
+    return haversineNm(this.points[a], this.points[b]) * ROUTE_FACTOR;
+  }
+
+  /**
+   * Shortest sea route between two ports (Dijkstra). Null if unreachable. With
+   * `fog`, lanes not wholly in known water count `penalty` times longer, so the
+   * route keeps to charted water where it reasonably can (nm is the real length).
+   */
+  route(from: string, to: string, closedCanals: string[] = [], fog?: { key: string; known: Set<string> }, penalty = 1.6): Route | null {
+    const key = `${from}>${to}>${closedCanals.slice().sort().join(',')}${fog ? `>${fog.key}` : ''}`;
     if (this.routeCache.has(key)) return this.routeCache.get(key)!;
 
     const dist: Record<string, number> = { [from]: 0 };
@@ -103,7 +112,8 @@ export class World {
       for (const edge of this.adjacency[current] ?? []) {
         if (edge.canal && closedCanals.includes(edge.canal)) continue;
         const next = edge.a === current ? edge.b : edge.a;
-        const nd = dist[current] + edge.nm;
+        const dark = fog && (!fog.known.has(edge.a) || !fog.known.has(edge.b));
+        const nd = dist[current] + (dark ? edge.nm * penalty : edge.nm);
         if (dist[next] === undefined || nd < dist[next]) {
           dist[next] = nd;
           prev[next] = { node: current, edge };
@@ -116,13 +126,15 @@ export class World {
       const path = [to];
       const canals: string[] = [];
       let n = to;
+      let nm = 0;
       while (n !== from) {
         const p = prev[n];
         if (p.edge.canal) canals.unshift(p.edge.canal);
+        nm += p.edge.nm;
         n = p.node;
         path.unshift(n);
       }
-      result = { path, nm: Math.round(dist[to]), canals };
+      result = { path, nm: Math.round(nm), canals };
     }
     this.routeCache.set(key, result);
     return result;

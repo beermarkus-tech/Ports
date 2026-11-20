@@ -63,12 +63,16 @@ for (const chain of CHAINS) {
   else { console.error('chain not joined', head.id); process.exitCode = 1; }
 }
 
+// Links that look like sea legs on the coarse coastline but cross an isthmus (no canal in 1650).
+const NO_LINK: Record<string, string[]> = { portobelo: ['balboa', 'pac_e'], cartagena: ['balboa', 'pac_e'], acapulco: ['colon'] };
+
 const out: { from: string; to: string; nm: number }[] = [];
 for (const p of sailPorts) {
   const near = nodes.map((n) => ({ n, d: dist(p, n) })).filter((x) => x.d < 1800).sort((a, b) => a.d - b.d);
   const links = [];
   for (const { n, d } of near) {
     if (links.length >= 2) break;
+    if (NO_LINK[p.id]?.includes(n.id)) continue;
     if (seaLeg(p, n)) links.push({ n, d });
   }
   if (!links.length) { console.error('NO LINK for', p.id); process.exitCode = 1; continue; }

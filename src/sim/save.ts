@@ -5,6 +5,7 @@ import { randRange } from './rng';
 import { netWorth, regenerateMarket } from './ships';
 import type { GameState, ShipState } from './types';
 import { getWorld, worldFor } from './world';
+import { ensureCharts } from './charts';
 
 // Several games ("slots"), each in its own key, with an index of them for the start
 // screen. The single save from before slots (LEGACY_KEY) becomes the first slot.
@@ -170,6 +171,8 @@ export function migrate(raw: unknown): GameState | null {
     }
   }
   if (g.version !== 4) return null;
+  // The Age of Sail's fog arrived after its first games: they start with the Dutch charts of 1650.
+  ensureCharts(g as GameState, worldFor((g as GameState).era ?? 'modern'));
   addNewPorts(g as GameState);
   addCaptains(g as GameState);
   return g as GameState;

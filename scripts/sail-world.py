@@ -161,6 +161,13 @@ PORTS = [
     ('boston', 'Boston', 'New England', 42.36, -71.06, 230, 1700,
      [('cod', 2), ('timber', 2), ('furs', 1)],
      [('cloth', 1.2), ('sugar', 1.2), ('wine', 1.1), ('salt', 1.2)], {}),
+    # The South Sea: Spanish water the Dutch had barely seen in 1650 (under fog at the start).
+    ('acapulco', 'Acapulco', 'New Spain', 16.85, -99.9, 260, 2400,
+     [('silver', 4), ('indigo', 1)],
+     [('silk', 1.7), ('porcelain', 1.6), ('textiles', 1.4), ('cloth', 1.3), ('wine', 1.3)], {}),
+    ('callao', 'Callao', 'Peru', -12.05, -77.15, 270, 2400,
+     [('silver', 4), ('gold', 1), ('copper', 1)],
+     [('cloth', 1.6), ('wine', 1.5), ('textiles', 1.3), ('silk', 1.4), ('timber', 1.2)], {}),
 ]
 
 # id, name, description, capacity (t), speed (kn, in a fair wind), victuals per day (rations of 10 hands), victuals carried,
@@ -185,6 +192,7 @@ REGIONS = [
     ('caribbean', 'The Caribbean', ['havana', 'cartagena', 'veracruz', 'portobelo', 'barbados']),
     ('northamerica', 'North America', ['jamestown', 'newamsterdam', 'boston']),
     ('brazil', 'Brazil', ['bahia', 'recife']),
+    ('southsea', 'The South Sea', ['acapulco', 'callao']),
 ]
 
 goods = [{'id': i, 'name': n, 'cargoClass': c, 'freightRate': r, 'lotMin': a, 'lotMax': b, 'bigLotMax': m} for i, n, c, r, a, b, m in GOODS]

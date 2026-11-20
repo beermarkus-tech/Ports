@@ -48,6 +48,10 @@ export class MapView {
   private wakes = new Map<number, SVGPathElement>();
   private clouds = new Map<string, SVGGElement>();
   private ports: Record<string, SVGGElement> = {};
+  private fogLayer: SVGGElement;
+  private fogKnown: SVGGElement;
+  private laneEls: { a: string; b: string; el: SVGPathElement }[] = [];
+  private fogKey = '';
 
   constructor(
     container: HTMLElement,
@@ -80,6 +84,14 @@ export class MapView {
         <stop offset="0%" stop-color="var(--land-hi)"/><stop offset="100%" stop-color="var(--land)"/>
       </linearGradient>
       <clipPath id="sphere-clip"><path d="${this.path({ type: 'Sphere' })}"/></clipPath>
+      <filter id="fog-soft" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="9"/></filter>
+      <filter id="fog-tex" x="0" y="0" width="100%" height="100%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.012 0.02" numOctaves="3" seed="7"/>
+        <feColorMatrix values="0 0 0 0 0.5  0 0 0 0 0.45  0 0 0 0 0.38  0 0 0 0.55 0"/>
+      </filter>
+      <mask id="fog-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="${W}" height="${H}">
+        <rect width="${W}" height="${H}" fill="white"/><g class="fog-known" fill="black" stroke="black" filter="url(#fog-soft)"></g>
+      </mask>
       <pattern id="waves" width="46" height="22" patternUnits="userSpaceOnUse">
         <path d="M2 8 q5 -4 10 0 t10 0" class="wave"/><path d="M25 18 q5 -4 10 0 t10 0" class="wave"/>
       </pattern>`;
@@ -97,7 +109,21 @@ export class MapView {
 
     const lanes = el('g', { class: 'lanes' }, this.svg);
     for (const e of world.edges) {
-      el('path', { d: this.path(this.line([e.a, e.b]))!, class: e.canal ? 'lane canal' : 'lane', ...(e.canal ? { 'data-canal': e.canal } : {}) }, lanes);
+      const lane = el('path', { d: this.path(this.line([e.a, e.b]))!, class: e.canal ? 'lane canal' : 'lane', ...(e.canal ? { 'data-canal': e.canal } : {}) }, lanes);
+      this.laneEls.push({ a: e.a, b: e.b, el: lane as SVGPathElement });
+    }
+
+    // Fog of war (Age of Sail): unknown water lies under a parchment haze.
+    this.fogKnown = defs.querySelector('.fog-known')!;
+    this.fogLayer = el('g', { class: 'fog', mask: 'url(#fog-mask)', 'clip-path': 'url(#sphere-clip)' }, this.svg);
+    this.fogLayer.style.display = 'none';
+    el('rect', { width: W, height: H, class: 'fog-base' }, this.fogLayer);
+    el('rect', { width: W, height: H, class: 'fog-tex', filter: 'url(#fog-tex)' }, this.fogLayer);
+    for (const [lon, lat, text, size] of [[-150, 5, 'Mare Incognitum', 22], [-120, -30, 'Mare del Sur', 18], [-140, 40, 'Here be dragons', 15],
+      [50, -8, 'Zanguebar', 14], [140, -58, 'Terra Australis Incognita', 16], [175, 20, 'Mare Pacificum', 16]] as const) {
+      const [x, y] = this.projection([lon, lat])!;
+      const t = el('text', { x, y, class: 'fog-text', 'font-size': size, 'text-anchor': 'middle' }, this.fogLayer);
+      t.textContent = text;
     }
 
     this.nightLayer = el('g', { class: 'night', 'clip-path': 'url(#sphere-clip)' }, this.svg);
@@ -134,6 +160,42 @@ export class MapView {
 
     this.shipLayer = el('g', { class: 'ships' }, this.svg);
     this.effectLayer = el('g', { class: 'effects' }, this.svg);
+  }
+
+  /**
+   * Fog of war: `known` is the set of charted ports and waypoints (null: no fog,
+   * everything shows). Uncharted lanes disappear, uncharted ports become rumours.
+   */
+  setCharted(known: Set<string> | null): void {
+    const key = known ? `${known.size}:${[...known].sort().join(',').length}` : '';
+    if (key === this.fogKey) return;
+    this.fogKey = key;
+    this.fogLayer.style.display = known ? '' : 'none';
+    const lit = (id: string) => !known || known.has(id);
+    for (const l of this.laneEls) l.el.classList.toggle('uncharted', !(lit(l.a) && lit(l.b)));
+    for (const p of this.world.portList) this.ports[p.id].classList.toggle('rumour', !lit(p.id));
+    if (!known) return;
+    // The known world: the waters the house knew at the start, a soft blob round every charted
+    // point, and a broad band along every charted lane (discoveries and bought charts).
+    const parts: string[] = [];
+    for (const [w, so, e, n] of this.world.era.charts?.known ?? []) {
+      const ring: [number, number][] = [];
+      for (let lat = so; lat <= n; lat += 2) ring.push([w, lat]);
+      for (let lon = w; lon <= e; lon += 2) ring.push([lon, n]);
+      for (let lat = n; lat >= so; lat -= 2) ring.push([e, lat]);
+      for (let lon = e; lon >= w; lon -= 2) ring.push([lon, so]);
+      ring.push(ring[0]);
+      parts.push(`<path d="${this.path({ type: 'Polygon', coordinates: [ring] }) ?? ''}" stroke="none"/>`);
+    }
+    for (const id of known) {
+      const pt = this.world.points[id];
+      if (!pt) continue;
+      parts.push(`<path d="${this.path(geoCircle().center([pt.lon, pt.lat]).radius(5.5).precision(12)()) ?? ''}" stroke="none"/>`);
+    }
+    for (const l of this.laneEls) {
+      if (lit(l.a) && lit(l.b)) parts.push(`<path d="${l.el.getAttribute('d')}" fill="none" stroke-width="34" stroke-linecap="round"/>`);
+    }
+    this.fogKnown.innerHTML = parts.join('');
   }
 
   // ------------------------------------------------------------ scenery
@@ -213,7 +275,9 @@ export class MapView {
   updatePorts(markers: PortMarker[]): void {
     for (const m of markers) {
       const g = this.ports[m.id];
-      g.setAttribute('class', `port ${m.role}${m.strike ? ' strike' : ''}${m.boom ? ' boom' : ''}`);
+      const rumour = g.classList.contains('rumour');
+      g.setAttribute('class', `port ${m.role}${m.strike ? ' strike' : ''}${m.boom ? ' boom' : ''}${rumour ? ' rumour' : ''}`);
+      if (rumour) { g.querySelector('.fuel')!.textContent = 'uncharted'; continue; }
       g.querySelector('.fuel')!.textContent = `${this.world.era.wind ? '' : '⛽ '}${currency()}${m.fuelPrice}${m.strike ? (this.world.era.wind ? ' · ☠ quarantine' : ' · ✊ strike') : ''}${m.boom ? ' · ▲ boom' : ''}`;
     }
   }

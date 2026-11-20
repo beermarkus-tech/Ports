@@ -246,7 +246,7 @@
 ["veracruz","gulf"],
 ["veracruz","floridastr"],
 ["portobelo","colon"],
-["portobelo","balboa"],
+["portobelo","windward"],
 ["barbados","amazon"],
 ["barbados","bahamas"],
 ["bahia","abrolhos"],
@@ -256,4 +256,8 @@
 ["newamsterdam","wp_newyork"],
 ["newamsterdam","nyapproach"],
 ["boston","nyapproach"],
-["boston","sargasso"]]}
+["boston","sargasso"],
+["acapulco","pac_e"],
+["acapulco","peru"],
+["callao","peru"],
+["callao","wp_valparaiso"]]}

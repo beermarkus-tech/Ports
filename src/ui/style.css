@@ -867,3 +867,29 @@ button.era-card:hover { border-color: var(--accent); }
 .ship-art.sail .mast { stroke: #5d3f22; stroke-width: 1.2; }
 .ship.sail .ship-hull { fill: #8a5d33; }
 .ship.sail .ship-deck { fill: var(--sail-cloth, #efe3c4); opacity: 1; }
+
+/* ---------- fog of war ---------- */
+.fog { pointer-events: none; }
+.fog-base { fill: var(--fog, #d8d1c0); opacity: 0.88; }
+.fog-tex { opacity: 0.5; }
+.fog-text { fill: var(--fog-ink, #7a6a50); font-family: "IM Fell English", Georgia, serif; font-style: italic; opacity: 0.85; }
+.lane.uncharted { display: none; }
+.port.rumour .dot { fill: none; stroke: var(--muted); stroke-dasharray: 2 2; }
+.port.rumour .dot-core, .port.rumour .lights, .port.rumour .halo { display: none; }
+.port.rumour .label { font-style: italic; opacity: 0.8; }
+.port.rumour .fuel { font-style: italic; }
+.port.rumour.dest .dot { stroke: var(--accent); stroke-dasharray: none; stroke-width: 1.6; }
+:root.era-sail { --fog: #2c2216; --fog-ink: #8f7a55; }
+@media (prefers-color-scheme: light) {
+  :root.era-sail:not([data-theme='dark']) { --fog: #d6cdb4; --fog-ink: #7a6a50; }
+}
+.dest.uncharted .d-name { font-style: italic; }
+.charts-card h3 { margin-top: 0; }
+.chart-offer { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; padding: 6px 0; }
+.chart-offer + .chart-offer { border-top: 1px solid var(--line); }
+.chart-offer p { margin: 2px 0 0; }
+.discovery { border: 1px solid var(--accent); border-radius: var(--radius); padding: 8px 12px; margin: 10px 0; background: var(--surface-2); }
+.discovery h3 { margin: 0 0 4px; color: var(--accent); }
+.discovery p { margin: 0; }
+.charted { color: var(--muted); }
+.dest.uncharted .d-exports.none { color: var(--accent); font-style: italic; }

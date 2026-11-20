@@ -199,6 +199,8 @@ export interface WorldEvent {
   good?: string;
   /** Closed canal id (canal). */
   canal?: string;
+  /** How much more a boom pays (default ECONOMY.boomBoost). */
+  boost?: number;
   /** Oil price shift while active, e.g. 0.35 or -0.25 (oil shock). */
   oilShift?: number;
   headline: string;
@@ -258,6 +260,10 @@ export interface VoyageReport {
   marketNotes: string[];
   /** World news that broke while at sea. */
   news: string[];
+  /** Ports found for the first time on this leg (Age of Sail). */
+  discovered?: string[];
+  /** Waypoints and ports newly charted on this leg. */
+  charted?: number;
 }
 
 export interface LogEntry {
@@ -270,6 +276,8 @@ export interface GameState {
   version: 4;
   /** Which era the game is set in (missing = modern). */
   era?: 'modern' | 'sail';
+  /** Age of Sail: sea-lane nodes (ports and waypoints) this house has charted. Undefined: no fog. */
+  charted?: string[];
   /** The company's name, as on the start screen. */
   company?: string;
   rng: number;

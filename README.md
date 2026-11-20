@@ -81,8 +81,18 @@ on 1 January 1650, and the chart is drawn on parchment.
 - **Six period ships**: jacht, fluyt, large fluyt, pinas, East Indiaman and
   retourschip. Shipyards at Amsterdam and Batavia.
 
-Still to come for this era: fog of war, slow news and trading on your own
-account, and more nations (a Chinese merchant house next). The trade in enslaved
+- **Fog of war**: you start with what the Dutch knew around 1650: the Cape
+  route to the Indies, the China seas and Japan, the Atlantic coasts and the way
+  round Cape Horn. East Africa (Mozambique, Zanzibar), the South Sea (Acapulco,
+  Callao) and the Pacific lie under fog. Uncharted ports show as rumours: you can
+  sail there on a voyage of discovery (slower going, more storms), every league
+  sailed gets charted, and the first of your ships in a new port finds its
+  merchants paying handsomely for a while. Nobody charters cargo to uncharted
+  places. Charts are for sale in some ports: a Portuguese rutter of the Swahili
+  coast in Goa, the Spanish galleon route in Manila, a rutter of the South Sea
+  in Portobelo.
+
+Still to come for this era: slow news and trading on your own account, and more nations (a Chinese merchant house next). The trade in enslaved
 people is not part of the game.
 
 ## How to play
@@ -200,6 +210,7 @@ src/sim/         Pure simulation, no DOM (deterministic: seeded RNG stored in th
   era.ts         What differs between the eras beyond data (start, currency, rules, words)
   world.ts       Loads data per era (worldFor, setEra, getWorld); shortest sea routes (Dijkstra)
   wind.ts        Prevailing winds and the monsoon; speed factor along a route
+  charts.ts      Fog of war: charted waters, voyages of discovery, charts for sale (CHART_TUNING)
   contracts.ts   Contract generation and pay formula (CONTRACT_TUNING)
   game.ts        Fleet, world clock (advance), player actions and voyages (RULES); every action returns a new state
   ships.ts       Ship value, age effects, the ship market, purchase quotes, loans (SHIP_TUNING)

@@ -5,6 +5,7 @@
 import { pickWeighted, rand, randInt, randNormal, randRange } from './rng';
 import type { GameState, WorldEvent, WorldEventKind } from './types';
 import type { Route, World } from './world';
+import { CHART_TUNING, fogFor } from './charts';
 
 export const ECONOMY = {
   /** A delivery of `ref` tons cuts the price by this much (ref = the good's big-lot size). */
@@ -42,7 +43,7 @@ export function closedCanals(g: GameState): string[] {
 
 /** Shortest sea route right now, avoiding closed canals. */
 export function routeFor(world: World, g: GameState, from: string, to: string): Route | null {
-  return world.route(from, to, closedCanals(g));
+  return world.route(from, to, closedCanals(g), fogFor(g), CHART_TUNING.unchartedPenalty);
 }
 
 export function strikeAt(g: GameState, portId: string): WorldEvent | undefined {
@@ -59,7 +60,7 @@ function targetPrice(g: GameState, portId: string, good: string): number {
   let t = 1;
   for (const e of activeEvents(g)) {
     if (e.kind === 'harvest' && e.good === good) t += ECONOMY.harvestBoost;
-    if (e.kind === 'boom' && e.port === portId) t += ECONOMY.boomBoost;
+    if (e.kind === 'boom' && e.port === portId) t += e.boost ?? ECONOMY.boomBoost;
   }
   return t;
 }

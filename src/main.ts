@@ -1,8 +1,9 @@
 import './ui/style.css';
 import { activeEvents, closedCanals, priceLevel, routeFor } from './sim/economy';
+import { CHART_TUNING, chartOffers, fogFor, isCharted, unchartedShare } from './sim/charts';
 import {
   ActionError, LAID_UP, RULES, acceptContract, advance, atSea, borrow, buyFuel, buyShip, canCarry, cargoTons, clearOrders,
-  assignCaptain, captainOf, fireCaptain, hireCaptain, monthOf, monthProfit, onOrders, resumeOrders,
+  assignCaptain, buyChart, captainOf, fireCaptain, hireCaptain, monthOf, monthProfit, onOrders, resumeOrders,
   dailyUpkeep, daysUntilNextShip, fuelPrice, getShip, inDryDock, isReady, isWaiting, needsDecision, newGame,
   dockByHand, nextMilestone, planVoyage, portFee, repair, repairQuote, repayLoan, sail, saleQuote, sellShip,
   shipsNeedingDecision, takeReport, typeOf, unloadContract, voyageProgress, waitInPort, type VoyagePlan,
@@ -493,6 +494,9 @@ class App {
         this.render();
         return;
       }
+      case 'buy-chart':
+        if (this.act((g) => buyChart(g, data.id!))) this.toast('The chart is yours: new waters open on the map.', 'good');
+        break;
       case 'hire': {
         if (this.act((g) => hireCaptain(g, Number(data.id)))) {
           const c = this.g.captains![this.g.captains!.length - 1];
@@ -884,6 +888,7 @@ class App {
       strike: events.some((e) => e.kind === 'strike' && e.port === p.id),
       boom: events.some((e) => e.kind === 'boom' && e.port === p.id),
     }));
+    this.map.setCharted(g.charted ? new Set(g.charted) : null);
     this.map.updatePorts(markers);
     this.map.setClosedCanals(closedCanals(g));
   }
@@ -1335,6 +1340,7 @@ class App {
         <div><h2>${esc(port.name)}</h2><span class="sub">${esc(ship.name)} · port fee ${money(portFee(g, ship, port.id))} · ${FUEL().toLowerCase()} ${money(fuelPrice(g, port.id))}${perFuel()}</span></div>
       </header>
       ${this.waitControls()}
+      ${this.chartsCard(port.id)}
       <p class="hint">Free hold space: <strong>${tons(free)}</strong>. New offers appear as days pass. Hover a contract to see its route.</p>
       ${this.priceHints(port.id)}
       ${this.chilledHint(ship, port.id)}
@@ -1589,10 +1595,11 @@ class App {
     const list = rows.map(({ p, plan }) => {
       const cargo = plan.deliveries.length;
       const exports = exportsFor(world, type, p.id).map((id) => world.goods[id].name.toLowerCase());
-      return `<li class="dest ${p.id === this.dest ? 'selected' : ''} ${plan.inRange ? '' : 'out'}" data-action="dest" data-id="${p.id}" data-hover-dest="${p.id}">
-        <span class="d-name">${esc(p.name)}${cargo ? ` <span class="tag good">${cargo} to deliver</span>` : ''}</span>
-        <span class="d-meta">${plan.route.nm.toLocaleString('en-US')} nm · ${days(Math.round(plan.seaDays * 10) / 10)} · ${plan.inRange ? `${plan.fuelNeeded} t` : 'out of range'}</span>
-        <span class="d-exports ${exports.length ? '' : 'none'}">${exports.length ? `Exports for you: ${esc(exports.join(', '))}` : 'Exports nothing this ship can carry'}</span>
+      const dark = !isCharted(g, p.id);
+      return `<li class="dest ${p.id === this.dest ? 'selected' : ''} ${plan.inRange ? '' : 'out'} ${dark ? 'uncharted' : ''}" data-action="dest" data-id="${p.id}" data-hover-dest="${p.id}">
+        <span class="d-name">${esc(p.name)}${cargo ? ` <span class="tag good">${cargo} to deliver</span>` : ''}${dark ? ' <span class="tag">uncharted</span>' : ''}</span>
+        <span class="d-meta">${plan.route.nm.toLocaleString('en-US')} nm · ${days(Math.round(plan.seaDays * 10) / 10)} · ${plan.inRange ? fuelAmt(plan.fuelNeeded) : 'out of range'}</span>
+        <span class="d-exports ${exports.length && !dark ? '' : 'none'}">${dark ? 'Known only from rumour: a voyage of discovery' : exports.length ? `Exports for you: ${esc(exports.join(', '))}` : 'Exports nothing this ship can carry'}</span>
       </li>`;
     }).join('');
     return `
@@ -1602,6 +1609,16 @@ class App {
       ${this.dest ? this.planCard(planVoyage(g, ship.id, this.dest)!) : `<p class="hint">Where should the ${esc(ship.name)} go? Pick a destination below or tap a port on the map.</p>`}
       <p class="hint">"Exports for you" lists what each port ships that your ${esc(type.name.toLowerCase())} can carry.</p>
       <ul class="dests">${list}</ul>`;
+  }
+
+  /** Other nations' charts on sale in this port (Age of Sail). */
+  private chartsCard(portId: string): string {
+    const offers = chartOffers(world, this.g, portId);
+    if (!offers.length) return '';
+    return `<section class="card charts-card"><h3>🧭 Charts for sale</h3>${offers.map((o) => `
+      <div class="chart-offer"><div><strong>${esc(o.name)}</strong><p class="hint">${esc(o.blurb)}</p></div>
+        <button class="btn small" data-action="buy-chart" data-id="${o.id}" ${this.g.cash < o.price ? 'disabled' : ''}>Buy<span>${money(o.price)}</span></button></div>`).join('')}
+    </section>`;
   }
 
   private planCard(plan: VoyagePlan): string {
@@ -1616,7 +1633,9 @@ class App {
     const warnings: string[] = [];
     if (!plan.inRange) warnings.push(`Beyond this ship's range (${fuelAmt(plan.fuelNeeded)} needed, ${isSail() ? 'the hold stores' : 'bunkers hold'} ${fuelAmt(type.bunkerCapacity)}). Plan a stop on the way.`);
     if (plan.strike) warnings.push(`Dock strike in ${name}: ${plan.strikeDays} extra days in port and double fees (included above).`);
-    const normal = world.route(ship.location, plan.dest);
+    const normal = world.route(ship.location, plan.dest, [], fogFor(g), CHART_TUNING.unchartedPenalty);
+    const dark = unchartedShare(world, g, plan.route.path);
+    if (dark > 0) warnings.push(`A voyage of discovery: ${Math.round(dark * 100)}% of the way is uncharted water, slower going and more danger. Every league sailed gets charted${isCharted(g, plan.dest) ? '' : `, and the first of your ships in ${name} will find its merchants eager to buy`}.`);
     if (normal && normal.nm < plan.route.nm - 50) {
       const closed = closedCanals(g).filter((c) => normal.canals.includes(c)).map((c) => world.canals[c].name).join(' and ');
       warnings.push(`The ${closed} is closed: this route is ${(plan.route.nm - normal.nm).toLocaleString('en-US')} nm longer than usual.`);
@@ -1636,7 +1655,7 @@ class App {
     const fuelBlock = `
       <div class="fuel-row ${fuelState}">
         <div><span class="lbl">${FUEL()}</span> <strong>${fuelAmt(Math.floor(ship.fuel))}</strong> aboard · leg needs <strong>${fuelAmt(plan.fuelNeeded)}</strong> · <em>${fuelText}</em></div>
-        ${plan.inRange && !short && topUp > 0 ? `<button class="btn small" data-action="fuel-for-leg">+${topUp} t reserve<span>${money(topUp * price)}</span></button>` : ''}
+        ${plan.inRange && !short && topUp > 0 ? `<button class="btn small" data-action="fuel-for-leg">+${fuelAmt(topUp)} reserve<span>${money(topUp * price)}</span></button>` : ''}
       </div>`;
     const loss = plan.estimatedNet < 0 ? ` <span>estimate ${money(plan.estimatedNet)}</span>` : '';
     const sailButton = !plan.inRange
@@ -1844,6 +1863,8 @@ class App {
       <h2>${esc(r.shipName)} arrived in ${esc(world.ports[r.to].name)}</h2>
       <p class="sub">${r.distance.toLocaleString('en-US')} nm from ${esc(world.ports[r.from].name)} in ${days(Math.round((r.arriveDay - r.departDay) * 10) / 10)} · ${fuelAmt(r.fuelUsed)} ${isSail() ? 'eaten' : 'fuel burned'} · condition −${r.conditionLoss}%</p>
       ${r.events.length ? `<ul class="events">${r.events.map((e) => `<li class="${e.kind}"><span>Day ${e.day}</span> ${esc(e.text)}</li>`).join('')}</ul>` : '<p class="calm">A calm passage.</p>'}
+      ${r.discovered?.length ? `<div class="discovery"><h3>Discovery!</h3><p>The first of your ships to reach ${r.discovered.map((id) => esc(world.ports[id].name)).join(' and ')}. Its merchants will pay handsomely for goods from home for a while, and charters to it now appear on the quays.</p></div>`
+        : r.charted ? `<p class="charted">🧭 Charted ${r.charted} new stretch${r.charted > 1 ? 'es' : ''} of water on the way.</p>` : ''}
       ${r.news.length ? `<div class="news-in-report"><h3>News while at sea</h3><ul>${r.news.map((n) => `<li>📰 ${esc(n)}</li>`).join('')}</ul></div>` : ''}
       <div class="ledger">
         ${r.deliveries.map((d) => line(`${world.goods[d.contract.good].name}, ${tons(d.contract.tons)}${d.lateDays > 0 ? ` (late, ${Math.round((d.paid / d.contract.pay) * 100)}% paid)` : ''}`, d.paid, 'good')).join('')}

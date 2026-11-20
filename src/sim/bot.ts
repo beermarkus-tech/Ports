@@ -11,6 +11,7 @@ import { pickWeighted, rand } from './rng';
 import { SHIP_TUNING, exportsFor, quotePurchase } from './ships';
 import type { Contract, GameState, ShipState, ShipTypeDef } from './types';
 import { getWorld, type World } from './world';
+import { isCharted } from './charts';
 
 export interface BotChoice {
   dest: string;
@@ -29,7 +30,7 @@ export function evaluateOptions(g: GameState, shipId: number, world: World = get
   const board = g.ports[ship.location].board;
   const choices: BotChoice[] = [];
   for (const p of world.portList) {
-    if (p.id === ship.location) continue;
+    if (p.id === ship.location || !isCharted(g, p.id)) continue;
     let free = type.capacity - ship.cargo.reduce((s, c) => s + c.tons, 0);
     const load: Contract[] = [];
     const candidates = board
@@ -101,7 +102,7 @@ export function botStep(g: GameState, world: World = getWorld()): GameState {
   let next = topUpAndSail(g, best.dest, cheap ? 10 : 1.2, world);
   if (isReady(next, botShip(next))) {
     // Couldn't afford the fuel for the best leg: take the nearest reachable port instead.
-    const fallback = world.portList
+    const fallback = world.portList.filter((p) => isCharted(next, p.id))
       .map((p) => planVoyage(next, ship.id, p.id, world))
       .filter((p): p is NonNullable<typeof p> => p !== null && p.fuelNeeded <= botShip(next).fuel)
       .sort((a, b) => a.route.nm - b.route.nm)[0];
@@ -140,7 +141,7 @@ export function casualStep(g: GameState, world: World = getWorld()): GameState {
     dest = pickWeighted(g, options, (c) => c.pay).dest;
   } else {
     // Nothing loadable: head in ballast for the nearest port that exports cargo this ship can carry.
-    const reachable = world.portList.filter((p) => p.id !== here)
+    const reachable = world.portList.filter((p) => p.id !== here && isCharted(g, p.id))
       .map((p) => planVoyage(g, ship.id, p.id, world)!)
       .filter((pl) => pl.fuelNeeded * 1.1 <= type.bunkerCapacity)
       .sort((a, b) => a.route.nm - b.route.nm);

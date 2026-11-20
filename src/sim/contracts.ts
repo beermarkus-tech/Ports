@@ -1,4 +1,5 @@
 import { priceLevel, routeFor } from './economy';
+import { isCharted } from './charts';
 import { pickWeighted, rand, randInt, randRange } from './rng';
 import type { CargoClass, Contract, GameState, PremiumKind } from './types';
 import type { World } from './world';
@@ -89,7 +90,7 @@ export function generateContract(
   const produced = pickWeighted(g, options, (p) => p.weight);
   const good = world.goods[produced.good];
   const buyers = world.portList.flatMap((p) => {
-    if (p.id === originId || (onlyDests && !onlyDests.has(p.id))) return [];
+    if (p.id === originId || (onlyDests && !onlyDests.has(p.id)) || !isCharted(g, p.id)) return [];
     const route = routeFor(world, g, originId, p.id);
     if (!route) return [];
     return p.demands.filter((d) => d.good === good.id).map((d) => ({ port: p, strength: d.strength, nm: route.nm }));
@@ -102,7 +103,9 @@ export function generateContract(
   const raw = kind.big && good.bigLotMax !== undefined
     ? randRange(g, good.lotMax, good.bigLotMax)
     : randRange(g, good.lotMin, Math.min(good.lotMax, kind.maxTons ?? Infinity));
-  const tons = Math.round(raw / 50) * 50;
+  // Lots come in round numbers: 50 t steps, 10 t for the small lots of the Age of Sail (never zero).
+  const step = world.era.wind && raw < 200 ? 10 : 50;
+  const tons = world.era.wind ? Math.max(step, Math.round(raw / step) * step) : Math.round(raw / 50) * 50;
   const slack = randRange(g, T.slackMin, T.slackMax);
   const refDays = nm / (world.era.referenceSpeedKn * 24);
   const urgency = 1 + T.urgencyBonus * ((T.slackMax - slack) / (T.slackMax - T.slackMin));

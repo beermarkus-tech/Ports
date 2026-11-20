@@ -1,3 +1,5 @@
+import type { Box, ChartOffer } from './charts';
+
 // The two eras the game can be set in, and what differs between them that isn't
 // plain data (ports, goods, ships, sea lanes, regions live in src/data/...).
 
@@ -31,6 +33,8 @@ export interface EraConfig {
   smallLot: number;
   /** Goods a harvest failure can hit. */
   harvestGoods: string[];
+  /** Fog of war: the waters known at the start, and charts for sale (none: no fog). */
+  charts?: { known: Box[]; offers: ChartOffer[] };
   /** Words for things that differ between the eras. */
   terms: {
     fuel: string;
@@ -61,6 +65,32 @@ export const ERAS: Record<EraId, EraConfig> = {
     hasOil: false, harbourServices: false, portView: false, wind: true,
     referenceSpeedKn: 4, payFactor: 2, smallLot: 80,
     harvestGoods: ['pepper', 'nutmeg', 'sugar', 'grain', 'tea', 'silk', 'rice', 'coffee'],
+    charts: {
+      // What the Dutch knew around 1650: the Cape route to the Indies, the China seas and Japan,
+      // the Atlantic coasts, and the way round Cape Horn (Le Maire, 1616). East Africa is Portuguese
+      // water to them; the Pacific and the American west coast are still blank.
+      known: [
+        [-12, 34, 42, 66], [8, 53, 32, 66], [-6, 30, 37, 46],            // Europe, the Baltic, the Mediterranean
+        [-40, -40, 22, 50], [-20, -6, 12, 30], [10, -38, 33, -15],       // the Atlantic run, Guinea, the Cape
+        [18, -44, 108, -28], [42, -12, 100, 30], [60, 5, 92, 26],        // the roaring forties, the monsoon sea, India
+        [92, -12, 120, 22], [119, -10, 136, 5], [104, 0, 123, 34],       // the Indies, the Spice Islands, the China seas
+        [124, 26, 142, 40], [108, -36, 126, -12],                        // Japan, New Holland's west coast
+        [-98, 8, -58, 32], [-82, 30, -55, 46], [-55, -30, -30, 2],       // the Caribbean, North America, Brazil
+        [-82, -58, -50, -30], [44, -30, 64, -12],                        // round the Horn to Chile; Mauritius
+        [-62, 30, -38, 52], [-62, 0, -38, 16], [30, 12, 44, 31],          // the North Atlantic crossing, the Wild Coast (Guiana), the Red Sea
+      ],
+      offers: [
+        { id: 'swahili', port: 'goa', name: 'A Portuguese rutter of the Swahili coast',
+          blurb: 'A Goa pilot will copy his rutter of Mozambique, Zanzibar and the waters inside Madagascar, for a price.',
+          price: 90_000, boxes: [[30, -28, 56, 12]] },
+        { id: 'galleon', port: 'manila', name: 'A Spanish chart of the galleon route',
+          blurb: 'A drunken pilot of the Manila galleon sells the secret way across the Pacific to Acapulco.',
+          price: 180_000, boxes: [[123, 10, 180, 45], [-180, 10, -98, 45], [-118, 8, -98, 24]] },
+        { id: 'southsea', port: 'portobelo', name: 'A Spanish rutter of the South Sea',
+          blurb: 'Smuggled out of the Casa de Contratación: the coast of Peru and New Spain, from Chile to Acapulco.',
+          price: 150_000, boxes: [[-120, -30, -68, 24]] },
+      ],
+    },
     terms: {
       fuel: 'Victuals', fuelUnit: 'casks', bunker: 'Victuals', drydock: 'Careening',
       strike: (port, days) => `Plague in ${port}: the port is under quarantine. Calls take ${days} extra days and fees are doubled.`,
