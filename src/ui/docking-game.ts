@@ -29,7 +29,7 @@ const TIME = 5;
 /** Par time in real seconds, for scoring: longer for bigger ships. */
 const par = (length: number) => 60 + length * 0.35;
 const THROTTLE = ['Full astern', 'Half astern', 'Slow astern', 'Stop', 'Slow ahead', 'Half ahead', 'Full ahead'];
-const HULL: Record<ShipFamily, string> = { general: '#24486e', bulk: '#7a2626', reefer: '#e8eef2', tanker: '#2a3640', container: '#1d5f4e' };
+const HULL: Record<ShipFamily, string> = { general: '#24486e', bulk: '#7a2626', reefer: '#e8eef2', tanker: '#2a3640', container: '#1d5f4e', sail: '#6b4a2b' };
 
 export class DockingGame {
   private el: HTMLElement;

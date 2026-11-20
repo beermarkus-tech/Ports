@@ -67,8 +67,7 @@ export interface ContractKind {
   maxTons?: number;
 }
 
-/** Every board offers at least this many lots that fit the starting coaster. */
-const SMALL_LOT_TONS = 3000;
+/** Every board offers at least this many lots that fit the starting ship (world.era.smallLot). */
 const SMALL_LOTS_MIN = 2;
 
 const DRY: CargoClass[] = ['bulk', 'general'];
@@ -105,11 +104,11 @@ export function generateContract(
     : randRange(g, good.lotMin, Math.min(good.lotMax, kind.maxTons ?? Infinity));
   const tons = Math.round(raw / 50) * 50;
   const slack = randRange(g, T.slackMin, T.slackMax);
-  const refDays = nm / (T.referenceSpeedKn * 24);
+  const refDays = nm / (world.era.referenceSpeedKn * 24);
   const urgency = 1 + T.urgencyBonus * ((T.slackMax - slack) / (T.slackMax - T.slackMin));
   const noise = randRange(g, 0.88, 1.12);
   const market = priceLevel(g, buyer.port.id, good.id);
-  const pay = T.payScale * tons * good.freightRate * ((T.handlingNm + nm) / 1000) * buyer.strength * market * urgency * noise;
+  const pay = T.payScale * world.era.payFactor * tons * good.freightRate * ((T.handlingNm + nm) / 1000) * buyer.strength * market * urgency * noise;
 
   return {
     id: g.nextId++,
@@ -146,6 +145,8 @@ export function regenerateBoard(world: World, g: GameState, portId: string): voi
   const T = CONTRACT_TUNING;
   const board: Contract[] = [];
   addContracts(world, g, portId, board, randInt(g, T.boardSizeMin, T.boardSizeMax), { classes: DRY });
+  // Lots the era's starting ship can carry (a coaster today, a jacht in 1650).
+  const SMALL_LOT_TONS = world.era.smallLot;
   const small = board.filter((c) => c.tons <= SMALL_LOT_TONS).length;
   if (small < SMALL_LOTS_MIN) {
     addContracts(world, g, portId, board, SMALL_LOTS_MIN - small, { classes: DRY, maxTons: SMALL_LOT_TONS });
@@ -217,7 +218,7 @@ function addPremium(world: World, g: GameState, portId: string, board: Contract[
   const c = generateContract(world, g, portId, { classes: k.classes, big: k.big, maxTons: k.maxTons });
   if (!c) return;
   const nm = routeFor(world, g, portId, c.dest)?.nm ?? 0;
-  const refDays = nm / (T.referenceSpeedKn * 24);
+  const refDays = nm / (world.era.referenceSpeedKn * 24);
   c.premium = k.kind;
   c.pay = Math.round((c.pay * randRange(g, T.premiumPayMin, T.premiumPayMax)) / 100) * 100;
   c.deadline = Math.ceil(g.day + refDays * randRange(g, 1.15, 1.4) + 2);

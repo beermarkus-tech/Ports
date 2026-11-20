@@ -788,6 +788,82 @@ button.era-card { cursor: pointer; }
 button.era-card:hover { border-color: var(--accent); }
 .era-card span { font-size: 13px; color: var(--muted); }
 .era-card em { font-style: normal; font-weight: 700; font-size: 13px; color: var(--accent); }
-.era-card.sail { background: #efe3c4; color: #2b1d0e; border-color: #c9b68a; font-family: "EB Garamond", Georgia, serif; opacity: 0.85; }
+.era-card.sail { background: #efe3c4; color: #2b1d0e; border-color: #c9b68a; font-family: "EB Garamond", Georgia, serif; }
 .era-card.sail span { color: #5a4630; font-size: 14.5px; }
 .era-card.sail em { color: #7b2d26; }
+
+/* ---------- Age of Sail: a chart drawn on parchment ---------- */
+:root.era-sail {
+  --bg: #1b140c;
+  --profit: #c9a24a;
+  --loss: #c0583a;
+  --surface: #261c11;
+  --surface-2: #2f2416;
+  --line: #4a3a24;
+  --text: #f1e6cf;
+  --muted: #b39f7d;
+  --accent: #d9a441;
+  --accent-2: #e07b39;
+  --good: #9ec27a;
+  --bad: #e2705a;
+  --warn: #e0a84a;
+  --ocean-1: #2a3a3c;
+  --ocean-2: #1b2627;
+  --land: #4a3b25;
+  --land-edge: #7a6440;
+  --land-hi: #5a4a2e;
+  --shallow: #3b5250;
+  --night: #0a0703;
+  --hull: #6b4a2b;
+  --super: #f1e6cf;
+  --sea-art: #2f4847;
+  --halo: #1b140c;
+  --sail-cloth: #efe3c4;
+  --wood: #6b4a2b;
+  --wale: #b8862e;
+}
+@media (prefers-color-scheme: light) {
+  :root.era-sail:not([data-theme='dark']) {
+    --bg: #efe4c8;
+    --profit: #8a6a1f;
+    --loss: #a5462c;
+    --surface: #f8f0dc;
+    --surface-2: #f1e6cb;
+    --line: #d6c59c;
+    --text: #2b1d0e;
+    --muted: #6e5a3c;
+    --accent: #8a5a1c;
+    --accent-2: #b5562a;
+    --good: #4f7a2e;
+    --bad: #a83a2a;
+    --warn: #a8701c;
+    --ocean-1: #e4dcc0;
+    --ocean-2: #d4caa6;
+    --land: #e9d9ac;
+    --land-edge: #8f7442;
+    --land-hi: #f2e5bf;
+    --shallow: #ddd6b8;
+    --night: #2b1d0e;
+    --hull: #6b4a2b;
+    --super: #fbf6e8;
+    --sea-art: #b9b291;
+    --halo: rgb(248 240 220 / 0.9);
+    --sail-cloth: #fbf6e8;
+    --wood: #5d3f22;
+    --wale: #a7742a;
+  }
+}
+:root.era-sail body { font-family: "EB Garamond", Georgia, "Times New Roman", serif; font-size: 15px; }
+:root.era-sail h1, :root.era-sail h2, :root.era-sail h3, :root.era-sail .brand { font-family: "IM Fell English", "EB Garamond", Georgia, serif; font-weight: 400; letter-spacing: 0.01em; }
+:root.era-sail .land { stroke-width: 0.9; }
+:root.era-sail .graticule { stroke-opacity: 0.12; stroke-dasharray: 1 2; }
+:root.era-sail .lane { stroke-opacity: 0.22; }
+.ship-art .hull.wood { fill: var(--wood, #6b4a2b); }
+.ship-art .wale { fill: var(--wale, #b8862e); }
+.ship-art .sail { fill: var(--sail-cloth, #efe3c4); stroke: #8f7a52; stroke-width: 0.4; }
+.ship-art .spar { stroke: #5d3f22; stroke-width: 0.9; stroke-linecap: round; }
+.ship-art .rigging { stroke: #5d3f22; stroke-width: 0.35; opacity: 0.7; }
+.ship-art .pennant { fill: #d9822b; }
+.ship-art.sail .mast { stroke: #5d3f22; stroke-width: 1.2; }
+.ship.sail .ship-hull { fill: #8a5d33; }
+.ship.sail .ship-deck { fill: var(--sail-cloth, #efe3c4); opacity: 1; }

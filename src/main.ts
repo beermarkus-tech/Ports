@@ -15,15 +15,15 @@ import {
   stateValue,
 } from './sim/ships';
 import type { Captain, Contract, GameState, PremiumKind, ShipOffer, ShipState, ShipTypeDef, VoyageReport } from './sim/types';
-import { getWorld } from './sim/world';
-import { compactMoney, days, esc, gameDate, money, tons } from './ui/format';
+import { currentEra, getWorld, setEra } from './sim/world';
+import { compactMoney, currency, days, esc, gameDate, money, setEraFormat, startYear, tons } from './ui/format';
 import { mapIconPath, shipFamily, shipSideView } from './ui/art';
 import { MapView, type LonLat, type PortMarker, type ShipMarker, type WeatherCell } from './ui/map';
 import { PortScene, shipLength, type SceneShip, type TimeOfDay } from './ui/port-scene';
 import { DockingGame } from './ui/docking-game';
 import { barChart, lineChart, miniBars, type ChartPoint } from './ui/charts';
 import { captainSlots } from './sim/captains';
-import { REGIONS, areaName, areaPorts, region, regionOf } from './sim/regions';
+import { areaName, areaPorts, region, regionOf, regions } from './sim/regions';
 import { sound } from './ui/sound';
 import { BUILD, consumeUpdatedFrom, initServiceWorker, isNewer, justUpdated, latestBuild, reloadApp } from './ui/update';
 
@@ -31,7 +31,35 @@ type Tab = 'contracts' | 'voyage' | 'ship' | 'market' | 'fleet' | 'log';
 /** Why the clock is stopped: the player paused it, or a ship (or an arrival report) needs the player. */
 type PauseReason = 'user' | 'arrival' | 'decision';
 
-const world = getWorld();
+let world = getWorld();
+
+/** Set the engine, the formats and the look for a game's era. */
+function applyEra(era: 'modern' | 'sail'): void {
+  setEra(era);
+  world = getWorld();
+  setEraFormat(world.era.startYear, world.era.currency);
+  document.documentElement.classList.toggle('era-sail', era === 'sail');
+}
+
+/** Words that differ between the eras. */
+const isSail = (): boolean => world.era.wind;
+const FUEL = (): string => world.era.terms.fuel;
+/** An amount of fuel (tons) or victuals (rations). */
+const fuelAmt = (n: number): string => `${Math.round(n).toLocaleString('en-US')} ${isSail() ? 'casks' : 't'}`;
+/** Price per unit of fuel or victuals. */
+const perFuel = (): string => (isSail() ? '/cask' : '/t');
+const DOCK = (): string => world.era.terms.drydock;
+
+/** Session flag: the page was reloaded to open a game of another era (skip the start screen). */
+const ERA_SWITCH = 'deadweight.eraSwitch';
+function eraSwitched(): boolean {
+  try { const v = sessionStorage.getItem(ERA_SWITCH) !== null; sessionStorage.removeItem(ERA_SWITCH); return v; } catch { return false; }
+}
+/** The map and scenes are built for one world: a game of another era reloads the page. */
+function reloadForEra(): void {
+  try { sessionStorage.setItem(ERA_SWITCH, '1'); } catch { /* the start screen shows, no harm */ }
+  location.reload();
+}
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 
 /** Game days per real second at 1× speed. */
@@ -111,7 +139,9 @@ class App {
   private map: MapView;
 
   constructor(opts: { showStart: boolean } = { showStart: false }) {
-    this.g = loadGame() ?? newGame();
+    const loaded = loadGame();
+    applyEra(loaded?.era ?? 'modern');
+    this.g = loaded ?? newGame();
     saveGame(this.g);
     this.activeId = (this.g.fleet.find((s) => isReady(this.g, s)) ?? this.g.fleet[0]).id;
     this.map = new MapView(
@@ -228,7 +258,7 @@ class App {
       for (const s of freed) {
         const wasDocked = before.fleet.find((b) => b.id === s.id)?.busyUntil !== undefined;
         if (s.orders?.halted) this.toast(`${s.name} stopped its route in ${world.ports[s.location].name}: ${s.orders.halted}`, 'bad');
-        else this.toast(`${s.name} ${wasDocked ? 'is out of dry dock' : 'has finished waiting'} in ${world.ports[s.location].name} and needs orders.`, 'good');
+        else this.toast(`${s.name} ${wasDocked ? (isSail() ? 'is careened and afloat again' : 'is out of dry dock') : 'has finished waiting'} in ${world.ports[s.location].name} and needs orders.`, 'good');
       }
       sound.play('bell');
       this.goToNextDecision();
@@ -258,7 +288,7 @@ class App {
       for (const e of v.events) {
         if (e.atDay > before.day && e.atDay <= after.day) {
           const { at } = this.map.positionAlong(v.path, voyageProgress(after, ship));
-          this.map.flashAt(at, `${ship.name}: ${EVENT_LABELS[e.kind]}`, 'bad');
+          this.map.flashAt(at, `${ship.name}: ${isSail() && e.kind === 'emergencyFuel' ? '🍞 Out of victuals!' : isSail() && e.kind === 'breakdown' ? '⚓ Sprung a leak' : EVENT_LABELS[e.kind]}`, 'bad');
           sound.play(EVENT_SOUNDS[e.kind]);
           if (e.kind === 'storm') {
             this.storms.push({ id: `storm-${ship.id}-${e.atDay.toFixed(2)}`, at, from: after.day, until: after.day + 6, seed: (e.atDay * 7.31) % 1 });
@@ -399,13 +429,13 @@ class App {
         break;
       }
       case 'dest': this.selectDest(data.id!); return;
-      case 'sail': this.sail(); return;
+      case 'sail': this.isSail(); return;
       case 'bunker-sail': {
         const plan = this.dest ? planVoyage(this.g, id, this.dest) : null;
         if (!plan) break;
         const target = Math.min(type.bunkerCapacity, Math.ceil(plan.fuelNeeded * 1.15));
         if (this.act((g) => buyFuel(g, id, target - getShip(g, id).fuel)) && this.ship().fuel >= plan.fuelNeeded) {
-          this.sail();
+          this.isSail();
           return;
         }
         break;
@@ -530,14 +560,18 @@ class App {
         return;
       }
       case 'slot-new': {
-        if (data.era !== 'modern') return;
+        const era = data.era === 'sail' ? 'sail' : 'modern';
         const input = document.getElementById('new-name') as HTMLInputElement | null;
         const name = input?.value.trim() || 'My shipping company';
         saveGame(this.g);
+        const before = currentEra();
+        setEra(era);
         const g = newGame();
-        g.era = 'modern';
+        g.era = era;
         g.company = name;
         createSlot(g, name);
+        setEra(before);
+        if (era !== before) { reloadForEra(); return; }
         this.loadInto(g);
         this.toast(`${name} is founded. Good luck!`, 'good');
         return;
@@ -584,7 +618,7 @@ class App {
     this.render();
   }
 
-  private sail(): void {
+  private isSail(): void {
     if (!this.dest) return;
     const ship = this.ship();
     if (!this.act((g) => sail(g, ship.id, this.dest!))) { this.render(); return; }
@@ -609,6 +643,7 @@ class App {
 
   /** The port view over the map when the selected ship is in port (and the button to get to it). */
   private renderView(): void {
+    if (!world.era.portView) this.view = 'map';
     const ship = this.ship();
     const inPort = !atSea(ship);
     if (this.view === 'port' && inPort) {
@@ -629,7 +664,7 @@ class App {
     } else {
       this.portScene.hide();
       this.miniShown = false;
-      this.portBtn.hidden = !inPort;
+      this.portBtn.hidden = !inPort || !world.era.portView;
     }
   }
 
@@ -774,7 +809,7 @@ class App {
       return { text: `${route}→ ${world.ports[ship.voyage.to].name} · ${days(Math.ceil(left * 10) / 10)}`, state: 'sea', progress: voyageProgress(g, ship) };
     }
     if (ship.orders?.halted && !inDryDock(g, ship)) return { text: `Route stopped in ${world.ports[ship.location].name}`, state: 'ready' };
-    if (inDryDock(g, ship)) return { text: `${route}Dry dock, ${world.ports[ship.location].name} · ${days(Math.ceil((ship.busyUntil! - g.day) * 10) / 10)}`, state: 'busy' };
+    if (inDryDock(g, ship)) return { text: `${route}${DOCK()}, ${world.ports[ship.location].name} · ${days(Math.ceil((ship.busyUntil! - g.day) * 10) / 10)}`, state: 'busy' };
     if (isWaiting(g, ship)) {
       return ship.waitUntil! >= LAID_UP
         ? { text: `Laid up in ${world.ports[ship.location].name}`, state: 'busy' }
@@ -803,7 +838,7 @@ class App {
       <div class="fleet">${chips}</div>
       <div class="active-ship">
         <div class="ship-name"><strong>${esc(ship.name)}</strong><span>${esc(type.name)} · ${Math.floor(ship.age)} yrs</span></div>
-        ${gauge('Fuel', fuel / type.bunkerCapacity, `${Math.round(fuel)} / ${type.bunkerCapacity} t`, 'fuel')}
+        ${gauge(FUEL(), fuel / type.bunkerCapacity, `${Math.round(fuel)} / ${fuelAmt(type.bunkerCapacity)}`, 'fuel')}
         ${gauge('Hold', load / type.capacity, `${tons(load)} / ${tons(type.capacity)}`, 'hold')}
         ${gauge('Condition', cond / 100, `${Math.round(cond)}%`, cond < 45 ? 'cond bad' : cond < 65 ? 'cond warn' : 'cond')}
       </div>`;
@@ -954,7 +989,7 @@ class App {
       </section>`;
     }
     return `<section class="card plan underway">
-      <h3>${esc(ship.name)} is in dry dock</h3>
+      <h3>${esc(ship.name)} ${isSail() ? 'is being careened' : 'is in dry dock'}</h3>
       <p>In ${esc(world.ports[ship.location].name)}, ready on ${gameDate(ship.busyUntil!)}.</p>
     </section>`;
   }
@@ -1060,7 +1095,7 @@ class App {
       goods.length ? `<li class="ok">Regular cargo for your ${esc(type.name.toLowerCase())}: ${esc(goodsList(goods))}</li>`
         : `<li class="bad">No regular cargo for your ${esc(type.name.toLowerCase())} here</li>`,
       `<li>On the quays now: ${lots.length} lot${lots.length === 1 ? '' : 's'}${lots.length ? `, ${compactMoney(lots.reduce((s2, c) => s2 + c.pay, 0))}` : ''}</li>`,
-      reachable.length ? `<li>Typical leg ${Math.round(avg).toLocaleString('en-US')} nm · ${days(Math.round(avg / (effectiveSpeed(type, ship) * 24) * 10) / 10)} · fuel $${Math.min(...prices)}–${Math.max(...prices)}/t</li>` : '',
+      reachable.length ? `<li>Typical leg ${Math.round(avg).toLocaleString('en-US')} nm · ${days(Math.round(avg / (effectiveSpeed(type, ship) * 24) * 10) / 10)} · ${FUEL().toLowerCase()} ${currency()}${Math.min(...prices)}–${Math.max(...prices)}${perFuel()}</li>` : '',
       out ? `<li class="${reachable.length ? 'warn' : 'bad'}">${reachable.length ? 'Some legs are' : 'Every leg is'} beyond this ship's range</li>` : '',
       ...events.map((e) => `<li class="warn">${esc(e.headline)}</li>`),
     ];
@@ -1077,7 +1112,7 @@ class App {
       ? captains.map((c) => `<button class="cap-chip ${c.id === d.captainId ? 'on' : ''}" data-action="area-captain" data-id="${c.id}">
           <strong>${esc(c.name)}</strong> ${this.stars(c)}<span>from ${esc(region(c.home).name)} · ${money(c.wage)}/mo</span></button>`).join('')
       : '<p class="warn-line">No free captain. Hire one in the Company tab first.</p>';
-    const cards = REGIONS.map((r) => {
+    const cards = regions().map((r) => {
       const on = d.regions.includes(r.id);
       const laneWith = !on && d.regions.length === 1 ? d.regions[0] : null;
       const home = captains.find((c) => c.id === d.captainId)?.home === r.id;
@@ -1095,7 +1130,7 @@ class App {
       <div class="cap-pick">${pickCaptain}</div>
       <p class="hint">Pick a region to trade in, or two for a lane between them (long legs, cargo both ways: good for big ships). The captain chooses the ports himself. Tap regions below or ports on the map.</p>
       ${d.regions.length ? `<div class="area-sel"><strong>${esc(areaName(d.regions))}</strong>${this.areaReport(d.regions, ship)}</div>` : ''}
-      <div class="repair-pick"><span>Dry dock below</span>${pct}</div>
+      <div class="repair-pick"><span>${DOCK()} below</span>${pct}</div>
       <div class="orders-btns">
         <button class="btn primary" data-action="area-start" ${ready ? '' : 'disabled'}>${ship.captainId !== undefined ? 'Save' : 'Hand over'}</button>
         <button class="btn ghost" data-action="area-cancel">Cancel</button>
@@ -1141,10 +1176,10 @@ class App {
         <p class="hint">Your books start today. The charts fill in as the months go by.</p></section>`;
     }
     const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const name = (m: number) => `${MONTHS[m % 12]} ${2000 + Math.floor(m / 12)}`;
+    const name = (m: number) => `${MONTHS[m % 12]} ${startYear() + Math.floor(m / 12)}`;
     const every = Math.ceil(books.length / 7);
     const label = (m: number, i: number) => (i % every === 0 || i === books.length - 1
-      ? (m % 12 === 0 ? String(2000 + Math.floor(m / 12)) : MONTHS[m % 12]) : '');
+      ? (m % 12 === 0 ? String(startYear() + Math.floor(m / 12)) : MONTHS[m % 12]) : '');
     const tipLine = (k: string, v: number, cls = '') => `<div class="tl ${cls}"><span>${k}</span><b>${money(v, cls !== '')}</b></div>`;
     const worth: ChartPoint[] = books.map((b, i) => {
       const v = b.m === now ? live : b.netWorth;
@@ -1185,7 +1220,7 @@ class App {
         <thead><tr><th></th><th>${cur ? `${name(cur.m)} so far` : 'This month'}</th><th>${last ? name(last.m) : 'Last month'}</th></tr></thead>
         <tbody>
           ${row('Revenue', (b) => b.revenue, 1)}
-          ${row('Fuel', (b) => b.fuel, -1)}
+          ${row(FUEL(), (b) => b.fuel, -1)}
           ${row('Port fees & canals', (b) => b.fees, -1)}
           ${row('Upkeep', (b) => b.upkeep, -1)}
           ${row('Interest', (b) => b.interest, -1)}
@@ -1213,7 +1248,7 @@ class App {
       if (!ms.length) return '<span class="fr-nochart">No months yet</span>';
       return miniBars(ms.map((b) => ({
         label: '', value: b.revenue - b.costs,
-        tip: `<strong>${esc(s.name)} · ${MONTHS[b.m % 12]} ${2000 + Math.floor(b.m / 12)}${b.m === nowM ? ' (so far)' : ''}</strong><div class="tl"><span>Revenue</span><b>${money(b.revenue)}</b></div><div class="tl"><span>Costs</span><b>${money(-b.costs)}</b></div><div class="tl ${b.revenue >= b.costs ? 'up' : 'down'}"><span>Result</span><b>${money(b.revenue - b.costs, true)}</b></div>`,
+        tip: `<strong>${esc(s.name)} · ${MONTHS[b.m % 12]} ${startYear() + Math.floor(b.m / 12)}${b.m === nowM ? ' (so far)' : ''}</strong><div class="tl"><span>Revenue</span><b>${money(b.revenue)}</b></div><div class="tl"><span>Costs</span><b>${money(-b.costs)}</b></div><div class="tl ${b.revenue >= b.costs ? 'up' : 'down'}"><span>Result</span><b>${money(b.revenue - b.costs, true)}</b></div>`,
       })), maxAbs, `${s.name}: result by month`);
     };
     const rows = g.fleet.map((s) => {
@@ -1232,7 +1267,7 @@ class App {
         <span class="fr-chart">${shipChart(s)}</span>
         <span class="fr-stats">
           <span><em>Hold</em>${cargoTons(s).toLocaleString('en-US')}/${tons(type.capacity)}</span>
-          <span><em>Fuel</em>${Math.round(fuel)}/${type.bunkerCapacity} t</span>
+          <span><em>${FUEL()}</em>${Math.round(fuel)}/${fuelAmt(type.bunkerCapacity)}</span>
           <span class="${s.condition < 45 ? 'bad' : s.condition < 65 ? 'warn' : ''}"><em>Condition</em>${Math.round(s.condition)}%</span>
           <span class="${earned < 0 ? 'bad' : earned > 0 ? 'good' : ''}"><em>30 days</em>${money(earned, true)}</span>
         </span>
@@ -1297,7 +1332,7 @@ class App {
     const free = typeOf(ship).capacity - cargoTons(ship);
     return `
       <header class="port-head">
-        <div><h2>${esc(port.name)}</h2><span class="sub">${esc(ship.name)} · port fee ${money(portFee(g, ship, port.id))} · fuel ${money(fuelPrice(g, port.id))}/t</span></div>
+        <div><h2>${esc(port.name)}</h2><span class="sub">${esc(ship.name)} · port fee ${money(portFee(g, ship, port.id))} · ${FUEL().toLowerCase()} ${money(fuelPrice(g, port.id))}${perFuel()}</span></div>
       </header>
       ${this.waitControls()}
       <p class="hint">Free hold space: <strong>${tons(free)}</strong>. New offers appear as days pass. Hover a contract to see its route.</p>
@@ -1371,19 +1406,19 @@ class App {
       return `<button class="btn small" data-action="fuel" data-amount="${amount}" ${n <= 0 || !ready ? 'disabled' : ''}>${label}<span>${money(n * price)}</span></button>`;
     };
     return `
-      ${this.oilCard()}
+      ${world.era.hasOil ? this.oilCard() : ''}
       <section class="card">
-        <h3>Bunkers · ${esc(ship.name)}</h3>
-        ${ready ? `<div class="kv"><span>Price here</span><strong>${money(price)}/t</strong><em>${rank === 1 ? 'cheapest in the world' : `#${rank} of ${cheapest.length}`}</em></div>` : `<p class="hint">${atSea(ship) ? 'At sea: bunker on arrival.' : 'In dry dock.'}</p>`}
-        <div class="kv"><span>Aboard</span><strong>${Math.round(ship.fuel)} / ${type.bunkerCapacity} t</strong><em>range ≈ ${range.toLocaleString('en-US')} nm</em></div>
-        <div class="kv"><span>Burn</span><strong>${burn.toFixed(1)} t/day</strong><em>at ${speed.toFixed(1)} kn, more when worn or old</em></div>
-        <div class="btn-row">${fuelBtn(25, '+25 t')}${fuelBtn(50, '+50 t')}${fuelBtn(100, '+100 t')}${fuelBtn('fill', 'Fill up')}</div>
+        <h3>${world.era.terms.bunker} · ${esc(ship.name)}</h3>
+        ${ready ? `<div class="kv"><span>Price here</span><strong>${money(price)}${perFuel()}</strong><em>${rank === 1 ? 'cheapest in the world' : `#${rank} of ${cheapest.length}`}</em></div>` : `<p class="hint">${atSea(ship) ? (isSail() ? 'At sea: victual on arrival.' : 'At sea: bunker on arrival.') : `In ${DOCK().toLowerCase()}.`}</p>`}
+        <div class="kv"><span>Aboard</span><strong>${Math.round(ship.fuel)} / ${fuelAmt(type.bunkerCapacity)}</strong><em>range ≈ ${range.toLocaleString('en-US')} nm</em></div>
+        <div class="kv"><span>${isSail() ? 'Eats' : 'Burn'}</span><strong>${burn.toFixed(1)} ${isSail() ? 'casks' : 't'}/day</strong><em>${isSail() ? `${speed.toFixed(1)} kn in a fair wind, slower when foul` : `at ${speed.toFixed(1)} kn, more when worn or old`}</em></div>
+        <div class="btn-row">${fuelBtn(25, `+${fuelAmt(25)}`)}${fuelBtn(50, `+${fuelAmt(50)}`)}${fuelBtn(100, `+${fuelAmt(100)}`)}${fuelBtn('fill', 'Fill up')}</div>
         ${plan && plan.inRange ? `<button class="btn wide" data-action="fuel-for-leg" ${ship.fuel >= Math.ceil(plan.fuelNeeded * 1.15) ? 'disabled' : ''}>Top up for ${esc(world.ports[plan.dest].name)} (+15% reserve)</button>` : ''}
-        <p class="hint">Cheapest bunkers right now: ${cheapest.slice(0, 3).map((x) => `${esc(x.p.name)} ${money(x.price)}`).join(' · ')}</p>
+        <p class="hint">Cheapest ${isSail() ? 'victuals' : 'bunkers'} right now: ${cheapest.slice(0, 3).map((x) => `${esc(x.p.name)} ${money(x.price)}`).join(' · ')}</p>
       </section>
       <section class="card">
-        <h3>Dry dock</h3>
-        <div class="kv"><span>Condition</span><strong>${Math.round(ship.condition)}%</strong><em>low condition → more breakdowns, higher fuel burn</em></div>
+        <h3>${DOCK()}</h3>
+        <div class="kv"><span>Condition</span><strong>${Math.round(ship.condition)}%</strong><em>${isSail() ? 'low condition → leaks, broken spars, a slower ship' : 'low condition → more breakdowns, higher fuel burn'}</em></div>
         <div class="btn-row">
           <button class="btn small" data-action="repair" data-points="10" ${q10.points && ready ? '' : 'disabled'}>Repair +${q10.points}%<span>${money(q10.cost)} · ${days(q10.days)}</span></button>
           <button class="btn small" data-action="repair" data-points="100" ${qFull.points && ready ? '' : 'disabled'}>Full overhaul<span>${money(qFull.cost)} · ${days(qFull.days)}</span></button>
@@ -1435,7 +1470,7 @@ class App {
     if (!active.length) return '';
     return `<section class="card news">
       <h3>World news</h3>
-      <ul>${active.map((e) => `<li><span class="n-kind ${e.kind}">${{ strike: 'Strike', harvest: 'Harvest', boom: 'Boom', canal: 'Canal', oilShock: 'Oil' }[e.kind]}</span>
+      <ul>${active.map((e) => `<li><span class="n-kind ${e.kind}">${{ strike: isSail() ? 'Plague' : 'Strike', harvest: 'Harvest', boom: 'Boom', canal: 'Canal', oilShock: 'Oil' }[e.kind]}</span>
         <span>${esc(e.headline)} <em>Until about ${gameDate(e.endDay)}.</em></span></li>`).join('')}</ul>
     </section>`;
   }
@@ -1579,7 +1614,7 @@ class App {
     const undelivered = ship.cargo.filter((c) => c.dest !== plan.dest);
     const type = typeOf(ship);
     const warnings: string[] = [];
-    if (!plan.inRange) warnings.push(`Beyond this ship's range (${plan.fuelNeeded} t needed, bunkers hold ${type.bunkerCapacity} t). Plan a stop on the way.`);
+    if (!plan.inRange) warnings.push(`Beyond this ship's range (${fuelAmt(plan.fuelNeeded)} needed, ${isSail() ? 'the hold stores' : 'bunkers hold'} ${fuelAmt(type.bunkerCapacity)}). Plan a stop on the way.`);
     if (plan.strike) warnings.push(`Dock strike in ${name}: ${plan.strikeDays} extra days in port and double fees (included above).`);
     const normal = world.route(ship.location, plan.dest);
     if (normal && normal.nm < plan.route.nm - 50) {
@@ -1596,18 +1631,18 @@ class App {
     const short = plan.fuelShort > 0;
     const fuelState = !plan.inRange ? 'bad' : short ? 'bad' : reserve < plan.fuelNeeded * 0.12 ? 'warn' : 'good';
     const fuelText = !plan.inRange ? 'out of range'
-      : short ? `short by ${Math.ceil(plan.fuelShort)} t`
-        : `reserve ${Math.floor(reserve)} t${fuelState === 'warn' ? ', thin: a storm could leave you adrift' : ''}`;
+      : short ? `short by ${fuelAmt(Math.ceil(plan.fuelShort))}`
+        : `reserve ${fuelAmt(Math.floor(reserve))}${fuelState === 'warn' ? ', thin: a storm could leave you adrift' : ''}`;
     const fuelBlock = `
       <div class="fuel-row ${fuelState}">
-        <div><span class="lbl">Fuel</span> <strong>${Math.floor(ship.fuel)} t</strong> aboard · leg needs <strong>${plan.fuelNeeded} t</strong> · <em>${fuelText}</em></div>
+        <div><span class="lbl">${FUEL()}</span> <strong>${fuelAmt(Math.floor(ship.fuel))}</strong> aboard · leg needs <strong>${fuelAmt(plan.fuelNeeded)}</strong> · <em>${fuelText}</em></div>
         ${plan.inRange && !short && topUp > 0 ? `<button class="btn small" data-action="fuel-for-leg">+${topUp} t reserve<span>${money(topUp * price)}</span></button>` : ''}
       </div>`;
     const loss = plan.estimatedNet < 0 ? ` <span>estimate ${money(plan.estimatedNet)}</span>` : '';
     const sailButton = !plan.inRange
       ? `<button class="btn primary wide" disabled>Out of range</button>`
       : short
-        ? `<button class="btn primary wide ${loss ? 'loss' : ''}" data-action="bunker-sail">Bunker ${topUp} t (${money(topUp * price)}) &amp; cast off${loss}</button>`
+        ? `<button class="btn primary wide ${loss ? 'loss' : ''}" data-action="bunker-sail">${isSail() ? 'Victual' : 'Bunker'} ${fuelAmt(topUp)} (${money(topUp * price)}) &amp; ${isSail() ? 'set sail' : 'cast off'}${loss}</button>`
         : `<button class="btn primary wide ${loss ? 'loss' : ''}" data-action="sail">Cast off for ${esc(name)}${loss}</button>`;
     const total = plan.seaDays + RULES.portDays + plan.strikeDays;
     return `
@@ -1616,7 +1651,7 @@ class App {
         <div class="plan-facts">
           <div><strong>${plan.route.nm.toLocaleString('en-US')}</strong><span>nm</span></div>
           <div><strong>${days(Math.round(total * 10) / 10)}</strong><span>incl. port</span></div>
-          <div><strong>${plan.fuelNeeded} t</strong><span>fuel</span></div>
+          <div><strong>${fuelAmt(plan.fuelNeeded)}</strong><span>${FUEL().toLowerCase()}</span></div>
           <div><strong>${gameDate(g.day + total)}</strong><span>ready</span></div>
         </div>
         ${plan.route.canals.length ? `<p class="hint">Via the ${plan.route.canals.map((c) => world.canals[c].name).join(' and ')}.</p>` : ''}
@@ -1624,9 +1659,9 @@ class App {
           ${line('Freight revenue', plan.revenue, 'good')}
           ${line('Upkeep', -plan.upkeep)}
           ${line(`Port fee ${name}`, -plan.portFee)}
-          ${line('Pilot & tugs (dock yourself to save it)', -plan.services)}
+          ${plan.services ? line('Pilot & tugs (dock yourself to save it)', -plan.services) : ''}
           ${plan.canalFees ? line('Canal dues', -plan.canalFees) : ''}
-          ${line(`Fuel burned (at ${money(price)}/t)`, -fuelValue)}
+          ${line(`${isSail() ? 'Victuals eaten' : 'Fuel burned'} (at ${money(price)}${perFuel()})`, -fuelValue)}
           <div class="line total ${plan.estimatedNet >= 0 ? 'good' : 'bad'}"><span>Estimated result</span><span>${money(plan.estimatedNet, true)}</span></div>
           <div class="line per-day"><span>per day</span><span>${money(plan.estimatedNet / total, true)}</span></div>
         </div>
@@ -1714,8 +1749,8 @@ class App {
       <div class="era-cards">
         <button class="era-card modern" data-action="slot-new" data-era="modern">
           <strong>Modern · from 2000</strong><span>Steel, diesel and containers: start with an old coaster and $150,000.</span><em>Start</em></button>
-        <div class="era-card sail" aria-disabled="true">
-          <strong>Age of Sail · from 1650</strong><span>Fluyts, monsoons and spice: found a merchant house in Amsterdam. Being built now.</span><em>Coming soon</em></div>
+        <button class="era-card sail" data-action="slot-new" data-era="sail">
+          <strong>Age of Sail · from 1650</strong><span>Fluyts, monsoons and spice: found a merchant house in Amsterdam with a little jacht and ƒ150,000.</span><em>Start</em></button>
       </div>
       <button class="btn ghost wide" data-action="close-games">Close</button>`;
     $('#modal').hidden = false;
@@ -1732,6 +1767,7 @@ class App {
     const g = loadSlot(id);
     if (!g) { this.toast('That game could not be read.', 'bad'); return; }
     setActiveSlot(id);
+    if ((g.era ?? 'modern') !== currentEra()) { reloadForEra(); return; }
     this.loadInto(g);
     this.toast(`Opened ${listSlots().find((x) => x.id === id)?.name ?? 'the game'}.`, 'good');
   }
@@ -1806,7 +1842,7 @@ class App {
     $('#modal-body').innerHTML = `
       ${this.g.fleet.some((s) => s.id === r.shipId) ? `<div class="report-art">${shipSideView(typeOf(getShip(this.g, r.shipId)), 240)}</div>` : ''}
       <h2>${esc(r.shipName)} arrived in ${esc(world.ports[r.to].name)}</h2>
-      <p class="sub">${r.distance.toLocaleString('en-US')} nm from ${esc(world.ports[r.from].name)} in ${days(Math.round((r.arriveDay - r.departDay) * 10) / 10)} · ${r.fuelUsed} t fuel burned · condition −${r.conditionLoss}%</p>
+      <p class="sub">${r.distance.toLocaleString('en-US')} nm from ${esc(world.ports[r.from].name)} in ${days(Math.round((r.arriveDay - r.departDay) * 10) / 10)} · ${fuelAmt(r.fuelUsed)} ${isSail() ? 'eaten' : 'fuel burned'} · condition −${r.conditionLoss}%</p>
       ${r.events.length ? `<ul class="events">${r.events.map((e) => `<li class="${e.kind}"><span>Day ${e.day}</span> ${esc(e.text)}</li>`).join('')}</ul>` : '<p class="calm">A calm passage.</p>'}
       ${r.news.length ? `<div class="news-in-report"><h3>News while at sea</h3><ul>${r.news.map((n) => `<li>📰 ${esc(n)}</li>`).join('')}</ul></div>` : ''}
       <div class="ledger">
@@ -1819,7 +1855,7 @@ class App {
         <div class="line total ${r.net >= 0 ? 'good' : 'bad'}"><span>Result for the leg</span><span>${money(r.net, true)}</span></div>
       </div>
       ${r.marketNotes.length ? `<ul class="market-notes">${r.marketNotes.map((n) => `<li>▼ ${esc(n)}</li>`).join('')}</ul>` : ''}
-      <div class="line memo"><span>Memo: fuel burned, paid when bunkering</span><span>≈ ${money(r.fuelUsed * fuelPrice(this.g, r.from))}</span></div>
+      <div class="line memo"><span>Memo: ${isSail() ? 'victuals eaten, paid when victualling' : 'fuel burned, paid when bunkering'}</span><span>≈ ${money(r.fuelUsed * fuelPrice(this.g, r.from))}</span></div>
       ${this.dockOffer(r)}
       <button class="btn primary wide" data-action="close-report">${more ? `Next arrival (${more} more)` : `Give the ${esc(r.shipName)} new orders`}</button>`;
     $('#modal').hidden = false;
@@ -1844,7 +1880,7 @@ class App {
           <div><strong>${type.cargoClasses.join(' & ')}</strong><span>carries</span></div>
           <div><strong>${this.g.fleet.length}</strong><span>ships now</span></div>
         </div>
-        <p class="hint">It has a little fuel aboard. Bunker up and find it some cargo.</p>
+        <p class="hint">${isSail() ? 'It has a few weeks of victuals aboard. Stock up and find it some cargo.' : 'It has a little fuel aboard. Bunker up and find it some cargo.'}</p>
         <button class="btn primary wide" data-action="close-report">Give it orders</button>
       </div>`;
     $('#modal').hidden = false;
@@ -1931,7 +1967,7 @@ function statBoxes(s: ShipSpec, base?: ShipSpec): string {
   const rows: { label: string; val: string; key: keyof ShipSpec; higherIsBetter: boolean; diff: (d: number) => string }[] = [
     { label: 'Hold', key: 'cap', val: kTons(s.cap), higherIsBetter: true, diff: (d) => `${sign(d)}${kTons(d)}` },
     { label: 'Speed', key: 'speed', val: `${s.speed.toFixed(1)} kn`, higherIsBetter: true, diff: (d) => `${sign(d)}${Math.abs(d).toFixed(1)} kn` },
-    { label: 'Burn', key: 'burn', val: `${s.burn.toFixed(s.burn < 10 ? 1 : 0)} t/day`, higherIsBetter: false,
+    { label: 'Burn', key: 'burn', val: `${s.burn.toFixed(s.burn < 10 ? 1 : 0)} ${isSail() ? 'casks' : 't'}/day`, higherIsBetter: false,
       diff: (d) => `${sign(d)}${Math.abs(d).toFixed(Math.abs(d) < 10 ? 1 : 0)} t` },
     { label: 'Upkeep', key: 'upkeep', val: `$${(s.upkeep / 1000).toFixed(1)}k/d`, higherIsBetter: false,
       diff: (d) => `${sign(d)}$${(Math.abs(d) / 1000).toFixed(1)}k` },
@@ -1988,7 +2024,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 initServiceWorker();
-new App({ showStart: !justUpdated() });
+new App({ showStart: !justUpdated() && !eraSwitched() });
 const updatedFrom = consumeUpdatedFrom();
 if (updatedFrom) toast(`Updated from build ${updatedFrom} to build ${BUILD.number}.`, 'good', 4500);
 void checkForUpdate();

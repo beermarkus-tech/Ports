@@ -1,0 +1,102 @@
+[
+ {
+  "id": "northsea",
+  "name": "North Sea & Baltic",
+  "ports": [
+   "amsterdam",
+   "london",
+   "danzig",
+   "bergen"
+  ]
+ },
+ {
+  "id": "iberia",
+  "name": "Iberia & the Mediterranean",
+  "ports": [
+   "lisbon",
+   "cadiz",
+   "venice"
+  ]
+ },
+ {
+  "id": "guinea",
+  "name": "Guinea Coast & the Cape",
+  "ports": [
+   "elmina",
+   "cape"
+  ]
+ },
+ {
+  "id": "arabia",
+  "name": "East Africa & Arabia",
+  "ports": [
+   "mozambique",
+   "zanzibar",
+   "mocha"
+  ]
+ },
+ {
+  "id": "india",
+  "name": "Persia & India",
+  "ports": [
+   "bandarabbas",
+   "surat",
+   "goa",
+   "calicut",
+   "galle",
+   "madras"
+  ]
+ },
+ {
+  "id": "indies",
+  "name": "The East Indies",
+  "ports": [
+   "malacca",
+   "bantam",
+   "batavia",
+   "banda",
+   "ayutthaya"
+  ]
+ },
+ {
+  "id": "china",
+  "name": "China Seas & Japan",
+  "ports": [
+   "hoian",
+   "manila",
+   "macau",
+   "canton",
+   "amoy",
+   "zeelandia",
+   "dejima"
+  ]
+ },
+ {
+  "id": "caribbean",
+  "name": "The Caribbean",
+  "ports": [
+   "havana",
+   "cartagena",
+   "veracruz",
+   "portobelo",
+   "barbados"
+  ]
+ },
+ {
+  "id": "northamerica",
+  "name": "North America",
+  "ports": [
+   "jamestown",
+   "newamsterdam",
+   "boston"
+  ]
+ },
+ {
+  "id": "brazil",
+  "name": "Brazil",
+  "ports": [
+   "bahia",
+   "recife"
+  ]
+ }
+]

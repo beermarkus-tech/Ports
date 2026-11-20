@@ -4,7 +4,7 @@ import { newOilMarket } from './economy';
 import { randRange } from './rng';
 import { netWorth, regenerateMarket } from './ships';
 import type { GameState, ShipState } from './types';
-import { getWorld } from './world';
+import { getWorld, worldFor } from './world';
 
 // Several games ("slots"), each in its own key, with an index of them for the start
 // screen. The single save from before slots (LEGACY_KEY) becomes the first slot.
@@ -194,7 +194,7 @@ function addCaptains(g: GameState): void {
 
 /** Ports added to the world after this game was started get a market, offers and a fuel price. */
 function addNewPorts(g: GameState): void {
-  const world = getWorld();
+  const world = worldFor(g.era ?? 'modern');
   const added = world.portList.filter((p) => !g.ports[p.id]);
   for (const p of added) g.ports[p.id] = { fuelDev: randRange(g, -0.12, 0.12), board: [], market: [], prices: {} };
   for (const p of added) {

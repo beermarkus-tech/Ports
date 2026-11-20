@@ -1,0 +1,236 @@
+[
+ {
+  "id": "pepper",
+  "name": "Pepper",
+  "cargoClass": "general",
+  "freightRate": 115,
+  "lotMin": 15,
+  "lotMax": 120,
+  "bigLotMax": 300
+ },
+ {
+  "id": "nutmeg",
+  "name": "Nutmeg and mace",
+  "cargoClass": "general",
+  "freightRate": 230,
+  "lotMin": 5,
+  "lotMax": 60,
+  "bigLotMax": 120
+ },
+ {
+  "id": "cloves",
+  "name": "Cloves",
+  "cargoClass": "general",
+  "freightRate": 210,
+  "lotMin": 5,
+  "lotMax": 60,
+  "bigLotMax": 120
+ },
+ {
+  "id": "cinnamon",
+  "name": "Cinnamon",
+  "cargoClass": "general",
+  "freightRate": 170,
+  "lotMin": 5,
+  "lotMax": 60,
+  "bigLotMax": 120
+ },
+ {
+  "id": "tea",
+  "name": "Tea",
+  "cargoClass": "general",
+  "freightRate": 145,
+  "lotMin": 10,
+  "lotMax": 80,
+  "bigLotMax": 160
+ },
+ {
+  "id": "silk",
+  "name": "Silk",
+  "cargoClass": "general",
+  "freightRate": 205,
+  "lotMin": 5,
+  "lotMax": 50,
+  "bigLotMax": 100
+ },
+ {
+  "id": "porcelain",
+  "name": "Porcelain",
+  "cargoClass": "general",
+  "freightRate": 125,
+  "lotMin": 10,
+  "lotMax": 80,
+  "bigLotMax": 200
+ },
+ {
+  "id": "textiles",
+  "name": "Indian textiles",
+  "cargoClass": "general",
+  "freightRate": 95,
+  "lotMin": 10,
+  "lotMax": 100,
+  "bigLotMax": 250
+ },
+ {
+  "id": "indigo",
+  "name": "Indigo",
+  "cargoClass": "general",
+  "freightRate": 135,
+  "lotMin": 5,
+  "lotMax": 60,
+  "bigLotMax": 120
+ },
+ {
+  "id": "saltpetre",
+  "name": "Saltpetre",
+  "cargoClass": "bulk",
+  "freightRate": 55,
+  "lotMin": 20,
+  "lotMax": 150,
+  "bigLotMax": 400
+ },
+ {
+  "id": "coffee",
+  "name": "Coffee",
+  "cargoClass": "general",
+  "freightRate": 105,
+  "lotMin": 10,
+  "lotMax": 100,
+  "bigLotMax": 250
+ },
+ {
+  "id": "sugar",
+  "name": "Sugar",
+  "cargoClass": "bulk",
+  "freightRate": 62,
+  "lotMin": 20,
+  "lotMax": 160,
+  "bigLotMax": 500
+ },
+ {
+  "id": "tobacco",
+  "name": "Tobacco",
+  "cargoClass": "general",
+  "freightRate": 72,
+  "lotMin": 10,
+  "lotMax": 120,
+  "bigLotMax": 300
+ },
+ {
+  "id": "silver",
+  "name": "Silver",
+  "cargoClass": "general",
+  "freightRate": 155,
+  "lotMin": 2,
+  "lotMax": 30,
+  "bigLotMax": 60
+ },
+ {
+  "id": "gold",
+  "name": "Gold",
+  "cargoClass": "general",
+  "freightRate": 240,
+  "lotMin": 1,
+  "lotMax": 10,
+  "bigLotMax": 20
+ },
+ {
+  "id": "copper",
+  "name": "Copper",
+  "cargoClass": "bulk",
+  "freightRate": 62,
+  "lotMin": 10,
+  "lotMax": 120,
+  "bigLotMax": 300
+ },
+ {
+  "id": "tin",
+  "name": "Tin",
+  "cargoClass": "bulk",
+  "freightRate": 52,
+  "lotMin": 10,
+  "lotMax": 120,
+  "bigLotMax": 300
+ },
+ {
+  "id": "ivory",
+  "name": "Ivory",
+  "cargoClass": "general",
+  "freightRate": 160,
+  "lotMin": 2,
+  "lotMax": 30,
+  "bigLotMax": 60
+ },
+ {
+  "id": "furs",
+  "name": "Furs and deerskins",
+  "cargoClass": "general",
+  "freightRate": 120,
+  "lotMin": 5,
+  "lotMax": 60,
+  "bigLotMax": 150
+ },
+ {
+  "id": "cloth",
+  "name": "Woollen cloth",
+  "cargoClass": "general",
+  "freightRate": 72,
+  "lotMin": 10,
+  "lotMax": 120,
+  "bigLotMax": 300
+ },
+ {
+  "id": "wine",
+  "name": "Wine and brandy",
+  "cargoClass": "general",
+  "freightRate": 52,
+  "lotMin": 10,
+  "lotMax": 150,
+  "bigLotMax": 400
+ },
+ {
+  "id": "grain",
+  "name": "Grain",
+  "cargoClass": "bulk",
+  "freightRate": 26,
+  "lotMin": 30,
+  "lotMax": 250,
+  "bigLotMax": 800
+ },
+ {
+  "id": "timber",
+  "name": "Timber and naval stores",
+  "cargoClass": "bulk",
+  "freightRate": 22,
+  "lotMin": 30,
+  "lotMax": 250,
+  "bigLotMax": 800
+ },
+ {
+  "id": "salt",
+  "name": "Salt",
+  "cargoClass": "bulk",
+  "freightRate": 21,
+  "lotMin": 30,
+  "lotMax": 250,
+  "bigLotMax": 800
+ },
+ {
+  "id": "cod",
+  "name": "Stockfish",
+  "cargoClass": "general",
+  "freightRate": 38,
+  "lotMin": 20,
+  "lotMax": 150,
+  "bigLotMax": 400
+ },
+ {
+  "id": "rice",
+  "name": "Rice",
+  "cargoClass": "bulk",
+  "freightRate": 31,
+  "lotMin": 30,
+  "lotMax": 250,
+  "bigLotMax": 800
+ }
+]

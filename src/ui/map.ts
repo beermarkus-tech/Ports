@@ -6,6 +6,7 @@ import { feature } from 'topojson-client';
 import type { Topology } from 'topojson-specification';
 import landTopo from 'world-atlas/land-110m.json';
 import type { World } from '../sim/world';
+import { currency } from './format';
 
 const W = 1000;
 const H = 470;
@@ -213,7 +214,7 @@ export class MapView {
     for (const m of markers) {
       const g = this.ports[m.id];
       g.setAttribute('class', `port ${m.role}${m.strike ? ' strike' : ''}${m.boom ? ' boom' : ''}`);
-      g.querySelector('.fuel')!.textContent = `⛽ $${m.fuelPrice}${m.strike ? ' · ✊ strike' : ''}${m.boom ? ' · ▲ boom' : ''}`;
+      g.querySelector('.fuel')!.textContent = `${this.world.era.wind ? '' : '⛽ '}${currency()}${m.fuelPrice}${m.strike ? (this.world.era.wind ? ' · ☠ quarantine' : ' · ✊ strike') : ''}${m.boom ? ' · ▲ boom' : ''}`;
     }
   }
 

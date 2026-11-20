@@ -72,6 +72,7 @@ const FAMILY: Record<ShipFamily, { hull: string; band: string }> = {
   reefer: { hull: '#eef2f4', band: '#2f7fb8' },
   tanker: { hull: '#1f2b33', band: '#d64b2a' },
   container: { hull: '#1d5f4e', band: '#f2c14e' },
+  sail: { hull: '#6b4a2b', band: '#d9822b' },
 };
 
 /** How each good looks in a cut-open hold. */

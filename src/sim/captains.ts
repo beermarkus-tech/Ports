@@ -1,7 +1,7 @@
 // Captains for hire: a small pool that turns over, each with a skill, a wage and
 // a home region. Hiring, firing and assigning them are actions in game.ts.
 
-import { REGIONS } from './regions';
+import { regions } from './regions';
 import { pickWeighted, rand, randInt, randRange } from './rng';
 import type { Captain, GameState } from './types';
 
@@ -36,7 +36,7 @@ export function newCaptain(g: GameState, avoid: string[] = []): Captain {
   }
   const skill = pickWeighted(g, [1, 2, 3] as const, (k) => CAPTAIN_TUNING.skillWeights[k]);
   const wage = Math.round((CAPTAIN_TUNING.wage[skill] * randRange(g, 0.85, 1.15)) / 1000) * 1000;
-  return { id: g.nextId++, name, skill, wage, home: REGIONS[randInt(g, 0, REGIONS.length - 1)].id };
+  return { id: g.nextId++, name, skill, wage, home: regions()[randInt(g, 0, regions().length - 1)].id };
 }
 
 /** Fill the pool of candidates up to its size. */

@@ -5,9 +5,10 @@
 
 import type { ShipTypeDef } from '../sim/types';
 
-export type ShipFamily = 'general' | 'bulk' | 'tanker' | 'container' | 'reefer';
+export type ShipFamily = 'general' | 'bulk' | 'tanker' | 'container' | 'reefer' | 'sail';
 
-export function shipFamily(type: Pick<ShipTypeDef, 'id' | 'cargoClasses'>): ShipFamily {
+export function shipFamily(type: Pick<ShipTypeDef, 'id' | 'cargoClasses'> & { family?: 'sail' }): ShipFamily {
+  if (type.family === 'sail') return 'sail';
   if (type.cargoClasses.includes('liquid')) return 'tanker';
   if (type.id === 'feeder' || type.id === 'container') return 'container';
   if (type.cargoClasses.includes('reefer')) return 'reefer';
@@ -16,7 +17,11 @@ export function shipFamily(type: Pick<ShipTypeDef, 'id' | 'cargoClasses'>): Ship
 }
 
 /** 0.62 (smallest) to 1 (largest): how long the drawing is. */
-function lengthFactor(capacity: number): number {
+function lengthFactor(capacity: number, family?: 'sail'): number {
+  if (family === 'sail') {
+    const t = Math.log(capacity / 80) / Math.log(1100 / 80);
+    return 0.62 + 0.38 * Math.max(0, Math.min(1, t));
+  }
   const t = Math.log(capacity / 3000) / Math.log(45000 / 3000);
   return 0.62 + 0.38 * Math.max(0, Math.min(1, t));
 }
@@ -29,6 +34,7 @@ const CONTAINER_COLOURS = ['#d9534f', '#3a87c8', '#e8a33d', '#4caf7a', '#8a6bc7'
  */
 export function shipSideView(type: ShipTypeDef, width = 120): string {
   const family = shipFamily(type);
+  if (family === 'sail') return sailSideView(type, width);
   const L = 150 * lengthFactor(type.capacity); // hull length in drawing units
   const x0 = (160 - L) / 2;
   const x = (f: number) => (x0 + f * L).toFixed(1); // position along the hull, 0 = stern, 1 = bow
@@ -100,10 +106,83 @@ export function shipSideView(type: ShipTypeDef, width = 120): string {
   return `<svg class="ship-art ${family}" viewBox="0 0 160 48" width="${width}" height="${(width * 0.3).toFixed(0)}" aria-hidden="true">${parts.join('')}</svg>`;
 }
 
+/**
+ * A sailing ship, bow to the right: a curved hull with a high stern castle,
+ * two or three masts of square sails, a spritsail under the bowsprit and the
+ * company's flag at the stern.
+ */
+function sailSideView(type: ShipTypeDef, width: number): string {
+  const L = 130 * lengthFactor(type.capacity, 'sail');
+  const x0 = (160 - L) / 2 - 4;
+  const x = (f: number) => (x0 + f * L).toFixed(1);
+  const water = 40;
+  const deck = 31;
+  const parts: string[] = [];
+  // Hull: high, rounded stern, sweeping sheer down to a low beak at the bow.
+  parts.push(`<path class="hull wood" d="M${x(0)} ${deck - 7} L${x(0.16)} ${deck - 6} Q${x(0.55)} ${deck + 1} ${x(0.92)} ${deck - 2} L${x(1.04)} ${deck - 4}
+    L${x(0.97)} ${deck + 1} Q${x(0.93)} ${water + 3} ${x(0.8)} ${water + 4} L${x(0.12)} ${water + 4} Q${x(0.03)} ${water + 2} ${x(0.01)} ${deck + 2} Z"/>`);
+  // A painted band along the gunwale, and the stern windows.
+  parts.push(`<path class="wale" d="M${x(0.02)} ${deck - 3} L${x(0.16)} ${deck - 2.2} Q${x(0.55)} ${deck + 4.4} ${x(0.95)} ${deck + 1} L${x(0.95)} ${deck + 2.6} Q${x(0.55)} ${deck + 6} ${x(0.16)} ${deck - 0.4} L${x(0.02)} ${deck - 1.2} Z"/>`);
+  for (let i = 0; i < 2; i++) parts.push(`<rect class="window" x="${(x0 + (0.035 + i * 0.045) * L).toFixed(1)}" y="${deck - 5.6}" width="${(0.025 * L).toFixed(1)}" height="1.8"/>`);
+  // Bowsprit.
+  parts.push(`<line class="spar" x1="${x(0.93)}" y1="${deck - 2}" x2="${x(1.16)}" y2="${deck - 11}"/>`);
+  // Masts: main, fore and (on the bigger ships) mizzen, each with courses and topsails.
+  const big = type.capacity >= 250;
+  const masts = big
+    ? [{ at: 0.22, h: 0.8, mizzen: true }, { at: 0.5, h: 1 }, { at: 0.76, h: 0.9 }]
+    : [{ at: 0.38, h: 1 }, { at: 0.72, h: 0.88 }];
+  const H = 34 * (0.75 + 0.25 * lengthFactor(type.capacity, 'sail'));
+  for (const m of masts) {
+    const mx = x0 + m.at * L;
+    const top = deck - H * m.h;
+    parts.push(`<line class="mast" x1="${mx.toFixed(1)}" y1="${deck}" x2="${mx.toFixed(1)}" y2="${(top - 2).toFixed(1)}"/>`);
+    const w = L * (big ? 0.2 : 0.24) * m.h;
+    if (m.mizzen) {
+      // A lateen sail on the mizzen.
+      parts.push(`<path class="sail" d="M${(mx - w * 0.55).toFixed(1)} ${(deck - 4).toFixed(1)} L${(mx + w * 0.2).toFixed(1)} ${(top + 2).toFixed(1)} L${(mx + w * 0.25).toFixed(1)} ${(deck - 4).toFixed(1)} Z"/>`);
+    }
+    const tiers = m.mizzen ? 1 : 2;
+    const span = (deck - 6 - top) / (m.mizzen ? 2 : tiers);
+    for (let t = m.mizzen ? 1 : 0; t < (m.mizzen ? 2 : tiers); t++) {
+      const yb = deck - 6 - t * span;
+      const yt = yb - span + 1.5;
+      const ww = w * (1 - t * 0.25);
+      // A square sail, bellied out by the wind.
+      parts.push(`<path class="sail" d="M${(mx - ww / 2).toFixed(1)} ${yt.toFixed(1)} L${(mx + ww / 2).toFixed(1)} ${yt.toFixed(1)}
+        Q${(mx + ww / 2 + 1.6).toFixed(1)} ${((yt + yb) / 2).toFixed(1)} ${(mx + ww / 2).toFixed(1)} ${yb.toFixed(1)}
+        L${(mx - ww / 2).toFixed(1)} ${yb.toFixed(1)} Q${(mx - ww / 2 + 1.6).toFixed(1)} ${((yt + yb) / 2).toFixed(1)} ${(mx - ww / 2).toFixed(1)} ${yt.toFixed(1)} Z"/>`);
+      parts.push(`<line class="spar" x1="${(mx - ww / 2 - 0.6).toFixed(1)}" y1="${yt.toFixed(1)}" x2="${(mx + ww / 2 + 0.6).toFixed(1)}" y2="${yt.toFixed(1)}"/>`);
+    }
+    // A pennant at the masthead.
+    parts.push(`<path class="pennant" d="M${mx.toFixed(1)} ${(top - 2).toFixed(1)} l5 1 l-5 1 Z"/>`);
+  }
+  // Spritsail under the bowsprit.
+  const bx = x0 + 1.06 * L;
+  parts.push(`<path class="sail" d="M${(bx - 4).toFixed(1)} ${(deck - 7).toFixed(1)} L${(bx + 4).toFixed(1)} ${(deck - 9).toFixed(1)} L${(bx + 3.5).toFixed(1)} ${(deck - 3).toFixed(1)} L${(bx - 3.5).toFixed(1)} ${(deck - 1.5).toFixed(1)} Z"/>`);
+  // Stays from the bowsprit to the foremast top.
+  const fore = masts[masts.length - 1];
+  parts.push(`<line class="rigging" x1="${x(1.16)}" y1="${deck - 11}" x2="${x(fore.at)}" y2="${(deck - H * fore.h).toFixed(1)}"/>`);
+  // The flag at the stern: orange, white and blue.
+  const fx = x0 + 0.01 * L, fy = deck - 15;
+  parts.push(`<line class="mast" x1="${fx.toFixed(1)}" y1="${deck - 7}" x2="${fx.toFixed(1)}" y2="${fy.toFixed(1)}"/>`);
+  parts.push(`<rect x="${(fx - 7).toFixed(1)}" y="${fy.toFixed(1)}" width="7" height="1.4" fill="#d9822b"/><rect x="${(fx - 7).toFixed(1)}" y="${(fy + 1.4).toFixed(1)}" width="7" height="1.4" fill="#f4efe2"/><rect x="${(fx - 7).toFixed(1)}" y="${(fy + 2.8).toFixed(1)}" width="7" height="1.4" fill="#2f5b8a"/>`);
+  parts.push(`<path class="sea" d="M0 ${water + 3} Q 20 ${water + 1} 40 ${water + 3} T 80 ${water + 3} T 120 ${water + 3} T 160 ${water + 3} V 48 H 0 Z"/>`);
+  return `<svg class="ship-art sail" viewBox="0 0 160 48" width="${width}" height="${(width * 0.3).toFixed(0)}" aria-hidden="true">${parts.join('')}</svg>`;
+}
+
 /** Top-down map icon (bow pointing along +x), centred on the origin. */
-export function mapIconPath(type: Pick<ShipTypeDef, 'capacity'>): { hull: string; deck: string; length: number } {
-  const L = 11 + 11 * ((lengthFactor(type.capacity) - 0.62) / 0.38);
-  const W = 4.2 + 2.6 * ((lengthFactor(type.capacity) - 0.62) / 0.38);
+export function mapIconPath(type: Pick<ShipTypeDef, 'capacity'> & { family?: 'sail' }): { hull: string; deck: string; length: number } {
+  const f = (lengthFactor(type.capacity, type.family) - 0.62) / 0.38;
+  if (type.family === 'sail') {
+    // A round-bottomed hull seen from above, with the yards of her sails across it.
+    const L = 10 + 8 * f, W = 4 + 2 * f, h = L / 2, w = W / 2;
+    const hull = `M${(h + 1.5).toFixed(1)} 0 Q${(h - 1).toFixed(1)} ${(-w).toFixed(1)} ${(h - 4).toFixed(1)} ${(-w).toFixed(1)} L${(-h + 1.5).toFixed(1)} ${(-w * 0.95).toFixed(1)} Q${(-h).toFixed(1)} 0 ${(-h + 1.5).toFixed(1)} ${(w * 0.95).toFixed(1)} L${(h - 4).toFixed(1)} ${w.toFixed(1)} Q${(h - 1).toFixed(1)} ${w.toFixed(1)} ${(h + 1.5).toFixed(1)} 0 Z`;
+    const yard = (at: number, span: number) => `M${(at - 0.9).toFixed(1)} ${(-span).toFixed(1)} h1.8 v${(span * 2).toFixed(1)} h-1.8 Z`;
+    const deck = [yard(-h * 0.35, w * 1.6), yard(h * 0.3, w * 1.5)].join(' ');
+    return { hull, deck, length: L };
+  }
+  const L = 11 + 11 * f;
+  const W = 4.2 + 2.6 * f;
   const h = L / 2;
   const w = W / 2;
   const hull = `M${h.toFixed(1)} 0 Q${(h - 2).toFixed(1)} ${(-w).toFixed(1)} ${(h - 5).toFixed(1)} ${(-w).toFixed(1)} L${(-h).toFixed(1)} ${(-w * 0.9).toFixed(1)} L${(-h).toFixed(1)} ${(w * 0.9).toFixed(1)} L${(h - 5).toFixed(1)} ${w.toFixed(1)} Q${(h - 2).toFixed(1)} ${w.toFixed(1)} ${h.toFixed(1)} 0 Z`;

@@ -46,6 +46,8 @@ export interface ShipTypeDef {
   sizeFactor: number;
   repairCostPerPoint: number;
   cargoClasses: CargoClass[];
+  /** Drawing style; sailing ships say 'sail' (others follow their cargo classes). */
+  family?: 'sail';
 }
 
 export interface Contract {

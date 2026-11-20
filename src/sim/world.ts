@@ -4,8 +4,16 @@
 
 import goodsData from '../data/goods.json';
 import portsData from '../data/ports.json';
+import regionsData from '../data/regions.json';
 import shipsData from '../data/ships.json';
 import lanesData from '../data/sealanes.json';
+import sailGoods from '../data/sail/goods.json';
+import sailPorts from '../data/sail/ports.json';
+import sailRegions from '../data/sail/regions.json';
+import sailShips from '../data/sail/ships.json';
+import sailLanes from '../data/sail/sealanes.json';
+import { ERAS, type EraConfig, type EraId } from './era';
+import type { Region } from './regions';
 import type { GoodDef, PortDef, ShipTypeDef } from './types';
 
 export interface GeoPoint { id: string; lat: number; lon: number }
@@ -35,6 +43,8 @@ export class World {
   readonly points: Record<string, GeoPoint> = {};
   readonly edges: Edge[] = [];
   readonly canals: Record<string, CanalDef>;
+  readonly era: EraConfig;
+  readonly regions: Region[];
   private adjacency: Record<string, Edge[]> = {};
   private routeCache = new Map<string, Route | null>();
 
@@ -47,7 +57,11 @@ export class World {
       nodes: GeoPoint[];
       edges: (string[] | { a: string; b: string; canal?: string })[];
     } = lanesData,
+    era: EraConfig = ERAS.modern,
+    regions: Region[] = regionsData as Region[],
   ) {
+    this.era = era;
+    this.regions = regions;
     this.canals = lanes.canals;
     for (const g of goods) this.goods[g.id] = g;
     for (const p of ports) {
@@ -119,7 +133,27 @@ export class World {
   }
 }
 
-let defaultWorld: World | null = null;
+const worlds: Partial<Record<EraId, World>> = {};
+
+/** The world of an era (built once). */
+export function worldFor(era: EraId): World {
+  return (worlds[era] ??= era === 'sail'
+    ? new World(sailGoods as GoodDef[], sailPorts as PortDef[], sailShips as ShipTypeDef[], sailLanes as never, ERAS.sail, sailRegions as Region[])
+    : new World());
+}
+
+let current: EraId = 'modern';
+
+/** Make an era's world the current one (the game being played decides it). */
+export function setEra(era: EraId): void {
+  current = era;
+}
+
+export function currentEra(): EraId {
+  return current;
+}
+
+/** The current world: the one of the game being played. */
 export function getWorld(): World {
-  return (defaultWorld ??= new World());
+  return worldFor(current);
 }

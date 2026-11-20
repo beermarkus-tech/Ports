@@ -3,7 +3,10 @@
 
 import { BOT_OPTIONS, botStep, casualStep, evaluateOptions } from '../src/sim/bot';
 import { RULES, newGame } from '../src/sim/game';
-import { getWorld } from '../src/sim/world';
+import { getWorld, setEra } from '../src/sim/world';
+
+// ERA=sail runs the Age of Sail world.
+if (process.env.ERA === 'sail') setEra('sail');
 
 const legs = Number(process.argv[2] ?? 10);
 const seeds = Number(process.argv[3] ?? 50);

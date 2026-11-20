@@ -10,6 +10,7 @@
 import { CAPTAIN_TUNING, captainSlots, churnCaptainPool, fillCaptainPool } from './captains';
 import { bookServiceCargo, churnBoard, latePayFactor, regenerateBoard } from './contracts';
 import { areaName, areaPorts, region, regionOf } from './regions';
+import { routeWind } from './wind';
 import { ECONOMY, economyDay, newOilMarket, recordDelivery, routeFor, strikeAt } from './economy';
 import { rand, randNormal, randRange } from './rng';
 import {
@@ -20,6 +21,9 @@ import type {
   ActiveVoyage, Captain, Contract, Delivery, GameState, MonthBook, ShipState, ShipTypeDef, StandingOrders, VoyageEvent, VoyageReport,
 } from './types';
 import { getWorld, type Route, type World } from './world';
+
+/** The money sign of the era being played. */
+const cur = (): string => getWorld().era.currency;
 
 export const RULES = {
   startCash: 150_000,
@@ -185,6 +189,7 @@ export function portFee(g: GameState, ship: Pick<ShipState, 'typeId'>, portId: s
 
 /** Pilot and tugs on arrival: a share of the port fee. Dock yourself and you keep it. */
 export function harbourServices(g: GameState, ship: Pick<ShipState, 'typeId'>, portId: string, world: World = getWorld()): number {
+  if (!world.era.harbourServices) return 0;
   return Math.round(portFee(g, ship, portId, world) * RULES.harbourServices / 100) * 100;
 }
 
@@ -219,7 +224,7 @@ function coverShortfall(g: GameState, world: World): void {
   if (draw <= 0) return;
   g.loan += draw;
   g.cash += draw;
-  log(g, `The bank covered your shortfall: your loan grew by $${draw.toLocaleString('en-US')}.`);
+  log(g, `The bank covered your shortfall: your loan grew by ${cur()}${draw.toLocaleString('en-US')}.`);
 }
 
 /** True when a ship in port can't reach any other port, even after buying all the fuel it can afford. */
@@ -250,7 +255,7 @@ function checkEnd(g: GameState, world: World): void {
   for (const m of RULES.milestones) {
     if (worth >= m && !g.milestones.some((x) => x.amount === m)) {
       g.milestones.push({ amount: m, day: g.day });
-      log(g, `Milestone: your company is worth $${m.toLocaleString('en-US')}!`);
+      log(g, `Milestone: your company is worth ${cur()}${m.toLocaleString('en-US')}!`);
     }
   }
 }
@@ -349,7 +354,8 @@ export function newGame(seed: number = Date.now() % 2 ** 31, world: World = getW
     version: 4,
     rng: seed | 0,
     day: 0,
-    cash: RULES.startCash,
+    era: world.era.id,
+    cash: world.era.start.cash,
     loan: 0,
     fleet: [],
     ports: {},
@@ -363,12 +369,12 @@ export function newGame(seed: number = Date.now() % 2 ** 31, world: World = getW
   };
   g.fleet.push({
     id: g.nextId++,
-    name: 'Tilly',
-    typeId: 'coaster',
-    location: RULES.startPort,
-    fuel: RULES.startFuel,
-    condition: RULES.startCondition,
-    age: RULES.startAge,
+    name: world.era.start.shipName,
+    typeId: world.era.start.shipType,
+    location: world.era.start.port,
+    fuel: world.era.start.fuel,
+    condition: world.era.start.condition,
+    age: world.era.start.age,
     cargo: [],
   });
   for (const p of world.portList) {
@@ -380,7 +386,7 @@ export function newGame(seed: number = Date.now() % 2 ** 31, world: World = getW
   }
   g.captains = [];
   fillCaptainPool(g);
-  log(g, `You take command of the ${g.fleet[0].name}, a tired old coaster, in ${world.ports[RULES.startPort].name}.`);
+  log(g, world.era.start.intro);
   return g;
 }
 
@@ -446,7 +452,7 @@ export function buyFuel(state: GameState, shipId: number, tons: number, world: W
   g.stats.fuelSpent += cost;
   book(g, world, 'fuel', cost);
   shipBook(ship, 'costs', cost, g.day);
-  log(g, `${ship.name}: bunkered ${amount} t of fuel at $${price}/t${g.cash < 0 ? ' (on credit)' : ''}.`, -cost);
+  log(g, `${ship.name}: ${getWorld().era.wind ? `took on ${amount} casks of victuals at` : `bunkered ${amount} t of fuel at`} ${cur()}${price}${getWorld().era.wind ? " each" : "/t"}${g.cash < 0 ? ' (on credit)' : ''}.`, -cost);
   coverShortfall(g, world);
   return g;
 }
@@ -472,7 +478,7 @@ export function repair(state: GameState, shipId: number, points: number, world: 
   shipBook(ship, 'costs', q.cost, g.day);
   ship.condition = Math.min(100, Math.floor(ship.condition) + q.points);
   ship.busyUntil = g.day + q.days;
-  log(g, `${ship.name}: into dry dock for +${q.points}% condition, ready in ${q.days} day(s).`, -q.cost);
+  log(g, `${ship.name}: ${getWorld().era.wind ? "careened" : "into dry dock"} for +${q.points}% condition, ready in ${q.days} day(s).`, -q.cost);
   checkEnd(g, world);
   return g;
 }
@@ -577,7 +583,7 @@ export function hireCaptain(state: GameState, candidateId: number): GameState {
   const [c] = pool.splice(i, 1);
   g.captains.push(c);
   fillCaptainPool(g);
-  log(g, `Hired Captain ${c.name} (${'★'.repeat(c.skill)}, from ${region(c.home).name}) at $${c.wage.toLocaleString('en-US')} a month.`);
+  log(g, `Hired Captain ${c.name} (${'★'.repeat(c.skill)}, from ${region(c.home).name}) at ${cur()}${c.wage.toLocaleString('en-US')} a month.`);
   return g;
 }
 
@@ -591,7 +597,7 @@ export function fireCaptain(state: GameState, captainId: number, world: World = 
   g.cash -= severance;
   book(g, world, 'wages', severance);
   g.captains = g.captains!.filter((x) => x.id !== captainId);
-  log(g, `Let Captain ${c.name} go, with $${severance.toLocaleString('en-US')} severance.${ship ? ` You take command of the ${ship.name}.` : ''}`, -severance);
+  log(g, `Let Captain ${c.name} go, with ${cur()}${severance.toLocaleString('en-US')} severance.${ship ? ` You take command of the ${ship.name}.` : ''}`, -severance);
   coverShortfall(g, world);
   return g;
 }
@@ -749,7 +755,7 @@ function legCost(g: GameState, ship: ShipState, from: string, to: string, world:
   const route = routeFor(world, g, from, to);
   if (!route) return null;
   const type = typeOf(ship, world);
-  const days = route.nm / (effectiveSpeed(type, ship) * 24);
+  const days = route.nm / (effectiveSpeed(type, ship) * routeWind(world, route.path, g.day) * 24);
   const fuel = Math.ceil(days * type.fuelPerDay * consumptionFactor(ship));
   const canal = route.canals.reduce((s, c) => s + Math.round(world.canals[c].fee * type.sizeFactor), 0);
   const strikeDays = strikeAt(g, to) ? ECONOMY.strike.extraDays : 0;
@@ -920,7 +926,7 @@ function loadForRoute(state: GameState, shipId: number, world: World): GameState
     if (stop === ship.location) break;
     const route = routeFor(world, g, from, stop);
     if (!route) break;
-    t += route.nm / speed;
+    t += route.nm / (speed * routeWind(world, route.path, t));
     if (!eta.has(stop)) eta.set(stop, t);
     t += RULES.portDays;
     from = stop;
@@ -967,7 +973,8 @@ export function planVoyage(g: GameState, shipId: number, dest: string, world: Wo
   const type = typeOf(ship, world);
   const strike = strikeAt(g, dest) !== undefined;
   const strikeDays = strike ? ECONOMY.strike.extraDays : 0;
-  const seaDays = route.nm / (effectiveSpeed(type, ship) * 24);
+  // Sailing ships go as fast as the season's winds along the route allow.
+  const seaDays = route.nm / (effectiveSpeed(type, ship) * routeWind(world, route.path, g.day) * 24);
   const fuelNeeded = Math.ceil(seaDays * type.fuelPerDay * consumptionFactor(ship));
   const arrive = g.day + seaDays;
   const deliveries = ship.cargo
@@ -1008,7 +1015,7 @@ function breakdownChance(ship: Pick<ShipState, 'condition' | 'age'>): number {
 /** Work out a voyage's course up front: storms, breakdowns, fuel, wear and timing. */
 function plotVoyage(world: World, g: GameState, ship: ShipState, dest: string, route: Route, canalFees: number): ActiveVoyage {
   const type = typeOf(ship, world);
-  const speed = effectiveSpeed(type, ship);
+  const speed = effectiveSpeed(type, ship) * routeWind(world, route.path, g.day);
   const departDay = g.day;
   const events: VoyageEvent[] = [];
   let remaining = route.nm;
@@ -1025,7 +1032,7 @@ function plotVoyage(world: World, g: GameState, ship: ShipState, dest: string, r
     if (rand(g) < breakdownChance({ condition, age: ship.age })) {
       const delay = Math.round(randRange(g, 0.5, 2) * 10) / 10;
       const cost = Math.round(randRange(g, 4000, 12000) * type.sizeFactor / 100) * 100;
-      event('breakdown', `Engine breakdown. Drifted ${delay} days while the crew made repairs.`, delay, cost);
+      event('breakdown', world.era.wind ? `Sprung a leak. Hove to for ${delay} days while the carpenter worked the pumps and patched her.` : `Engine breakdown. Drifted ${delay} days while the crew made repairs.`, delay, cost);
       eventCosts += cost;
       const idleFuel = delay * type.fuelPerDay * 0.25;
       fuel = Math.max(0, fuel - idleFuel);
@@ -1040,7 +1047,7 @@ function plotVoyage(world: World, g: GameState, ship: ShipState, dest: string, r
     if (storm) {
       const damage = randRange(g, 1, 3);
       condition = Math.max(0, condition - damage);
-      event('storm', `Heavy weather. Slow going, extra fuel burned, ${damage.toFixed(0)}% hull wear.`, 0, 0);
+      event('storm', world.era.wind ? `A gale. Reefed down and ran before it, ${damage.toFixed(0)}% damage to hull and rigging.` : `Heavy weather. Slow going, extra fuel burned, ${damage.toFixed(0)}% hull wear.`, 0, 0);
     }
     if (fuel < burn) {
       // Ran dry: call a bunker tender at a steep markup.
@@ -1049,7 +1056,7 @@ function plotVoyage(world: World, g: GameState, ship: ShipState, dest: string, r
       const price = Math.round(fuelPrice(g, dest, world) * RULES.emergencyFuelMarkup);
       const cost = tons * price;
       const delay = 1.5;
-      event('emergencyFuel', `Out of fuel! A bunker tender brought ${tons} t at $${price}/t after ${delay} days adrift.`, delay, cost);
+      event('emergencyFuel', `${getWorld().era.wind ? `Out of victuals! A passing ship sold ${tons} casks at` : `Out of fuel! A bunker tender brought ${tons} t at`} ${cur()}${price}${getWorld().era.wind ? " each" : "/t"} after ${delay} days adrift.`, delay, cost);
       eventCosts += cost;
       fuel += tons;
       t += delay;
@@ -1151,7 +1158,7 @@ function arrive(world: World, g: GameState, ship: ShipState): void {
   };
   if (onOrders(ship)) report.auto = true;
   // Under your command: you may take her in yourself instead of the pilot (until she sails).
-  if (ship.captainId === undefined) ship.docking = { port: dest, services, portFee: fee };
+  if (ship.captainId === undefined && services > 0) ship.docking = { port: dest, services, portFee: fee };
   else delete ship.docking;
   // For the fleet overview: the leg's result including the fuel it burned (at the price where it bunkered).
   const fuelCost = Math.round(v.fuelUsed * fuelPrice(g, v.from, world));
@@ -1170,7 +1177,7 @@ function arrive(world: World, g: GameState, ship: ShipState): void {
   }
   for (const note of marketNotes) log(g, note);
   log(g, `${ship.name} arrived in ${portName} after ${(v.arriveDay - v.departDay).toFixed(1)} days. Result for the leg: ${
-    report.net >= 0 ? '+' : '-'}$${Math.abs(report.net).toLocaleString('en-US')}.`);
+    report.net >= 0 ? '+' : '-'}${cur()}${Math.abs(report.net).toLocaleString('en-US')}.`);
 }
 
 /**
@@ -1213,7 +1220,7 @@ export function borrow(state: GameState, amount: number, world: World = getWorld
   if (amt <= 0) throw new ActionError('The bank won\'t lend more against your fleet.');
   g.loan += amt;
   g.cash += amt;
-  log(g, `Borrowed $${amt.toLocaleString('en-US')} from the bank.`, amt);
+  log(g, `Borrowed ${cur()}${amt.toLocaleString('en-US')} from the bank.`, amt);
   return g;
 }
 
@@ -1223,7 +1230,7 @@ export function repayLoan(state: GameState, amount: number): GameState {
   if (amt <= 0) throw new ActionError(g.loan <= 0 ? 'You have no loan.' : 'Not enough cash to repay.');
   g.loan -= amt;
   g.cash -= amt;
-  log(g, `Repaid $${amt.toLocaleString('en-US')} of the loan.`, -amt);
+  log(g, `Repaid ${cur()}${amt.toLocaleString('en-US')} of the loan.`, -amt);
   return g;
 }
 
@@ -1246,8 +1253,8 @@ export function buyShip(state: GameState, portId: string, offerId: number, world
     fuel: Math.round(q.type.bunkerCapacity * RULES.newShipFuel), condition: offer.condition, age: offer.age, cargo: [],
   });
   g.stats.shipsOwned++;
-  log(g, `Bought the ${q.type.name} ${name} (${offer.age === 0 ? 'new' : `${offer.age} years old`}) in ${world.ports[portId].name} for $${
-    offer.price.toLocaleString('en-US')}${q.borrow > 0 ? `, borrowing $${q.borrow.toLocaleString('en-US')}` : ''}.`, -offer.price);
+  log(g, `Bought the ${q.type.name} ${name} (${offer.age === 0 ? 'new' : `${offer.age} years old`}) in ${world.ports[portId].name} for ${cur()}${
+    offer.price.toLocaleString('en-US')}${q.borrow > 0 ? `, borrowing ${cur()}${q.borrow.toLocaleString('en-US')}` : ''}.`, -offer.price);
   checkEnd(g, world);
   return g;
 }
@@ -1277,8 +1284,8 @@ export function sellShip(state: GameState, shipId: number, world: World = getWor
   g.cash += q.price + q.fuelRefund - q.repay;
   g.loan -= q.repay;
   book(g, world, 'shipsSold', q.price);
-  log(g, `Sold the ${typeOf(ship, world).name} ${ship.name} for $${q.price.toLocaleString('en-US')}${
-    q.repay ? `, repaying $${q.repay.toLocaleString('en-US')} of the loan` : ''}.`, q.price);
+  log(g, `Sold the ${typeOf(ship, world).name} ${ship.name} for ${cur()}${q.price.toLocaleString('en-US')}${
+    q.repay ? `, repaying ${cur()}${q.repay.toLocaleString('en-US')} of the loan` : ''}.`, q.price);
   checkEnd(g, world);
   return g;
 }

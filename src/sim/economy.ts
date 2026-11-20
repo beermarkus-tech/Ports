@@ -24,7 +24,6 @@ export const ECONOMY = {
   boomBoost: 0.3,
 };
 
-const HARVEST_GOODS = ['grain', 'coffee', 'cocoa', 'fruit'];
 
 function newsLog(g: GameState, text: string): void {
   g.log.unshift({ day: g.day, text: `📰 ${text}` });
@@ -110,7 +109,7 @@ function startEvent(world: World, g: GameState): void {
   const taken = (pred: (e: WorldEvent) => boolean) => active.some(pred);
   const kinds: { kind: WorldEventKind; weight: number }[] = [
     { kind: 'strike', weight: 3 }, { kind: 'harvest', weight: 2 }, { kind: 'boom', weight: 2 },
-    { kind: 'canal', weight: 1 }, { kind: 'oilShock', weight: 1.5 },
+    { kind: 'canal', weight: Object.keys(world.canals).length ? 1 : 0 }, { kind: 'oilShock', weight: world.era.hasOil ? 1.5 : 0 },
   ];
   const { kind } = pickWeighted(g, kinds, (k) => k.weight);
   const day = Math.floor(g.day);
@@ -120,9 +119,10 @@ function startEvent(world: World, g: GameState): void {
   if (kind === 'strike') {
     const port = world.portList[randInt(g, 0, world.portList.length - 1)];
     if (taken((x) => x.port === port.id)) return;
-    e = { ...base, port: port.id, endDay: day + randInt(g, 15, 40), headline: `Dock strike in ${port.name}: calls there take ${ECONOMY.strike.extraDays} extra days and fees are doubled.` };
+    e = { ...base, port: port.id, endDay: day + randInt(g, 15, 40), headline: world.era.terms.strike(port.name, ECONOMY.strike.extraDays) };
   } else if (kind === 'harvest') {
-    const good = HARVEST_GOODS[randInt(g, 0, HARVEST_GOODS.length - 1)];
+    const harvest = world.era.harvestGoods;
+    const good = harvest[randInt(g, 0, harvest.length - 1)];
     if (taken((x) => x.good === good)) return;
     const name = world.goods[good].name.toLowerCase();
     e = { ...base, good, endDay: day + randInt(g, 40, 90), headline: `Harvest failure: ${name} is scarce and buyers everywhere pay much more for it.` };
@@ -178,7 +178,7 @@ function endEvents(world: World, g: GameState): void {
 /** Called once per game day by the clock. */
 export function economyDay(world: World, g: GameState, dayNumber: number): void {
   stepPrices(world, g);
-  stepOil(g, dayNumber);
+  if (world.era.hasOil) stepOil(g, dayNumber);
   endEvents(world, g);
   if (rand(g) < 1 / ECONOMY.eventEveryDays) startEvent(world, g);
 }

@@ -1,0 +1,110 @@
+[
+ {
+  "id": "jacht",
+  "name": "Jacht",
+  "description": "A small, quick Dutch yacht: coasting, scouting and urgent errands. Takes small lots anywhere.",
+  "capacity": 80,
+  "speedKn": 7,
+  "fuelPerDay": 1.5,
+  "bunkerCapacity": 300,
+  "dailyCost": 700,
+  "sizeFactor": 0.5,
+  "repairCostPerPoint": 1500,
+  "newPrice": 700000,
+  "cargoClasses": [
+   "bulk",
+   "general"
+  ],
+  "family": "sail"
+ },
+ {
+  "id": "fluyt",
+  "name": "Fluyt",
+  "description": "The Dutch workhorse: a big hold for a tiny crew, almost no guns. Cheap to run.",
+  "capacity": 300,
+  "speedKn": 6,
+  "fuelPerDay": 2,
+  "bunkerCapacity": 420,
+  "dailyCost": 1100,
+  "sizeFactor": 0.8,
+  "repairCostPerPoint": 2200,
+  "newPrice": 1700000,
+  "cargoClasses": [
+   "bulk",
+   "general"
+  ],
+  "family": "sail"
+ },
+ {
+  "id": "largefluyt",
+  "name": "Large fluyt",
+  "description": "A bigger fluyt for the Baltic and Mediterranean bulk trades.",
+  "capacity": 500,
+  "speedKn": 6,
+  "fuelPerDay": 3,
+  "bunkerCapacity": 630,
+  "dailyCost": 1600,
+  "sizeFactor": 1.0,
+  "repairCostPerPoint": 2800,
+  "newPrice": 2700000,
+  "cargoClasses": [
+   "bulk",
+   "general"
+  ],
+  "family": "sail"
+ },
+ {
+  "id": "pinas",
+  "name": "Pinnace",
+  "description": "An armed, quicker merchantman: at home where pirates and privateers sail.",
+  "capacity": 400,
+  "speedKn": 7,
+  "fuelPerDay": 6,
+  "bunkerCapacity": 1260,
+  "dailyCost": 2600,
+  "sizeFactor": 1.0,
+  "repairCostPerPoint": 3000,
+  "newPrice": 3200000,
+  "cargoClasses": [
+   "bulk",
+   "general"
+  ],
+  "family": "sail"
+ },
+ {
+  "id": "indiaman",
+  "name": "East Indiaman",
+  "description": "The long-haul trader: roomy, armed, built for voyages of two years.",
+  "capacity": 800,
+  "speedKn": 6.5,
+  "fuelPerDay": 12,
+  "bunkerCapacity": 2520,
+  "dailyCost": 4200,
+  "sizeFactor": 1.6,
+  "repairCostPerPoint": 4500,
+  "newPrice": 6200000,
+  "cargoClasses": [
+   "bulk",
+   "general"
+  ],
+  "family": "sail"
+ },
+ {
+  "id": "retourschip",
+  "name": "Retourschip",
+  "description": "The Company's great homeward-bound ship: holds full of spice, a small town of crew.",
+  "capacity": 1100,
+  "speedKn": 6.5,
+  "fuelPerDay": 18,
+  "bunkerCapacity": 3780,
+  "dailyCost": 6000,
+  "sizeFactor": 2.0,
+  "repairCostPerPoint": 6000,
+  "newPrice": 9800000,
+  "cargoClasses": [
+   "bulk",
+   "general"
+  ],
+  "family": "sail"
+ }
+]

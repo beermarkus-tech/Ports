@@ -1,0 +1,1531 @@
+[
+ {
+  "id": "amsterdam",
+  "name": "Amsterdam",
+  "country": "Dutch Republic",
+  "lat": 52.37,
+  "lon": 4.9,
+  "fuelPrice": 240,
+  "portFee": 2600,
+  "shipyard": true,
+  "produces": [
+   {
+    "good": "cloth",
+    "weight": 3
+   },
+   {
+    "good": "grain",
+    "weight": 2
+   },
+   {
+    "good": "timber",
+    "weight": 1
+   },
+   {
+    "good": "wine",
+    "weight": 1
+   }
+  ],
+  "demands": [
+   {
+    "good": "pepper",
+    "strength": 1.3
+   },
+   {
+    "good": "nutmeg",
+    "strength": 1.4
+   },
+   {
+    "good": "cloves",
+    "strength": 1.4
+   },
+   {
+    "good": "cinnamon",
+    "strength": 1.3
+   },
+   {
+    "good": "tea",
+    "strength": 1.1
+   },
+   {
+    "good": "silk",
+    "strength": 1.3
+   },
+   {
+    "good": "porcelain",
+    "strength": 1.3
+   },
+   {
+    "good": "textiles",
+    "strength": 1.2
+   },
+   {
+    "good": "sugar",
+    "strength": 1.2
+   },
+   {
+    "good": "tobacco",
+    "strength": 1.1
+   },
+   {
+    "good": "coffee",
+    "strength": 1.1
+   },
+   {
+    "good": "furs",
+    "strength": 1.1
+   },
+   {
+    "good": "indigo",
+    "strength": 1.2
+   },
+   {
+    "good": "saltpetre",
+    "strength": 1.1
+   },
+   {
+    "good": "cod",
+    "strength": 1.0
+   }
+  ]
+ },
+ {
+  "id": "london",
+  "name": "London",
+  "country": "England",
+  "lat": 51.5,
+  "lon": -0.1,
+  "fuelPrice": 250,
+  "portFee": 2700,
+  "label": "left",
+  "produces": [
+   {
+    "good": "cloth",
+    "weight": 3
+   },
+   {
+    "good": "grain",
+    "weight": 1
+   }
+  ],
+  "demands": [
+   {
+    "good": "pepper",
+    "strength": 1.2
+   },
+   {
+    "good": "textiles",
+    "strength": 1.3
+   },
+   {
+    "good": "tobacco",
+    "strength": 1.3
+   },
+   {
+    "good": "sugar",
+    "strength": 1.3
+   },
+   {
+    "good": "tea",
+    "strength": 1.1
+   },
+   {
+    "good": "coffee",
+    "strength": 1.2
+   },
+   {
+    "good": "indigo",
+    "strength": 1.1
+   },
+   {
+    "good": "saltpetre",
+    "strength": 1.2
+   }
+  ]
+ },
+ {
+  "id": "danzig",
+  "name": "Danzig",
+  "country": "Poland",
+  "lat": 54.35,
+  "lon": 18.65,
+  "fuelPrice": 200,
+  "portFee": 1800,
+  "produces": [
+   {
+    "good": "grain",
+    "weight": 3
+   },
+   {
+    "good": "timber",
+    "weight": 2
+   }
+  ],
+  "demands": [
+   {
+    "good": "salt",
+    "strength": 1.3
+   },
+   {
+    "good": "wine",
+    "strength": 1.2
+   },
+   {
+    "good": "cloth",
+    "strength": 1.1
+   },
+   {
+    "good": "pepper",
+    "strength": 1.1
+   },
+   {
+    "good": "sugar",
+    "strength": 1.1
+   }
+  ]
+ },
+ {
+  "id": "bergen",
+  "name": "Bergen",
+  "country": "Norway",
+  "lat": 60.39,
+  "lon": 5.32,
+  "fuelPrice": 220,
+  "portFee": 1600,
+  "produces": [
+   {
+    "good": "cod",
+    "weight": 3
+   },
+   {
+    "good": "timber",
+    "weight": 1
+   }
+  ],
+  "demands": [
+   {
+    "good": "grain",
+    "strength": 1.3
+   },
+   {
+    "good": "salt",
+    "strength": 1.2
+   },
+   {
+    "good": "cloth",
+    "strength": 1.1
+   },
+   {
+    "good": "wine",
+    "strength": 1.1
+   }
+  ]
+ },
+ {
+  "id": "lisbon",
+  "name": "Lisbon",
+  "country": "Portugal",
+  "lat": 38.7,
+  "lon": -9.14,
+  "fuelPrice": 230,
+  "portFee": 2400,
+  "label": "left",
+  "produces": [
+   {
+    "good": "salt",
+    "weight": 3
+   },
+   {
+    "good": "wine",
+    "weight": 2
+   }
+  ],
+  "demands": [
+   {
+    "good": "grain",
+    "strength": 1.3
+   },
+   {
+    "good": "cloth",
+    "strength": 1.2
+   },
+   {
+    "good": "cinnamon",
+    "strength": 1.2
+   },
+   {
+    "good": "pepper",
+    "strength": 1.2
+   },
+   {
+    "good": "cod",
+    "strength": 1.2
+   },
+   {
+    "good": "timber",
+    "strength": 1.1
+   }
+  ]
+ },
+ {
+  "id": "cadiz",
+  "name": "Cádiz",
+  "country": "Spain",
+  "lat": 36.53,
+  "lon": -6.29,
+  "fuelPrice": 230,
+  "portFee": 2400,
+  "label": "below",
+  "produces": [
+   {
+    "good": "wine",
+    "weight": 3
+   },
+   {
+    "good": "salt",
+    "weight": 1
+   },
+   {
+    "good": "silver",
+    "weight": 1
+   }
+  ],
+  "demands": [
+   {
+    "good": "cloth",
+    "strength": 1.3
+   },
+   {
+    "good": "grain",
+    "strength": 1.2
+   },
+   {
+    "good": "textiles",
+    "strength": 1.1
+   },
+   {
+    "good": "cod",
+    "strength": 1.2
+   },
+   {
+    "good": "timber",
+    "strength": 1.1
+   }
+  ]
+ },
+ {
+  "id": "venice",
+  "name": "Venice",
+  "country": "Republic of Venice",
+  "lat": 45.43,
+  "lon": 12.33,
+  "fuelPrice": 240,
+  "portFee": 2500,
+  "produces": [
+   {
+    "good": "wine",
+    "weight": 2
+   },
+   {
+    "good": "cloth",
+    "weight": 1
+   }
+  ],
+  "demands": [
+   {
+    "good": "pepper",
+    "strength": 1.3
+   },
+   {
+    "good": "cinnamon",
+    "strength": 1.2
+   },
+   {
+    "good": "coffee",
+    "strength": 1.2
+   },
+   {
+    "good": "textiles",
+    "strength": 1.1
+   },
+   {
+    "good": "silk",
+    "strength": 1.1
+   }
+  ]
+ },
+ {
+  "id": "elmina",
+  "name": "Elmina",
+  "country": "Gold Coast",
+  "lat": 5.08,
+  "lon": -1.35,
+  "fuelPrice": 270,
+  "portFee": 1800,
+  "produces": [
+   {
+    "good": "gold",
+    "weight": 2
+   },
+   {
+    "good": "ivory",
+    "weight": 2
+   }
+  ],
+  "demands": [
+   {
+    "good": "cloth",
+    "strength": 1.3
+   },
+   {
+    "good": "textiles",
+    "strength": 1.3
+   },
+   {
+    "good": "wine",
+    "strength": 1.1
+   },
+   {
+    "good": "copper",
+    "strength": 1.2
+   }
+  ]
+ },
+ {
+  "id": "cape",
+  "name": "The Cape",
+  "country": "Cape of Good Hope",
+  "lat": -33.92,
+  "lon": 18.42,
+  "fuelPrice": 140,
+  "portFee": 1200,
+  "produces": [
+   {
+    "good": "grain",
+    "weight": 1
+   }
+  ],
+  "demands": [
+   {
+    "good": "cloth",
+    "strength": 1.1
+   },
+   {
+    "good": "rice",
+    "strength": 1.2
+   },
+   {
+    "good": "textiles",
+    "strength": 1.1
+   },
+   {
+    "good": "wine",
+    "strength": 1.1
+   },
+   {
+    "good": "timber",
+    "strength": 1.2
+   }
+  ]
+ },
+ {
+  "id": "mozambique",
+  "name": "Mozambique",
+  "country": "Portuguese East Africa",
+  "lat": -15.03,
+  "lon": 40.7,
+  "fuelPrice": 260,
+  "portFee": 1800,
+  "produces": [
+   {
+    "good": "ivory",
+    "weight": 2
+   },
+   {
+    "good": "gold",
+    "weight": 1
+   }
+  ],
+  "demands": [
+   {
+    "good": "textiles",
+    "strength": 1.3
+   },
+   {
+    "good": "cloth",
+    "strength": 1.1
+   },
+   {
+    "good": "rice",
+    "strength": 1.1
+   }
+  ]
+ },
+ {
+  "id": "zanzibar",
+  "name": "Zanzibar",
+  "country": "Swahili Coast",
+  "lat": -6.16,
+  "lon": 39.2,
+  "fuelPrice": 240,
+  "portFee": 1600,
+  "produces": [
+   {
+    "good": "ivory",
+    "weight": 2
+   }
+  ],
+  "demands": [
+   {
+    "good": "textiles",
+    "strength": 1.3
+   },
+   {
+    "good": "rice",
+    "strength": 1.2
+   },
+   {
+    "good": "porcelain",
+    "strength": 1.1
+   }
+  ]
+ },
+ {
+  "id": "mocha",
+  "name": "Mocha",
+  "country": "Yemen",
+  "lat": 13.32,
+  "lon": 43.25,
+  "fuelPrice": 260,
+  "portFee": 2000,
+  "produces": [
+   {
+    "good": "coffee",
+    "weight": 3
+   }
+  ],
+  "demands": [
+   {
+    "good": "textiles",
+    "strength": 1.3
+   },
+   {
+    "good": "rice",
+    "strength": 1.2
+   },
+   {
+    "good": "pepper",
+    "strength": 1.2
+   },
+   {
+    "good": "silver",
+    "strength": 1.3
+   },
+   {
+    "good": "cloves",
+    "strength": 1.1
+   }
+  ]
+ },
+ {
+  "id": "bandarabbas",
+  "name": "Bandar Abbas",
+  "country": "Persia",
+  "lat": 27.18,
+  "lon": 56.27,
+  "fuelPrice": 250,
+  "portFee": 2100,
+  "label": "left",
+  "produces": [
+   {
+    "good": "silk",
+    "weight": 2
+   }
+  ],
+  "demands": [
+   {
+    "good": "pepper",
+    "strength": 1.3
+   },
+   {
+    "good": "sugar",
+    "strength": 1.2
+   },
+   {
+    "good": "textiles",
+    "strength": 1.1
+   },
+   {
+    "good": "silver",
+    "strength": 1.3
+   },
+   {
+    "good": "copper",
+    "strength": 1.1
+   },
+   {
+    "good": "cloves",
+    "strength": 1.2
+   }
+  ]
+ },
+ {
+  "id": "surat",
+  "name": "Surat",
+  "country": "Mughal India",
+  "lat": 21.17,
+  "lon": 72.83,
+  "fuelPrice": 200,
+  "portFee": 2300,
+  "produces": [
+   {
+    "good": "textiles",
+    "weight": 3
+   },
+   {
+    "good": "indigo",
+    "weight": 2
+   },
+   {
+    "good": "saltpetre",
+    "weight": 1
+   }
+  ],
+  "demands": [
+   {
+    "good": "silver",
+    "strength": 1.4
+   },
+   {
+    "good": "copper",
+    "strength": 1.2
+   },
+   {
+    "good": "cloves",
+    "strength": 1.2
+   },
+   {
+    "good": "cloth",
+    "strength": 1.1
+   },
+   {
+    "good": "nutmeg",
+    "strength": 1.1
+   }
+  ]
+ },
+ {
+  "id": "goa",
+  "name": "Goa",
+  "country": "Portuguese India",
+  "lat": 15.5,
+  "lon": 73.8,
+  "fuelPrice": 210,
+  "portFee": 2100,
+  "label": "left",
+  "produces": [
+   {
+    "good": "pepper",
+    "weight": 2
+   },
+   {
+    "good": "textiles",
+    "weight": 1
+   }
+  ],
+  "demands": [
+   {
+    "good": "silver",
+    "strength": 1.3
+   },
+   {
+    "good": "wine",
+    "strength": 1.2
+   },
+   {
+    "good": "copper",
+    "strength": 1.1
+   }
+  ]
+ },
+ {
+  "id": "calicut",
+  "name": "Calicut",
+  "country": "Malabar Coast",
+  "lat": 11.25,
+  "lon": 75.78,
+  "fuelPrice": 190,
+  "portFee": 1900,
+  "label": "left",
+  "produces": [
+   {
+    "good": "pepper",
+    "weight": 3
+   }
+  ],
+  "demands": [
+   {
+    "good": "silver",
+    "strength": 1.3
+   },
+   {
+    "good": "copper",
+    "strength": 1.2
+   },
+   {
+    "good": "rice",
+    "strength": 1.1
+   }
+  ]
+ },
+ {
+  "id": "galle",
+  "name": "Galle",
+  "country": "Ceylon",
+  "lat": 6.03,
+  "lon": 80.22,
+  "fuelPrice": 200,
+  "portFee": 1900,
+  "produces": [
+   {
+    "good": "cinnamon",
+    "weight": 3
+   },
+   {
+    "good": "ivory",
+    "weight": 1
+   }
+  ],
+  "demands": [
+   {
+    "good": "rice",
+    "strength": 1.3
+   },
+   {
+    "good": "textiles",
+    "strength": 1.2
+   },
+   {
+    "good": "copper",
+    "strength": 1.1
+   }
+  ]
+ },
+ {
+  "id": "madras",
+  "name": "Madras",
+  "country": "Coromandel Coast",
+  "lat": 13.08,
+  "lon": 80.27,
+  "fuelPrice": 200,
+  "portFee": 2000,
+  "produces": [
+   {
+    "good": "textiles",
+    "weight": 3
+   },
+   {
+    "good": "saltpetre",
+    "weight": 1
+   },
+   {
+    "good": "indigo",
+    "weight": 1
+   }
+  ],
+  "demands": [
+   {
+    "good": "silver",
+    "strength": 1.3
+   },
+   {
+    "good": "nutmeg",
+    "strength": 1.1
+   },
+   {
+    "good": "copper",
+    "strength": 1.2
+   },
+   {
+    "good": "cloves",
+    "strength": 1.1
+   }
+  ]
+ },
+ {
+  "id": "malacca",
+  "name": "Malacca",
+  "country": "Malay Peninsula",
+  "lat": 2.2,
+  "lon": 102.25,
+  "fuelPrice": 200,
+  "portFee": 2000,
+  "label": "left",
+  "produces": [
+   {
+    "good": "tin",
+    "weight": 2
+   },
+   {
+    "good": "pepper",
+    "weight": 1
+   }
+  ],
+  "demands": [
+   {
+    "good": "textiles",
+    "strength": 1.3
+   },
+   {
+    "good": "rice",
+    "strength": 1.1
+   },
+   {
+    "good": "porcelain",
+    "strength": 1.1
+   }
+  ]
+ },
+ {
+  "id": "bantam",
+  "name": "Bantam",
+  "country": "Java",
+  "lat": -6.03,
+  "lon": 106.15,
+  "fuelPrice": 190,
+  "portFee": 1900,
+  "label": "left",
+  "produces": [
+   {
+    "good": "pepper",
+    "weight": 3
+   }
+  ],
+  "demands": [
+   {
+    "good": "textiles",
+    "strength": 1.3
+   },
+   {
+    "good": "silver",
+    "strength": 1.2
+   },
+   {
+    "good": "porcelain",
+    "strength": 1.2
+   },
+   {
+    "good": "copper",
+    "strength": 1.1
+   }
+  ]
+ },
+ {
+  "id": "batavia",
+  "name": "Batavia",
+  "country": "VOC, Java",
+  "lat": -6.13,
+  "lon": 106.8,
+  "fuelPrice": 190,
+  "portFee": 2400,
+  "shipyard": true,
+  "label": "below",
+  "produces": [
+   {
+    "good": "sugar",
+    "weight": 2
+   },
+   {
+    "good": "pepper",
+    "weight": 1
+   },
+   {
+    "good": "rice",
+    "weight": 2
+   }
+  ],
+  "demands": [
+   {
+    "good": "textiles",
+    "strength": 1.3
+   },
+   {
+    "good": "silver",
+    "strength": 1.3
+   },
+   {
+    "good": "cloth",
+    "strength": 1.1
+   },
+   {
+    "good": "tea",
+    "strength": 1.1
+   },
+   {
+    "good": "porcelain",
+    "strength": 1.1
+   },
+   {
+    "good": "wine",
+    "strength": 1.2
+   }
+  ]
+ },
+ {
+  "id": "banda",
+  "name": "Banda",
+  "country": "Spice Islands",
+  "lat": -4.52,
+  "lon": 129.9,
+  "fuelPrice": 230,
+  "portFee": 1800,
+  "produces": [
+   {
+    "good": "nutmeg",
+    "weight": 4
+   },
+   {
+    "good": "cloves",
+    "weight": 2
+   }
+  ],
+  "demands": [
+   {
+    "good": "rice",
+    "strength": 1.4
+   },
+   {
+    "good": "textiles",
+    "strength": 1.3
+   }
+  ]
+ },
+ {
+  "id": "ayutthaya",
+  "name": "Ayutthaya",
+  "country": "Siam",
+  "lat": 14.35,
+  "lon": 100.57,
+  "fuelPrice": 180,
+  "portFee": 1800,
+  "label": "left",
+  "produces": [
+   {
+    "good": "rice",
+    "weight": 2
+   },
+   {
+    "good": "tin",
+    "weight": 1
+   },
+   {
+    "good": "furs",
+    "weight": 1
+   }
+  ],
+  "demands": [
+   {
+    "good": "textiles",
+    "strength": 1.2
+   },
+   {
+    "good": "silver",
+    "strength": 1.2
+   },
+   {
+    "good": "copper",
+    "strength": 1.1
+   }
+  ]
+ },
+ {
+  "id": "hoian",
+  "name": "Hoi An",
+  "country": "Đại Việt",
+  "lat": 15.88,
+  "lon": 108.33,
+  "fuelPrice": 190,
+  "portFee": 1800,
+  "label": "below",
+  "produces": [
+   {
+    "good": "silk",
+    "weight": 2
+   },
+   {
+    "good": "sugar",
+    "weight": 1
+   }
+  ],
+  "demands": [
+   {
+    "good": "silver",
+    "strength": 1.3
+   },
+   {
+    "good": "copper",
+    "strength": 1.2
+   },
+   {
+    "good": "textiles",
+    "strength": 1.1
+   }
+  ]
+ },
+ {
+  "id": "manila",
+  "name": "Manila",
+  "country": "Spanish Philippines",
+  "lat": 14.6,
+  "lon": 120.98,
+  "fuelPrice": 210,
+  "portFee": 2100,
+  "produces": [
+   {
+    "good": "silver",
+    "weight": 3
+   },
+   {
+    "good": "sugar",
+    "weight": 1
+   }
+  ],
+  "demands": [
+   {
+    "good": "silk",
+    "strength": 1.4
+   },
+   {
+    "good": "porcelain",
+    "strength": 1.3
+   },
+   {
+    "good": "textiles",
+    "strength": 1.1
+   }
+  ]
+ },
+ {
+  "id": "macau",
+  "name": "Macau",
+  "country": "Portuguese China",
+  "lat": 22.2,
+  "lon": 113.54,
+  "fuelPrice": 210,
+  "portFee": 2200,
+  "label": "below",
+  "produces": [
+   {
+    "good": "silk",
+    "weight": 2
+   },
+   {
+    "good": "porcelain",
+    "weight": 1
+   }
+  ],
+  "demands": [
+   {
+    "good": "silver",
+    "strength": 1.4
+   },
+   {
+    "good": "pepper",
+    "strength": 1.2
+   }
+  ]
+ },
+ {
+  "id": "canton",
+  "name": "Canton",
+  "country": "Ming China",
+  "lat": 23.13,
+  "lon": 113.26,
+  "fuelPrice": 200,
+  "portFee": 2400,
+  "label": "left",
+  "produces": [
+   {
+    "good": "silk",
+    "weight": 2
+   },
+   {
+    "good": "porcelain",
+    "weight": 2
+   },
+   {
+    "good": "tea",
+    "weight": 2
+   }
+  ],
+  "demands": [
+   {
+    "good": "silver",
+    "strength": 1.5
+   },
+   {
+    "good": "pepper",
+    "strength": 1.2
+   },
+   {
+    "good": "textiles",
+    "strength": 1.1
+   }
+  ]
+ },
+ {
+  "id": "amoy",
+  "name": "Amoy",
+  "country": "Fujian, China",
+  "lat": 24.48,
+  "lon": 118.08,
+  "fuelPrice": 200,
+  "portFee": 2200,
+  "label": "above",
+  "produces": [
+   {
+    "good": "porcelain",
+    "weight": 2
+   },
+   {
+    "good": "silk",
+    "weight": 2
+   },
+   {
+    "good": "tea",
+    "weight": 2
+   },
+   {
+    "good": "sugar",
+    "weight": 1
+   }
+  ],
+  "demands": [
+   {
+    "good": "silver",
+    "strength": 1.4
+   },
+   {
+    "good": "pepper",
+    "strength": 1.3
+   },
+   {
+    "good": "cloves",
+    "strength": 1.2
+   },
+   {
+    "good": "rice",
+    "strength": 1.1
+   }
+  ]
+ },
+ {
+  "id": "zeelandia",
+  "name": "Zeelandia",
+  "country": "VOC, Formosa",
+  "lat": 23.0,
+  "lon": 120.16,
+  "fuelPrice": 210,
+  "portFee": 2000,
+  "produces": [
+   {
+    "good": "sugar",
+    "weight": 2
+   },
+   {
+    "good": "furs",
+    "weight": 2
+   }
+  ],
+  "demands": [
+   {
+    "good": "textiles",
+    "strength": 1.1
+   },
+   {
+    "good": "silver",
+    "strength": 1.2
+   },
+   {
+    "good": "pepper",
+    "strength": 1.2
+   }
+  ]
+ },
+ {
+  "id": "dejima",
+  "name": "Dejima",
+  "country": "Nagasaki, Japan",
+  "lat": 32.75,
+  "lon": 129.87,
+  "fuelPrice": 240,
+  "portFee": 2600,
+  "produces": [
+   {
+    "good": "copper",
+    "weight": 3
+   },
+   {
+    "good": "silver",
+    "weight": 2
+   }
+  ],
+  "demands": [
+   {
+    "good": "silk",
+    "strength": 1.5
+   },
+   {
+    "good": "furs",
+    "strength": 1.3
+   },
+   {
+    "good": "sugar",
+    "strength": 1.3
+   },
+   {
+    "good": "textiles",
+    "strength": 1.2
+   }
+  ]
+ },
+ {
+  "id": "havana",
+  "name": "Havana",
+  "country": "Spanish Cuba",
+  "lat": 23.13,
+  "lon": -82.38,
+  "fuelPrice": 230,
+  "portFee": 2200,
+  "label": "left",
+  "produces": [
+   {
+    "good": "sugar",
+    "weight": 2
+   },
+   {
+    "good": "tobacco",
+    "weight": 2
+   }
+  ],
+  "demands": [
+   {
+    "good": "cloth",
+    "strength": 1.2
+   },
+   {
+    "good": "wine",
+    "strength": 1.2
+   },
+   {
+    "good": "grain",
+    "strength": 1.1
+   }
+  ]
+ },
+ {
+  "id": "cartagena",
+  "name": "Cartagena",
+  "country": "Spanish Main",
+  "lat": 10.4,
+  "lon": -75.55,
+  "fuelPrice": 240,
+  "portFee": 2200,
+  "label": "below",
+  "produces": [
+   {
+    "good": "silver",
+    "weight": 2
+   },
+   {
+    "good": "gold",
+    "weight": 1
+   }
+  ],
+  "demands": [
+   {
+    "good": "cloth",
+    "strength": 1.3
+   },
+   {
+    "good": "wine",
+    "strength": 1.3
+   },
+   {
+    "good": "textiles",
+    "strength": 1.1
+   }
+  ]
+ },
+ {
+  "id": "veracruz",
+  "name": "Veracruz",
+  "country": "New Spain",
+  "lat": 19.2,
+  "lon": -96.13,
+  "fuelPrice": 240,
+  "portFee": 2300,
+  "label": "left",
+  "produces": [
+   {
+    "good": "silver",
+    "weight": 3
+   },
+   {
+    "good": "indigo",
+    "weight": 1
+   }
+  ],
+  "demands": [
+   {
+    "good": "cloth",
+    "strength": 1.3
+   },
+   {
+    "good": "wine",
+    "strength": 1.2
+   },
+   {
+    "good": "textiles",
+    "strength": 1.2
+   }
+  ]
+ },
+ {
+  "id": "portobelo",
+  "name": "Portobelo",
+  "country": "Isthmus of Panama",
+  "lat": 9.55,
+  "lon": -79.65,
+  "fuelPrice": 240,
+  "portFee": 2100,
+  "label": "left",
+  "produces": [
+   {
+    "good": "silver",
+    "weight": 2
+   }
+  ],
+  "demands": [
+   {
+    "good": "cloth",
+    "strength": 1.3
+   },
+   {
+    "good": "wine",
+    "strength": 1.2
+   }
+  ]
+ },
+ {
+  "id": "barbados",
+  "name": "Barbados",
+  "country": "English Caribbean",
+  "lat": 13.1,
+  "lon": -59.6,
+  "fuelPrice": 230,
+  "portFee": 1800,
+  "produces": [
+   {
+    "good": "sugar",
+    "weight": 3
+   }
+  ],
+  "demands": [
+   {
+    "good": "grain",
+    "strength": 1.2
+   },
+   {
+    "good": "cloth",
+    "strength": 1.1
+   },
+   {
+    "good": "cod",
+    "strength": 1.2
+   },
+   {
+    "good": "timber",
+    "strength": 1.1
+   }
+  ]
+ },
+ {
+  "id": "bahia",
+  "name": "Bahia",
+  "country": "Portuguese Brazil",
+  "lat": -12.97,
+  "lon": -38.5,
+  "fuelPrice": 220,
+  "portFee": 2000,
+  "produces": [
+   {
+    "good": "sugar",
+    "weight": 3
+   },
+   {
+    "good": "tobacco",
+    "weight": 1
+   }
+  ],
+  "demands": [
+   {
+    "good": "cloth",
+    "strength": 1.2
+   },
+   {
+    "good": "wine",
+    "strength": 1.2
+   },
+   {
+    "good": "grain",
+    "strength": 1.1
+   }
+  ]
+ },
+ {
+  "id": "recife",
+  "name": "Recife",
+  "country": "Dutch Brazil",
+  "lat": -8.05,
+  "lon": -34.88,
+  "fuelPrice": 220,
+  "portFee": 1900,
+  "produces": [
+   {
+    "good": "sugar",
+    "weight": 3
+   },
+   {
+    "good": "timber",
+    "weight": 1
+   }
+  ],
+  "demands": [
+   {
+    "good": "cloth",
+    "strength": 1.2
+   },
+   {
+    "good": "grain",
+    "strength": 1.2
+   },
+   {
+    "good": "wine",
+    "strength": 1.1
+   }
+  ]
+ },
+ {
+  "id": "jamestown",
+  "name": "Jamestown",
+  "country": "Virginia",
+  "lat": 37.21,
+  "lon": -76.78,
+  "fuelPrice": 230,
+  "portFee": 1700,
+  "label": "left",
+  "produces": [
+   {
+    "good": "tobacco",
+    "weight": 3
+   },
+   {
+    "good": "timber",
+    "weight": 1
+   }
+  ],
+  "demands": [
+   {
+    "good": "cloth",
+    "strength": 1.3
+   },
+   {
+    "good": "wine",
+    "strength": 1.1
+   },
+   {
+    "good": "salt",
+    "strength": 1.1
+   }
+  ]
+ },
+ {
+  "id": "newamsterdam",
+  "name": "New Amsterdam",
+  "country": "New Netherland",
+  "lat": 40.7,
+  "lon": -74.01,
+  "fuelPrice": 230,
+  "portFee": 1800,
+  "produces": [
+   {
+    "good": "furs",
+    "weight": 3
+   },
+   {
+    "good": "timber",
+    "weight": 1
+   },
+   {
+    "good": "grain",
+    "weight": 1
+   }
+  ],
+  "demands": [
+   {
+    "good": "cloth",
+    "strength": 1.3
+   },
+   {
+    "good": "wine",
+    "strength": 1.1
+   },
+   {
+    "good": "salt",
+    "strength": 1.1
+   }
+  ]
+ },
+ {
+  "id": "boston",
+  "name": "Boston",
+  "country": "New England",
+  "lat": 42.36,
+  "lon": -71.06,
+  "fuelPrice": 230,
+  "portFee": 1700,
+  "produces": [
+   {
+    "good": "cod",
+    "weight": 2
+   },
+   {
+    "good": "timber",
+    "weight": 2
+   },
+   {
+    "good": "furs",
+    "weight": 1
+   }
+  ],
+  "demands": [
+   {
+    "good": "cloth",
+    "strength": 1.2
+   },
+   {
+    "good": "sugar",
+    "strength": 1.2
+   },
+   {
+    "good": "wine",
+    "strength": 1.1
+   },
+   {
+    "good": "salt",
+    "strength": 1.2
+   }
+  ]
+ }
+]
