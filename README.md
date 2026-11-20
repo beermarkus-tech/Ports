@@ -76,8 +76,13 @@ on 1 January 1650, and the chart is drawn on parchment.
   of the Indian Ocean and the South China Sea turns with the seasons, so when you
   sail matters as much as where.
 - **Victuals** instead of fuel, counted in casks; **careening** instead of dry dock.
-  Plague quarantines replace dock strikes; there is no oil market, no port view
-  and no pilots or tugs.
+  Plague quarantines replace dock strikes; there is no oil market and no pilots
+  or tugs.
+- **Harbour view**: the ship at a wooden quay with a treadwheel crane, in front
+  of a town that fits the region (Dutch gables and a windmill, a Spanish colonial
+  church, a fort among palms, a pagoda), sails furled, the hold cut open.
+  Careening shows her hauled out on the beach, propped on shores, with fires
+  under the hull.
 - **Six period ships**: jacht, fluyt, large fluyt, pinas, East Indiaman and
   retourschip. Shipyards at Amsterdam and Batavia.
 
@@ -238,7 +243,7 @@ src/sim/         Pure simulation, no DOM (deterministic: seeded RNG stored in th
   economy.ts     Port price levels, oil market, world events (ECONOMY)
   bot.ts         Greedy and casual captains used for balancing (and a seed for automation later)
   save.ts        localStorage save/load, with upgrades for older saves
-src/ui/          Rendering: d3-geo world map (map.ts), ship art (art.ts), goods icons (goods-icons.ts), port view (port-scene.ts), sound (sound.ts), music (music.ts), panels, styles
+src/ui/          Rendering: d3-geo world map (map.ts), ship art (art.ts), goods icons (goods-icons.ts), port view (port-scene.ts, port-scene-sail.ts), sound (sound.ts), music (music.ts), panels, styles
 scripts/         balance.ts, compare.sh, progression.ts, ships.ts, economy.ts, tune-ships.py
 tests/           vitest
 ```

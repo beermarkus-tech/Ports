@@ -64,7 +64,7 @@ export const ERAS: Record<EraId, EraConfig> = {
     id: 'sail', name: 'Age of Sail', startYear: 1650, currency: 'ƒ',
     start: { port: 'amsterdam', shipType: 'jacht', shipName: 'Duifje', cash: 150_000, fuel: 220, condition: 80, age: 12,
       intro: 'You take command of the Duifje, a weathered little jacht, at Amsterdam. The Indies await.' },
-    hasOil: false, harbourServices: false, portView: false, wind: true,
+    hasOil: false, harbourServices: false, portView: true, wind: true,
     referenceSpeedKn: 4, payFactor: 2, smallLot: 80,
     harvestGoods: ['pepper', 'nutmeg', 'sugar', 'grain', 'tea', 'silk', 'rice', 'coffee'],
     trade: true,

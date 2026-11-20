@@ -6,6 +6,7 @@ import type { CargoClass } from '../sim/types';
 import type { World } from '../sim/world';
 import type { ShipFamily } from './art';
 import { MiniMap, type MiniRoutes } from './minimap';
+import { drawSailScene } from './port-scene-sail';
 
 export type TimeOfDay = 'day' | 'dusk' | 'night';
 type Region = 'europe' | 'med' | 'desert' | 'tropic' | 'city' | 'mountain';
@@ -195,6 +196,14 @@ export class PortScene {
     const c = this.ctx;
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
 
+    // The Age of Sail has its own harbour (wooden quay, sailing ships, careening on the beach).
+    if (input.ship.family === 'sail') {
+      const drawn = drawSailScene(c, input, w, h, this.zoomed);
+      this.renderSailHud(input, drawn);
+      (this.el.querySelector('[data-ps=zoom]') as HTMLElement).textContent = this.zoomed ? 'Whole quay' : 'Zoom';
+      return;
+    }
+
     const { ship, time: t } = input;
     const dims = dimsFor(ship);
     const dock = input.place === 'dock';
@@ -267,6 +276,22 @@ export class PortScene {
     const tons = s.cargo.reduce((a, l) => a + l.tons, 0) + s.fuel;
     const dw = Math.max(0, Math.min(1, tons / (s.capacity + s.bunkerCapacity)));
     return d.d0 + (d.d1 - d.d0) * dw;
+  }
+
+  private renderSailHud(input: SceneInput, d: { L: number; draft: number | null; d1: number }): void {
+    const s = input.ship;
+    const cargo = s.cargo.reduce((a, l) => a + l.tons, 0);
+    const share = s.fuel / s.bunkerCapacity;
+    const chip = (text: string, cls = '') => `<span class="${cls}">${text}</span>`;
+    const days = Math.max(1, Math.ceil(input.dockDays ?? 1));
+    this.hud.innerHTML = [
+      chip(`<strong>${esc(s.name)}</strong> · ${input.place === 'dock' ? 'careening' : 'at the quay'}, ${esc(input.portName)}`),
+      chip(`${d.L} m`, 'opt'),
+      d.draft !== null ? chip(`Draft ${d.draft.toFixed(1)} of ${d.d1} m`) : chip(`Afloat again in ${days} day${days === 1 ? '' : 's'}`),
+      chip(`Hold ${cargo.toLocaleString('en-US')} / ${s.capacity.toLocaleString('en-US')} t`),
+      chip(`Victuals ${Math.round(s.fuel)} / ${s.bunkerCapacity} casks`, share < 0.15 ? 'bad' : share < 0.3 ? 'warn' : ''),
+      chip(`Condition ${Math.round(s.condition)}%`, s.condition < 45 ? 'bad' : s.condition < 65 ? 'warn' : ''),
+    ].join('');
   }
 
   private renderHud(input: SceneInput, d: Dims): void {
