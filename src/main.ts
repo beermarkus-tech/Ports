@@ -1,9 +1,10 @@
 import './ui/style.css';
 import { activeEvents, closedCanals, priceLevel, routeFor } from './sim/economy';
 import { CHART_TUNING, chartOffers, fogFor, isCharted, unchartedShare } from './sim/charts';
+import { bestKnownMarkets, buyPrice, goodsBuyQuote, goodsSaleQuote, hasTrade, priceNews, type PriceNews } from './sim/trade';
 import {
   ActionError, LAID_UP, RULES, acceptContract, advance, atSea, borrow, buyFuel, buyShip, canCarry, cargoTons, clearOrders,
-  assignCaptain, buyChart, captainOf, fireCaptain, hireCaptain, monthOf, monthProfit, onOrders, resumeOrders,
+  assignCaptain, buyChart, buyGoods, sellGoods, captainOf, fireCaptain, hireCaptain, monthOf, monthProfit, onOrders, resumeOrders,
   dailyUpkeep, daysUntilNextShip, fuelPrice, getShip, inDryDock, isReady, isWaiting, needsDecision, newGame,
   dockByHand, nextMilestone, planVoyage, portFee, repair, repairQuote, repayLoan, sail, saleQuote, sellShip,
   shipsNeedingDecision, takeReport, typeOf, unloadContract, voyageProgress, waitInPort, type VoyagePlan,
@@ -494,6 +495,12 @@ class App {
         this.render();
         return;
       }
+      case 'buy-goods':
+        this.act((g) => buyGoods(g, this.activeId, data.good!, data.tons === 'max' ? Infinity : Number(data.tons)));
+        break;
+      case 'sell-goods':
+        this.act((g) => sellGoods(g, this.activeId, data.good!));
+        break;
       case 'buy-chart':
         if (this.act((g) => buyChart(g, data.id!))) this.toast('The chart is yours: new waters open on the map.', 'good');
         break;
@@ -1225,6 +1232,7 @@ class App {
         <thead><tr><th></th><th>${cur ? `${name(cur.m)} so far` : 'This month'}</th><th>${last ? name(last.m) : 'Last month'}</th></tr></thead>
         <tbody>
           ${row('Revenue', (b) => b.revenue, 1)}
+          ${hasTrade(world) ? row('Trade on own account', (b) => b.trade ?? 0, 1) : ''}
           ${row(FUEL(), (b) => b.fuel, -1)}
           ${row('Port fees & canals', (b) => b.fees, -1)}
           ${row('Upkeep', (b) => b.upkeep, -1)}
@@ -1325,7 +1333,8 @@ class App {
   private contractsTab(): string {
     const g = this.g;
     const ship = this.ship();
-    const hold = ship.cargo.length ? `<h3>In the hold</h3><ul class="contracts">${ship.cargo.map((c) => this.contractRow(c, 'hold')).join('')}</ul>` : '';
+    const hold = (ship.cargo.length ? `<h3>In the hold</h3><ul class="contracts">${ship.cargo.map((c) => this.contractRow(c, 'hold')).join('')}</ul>` : '')
+      + (!isReady(g, ship) ? this.ownGoods(ship) : '');
     if (!isReady(g, ship)) return this.busyCard() + hold;
     const port = world.ports[ship.location];
     // Cargo this ship can take first, then the rest; each group in the chosen order.
@@ -1347,6 +1356,7 @@ class App {
       ${board.length > 1 ? sortPick : ''}
       ${board.length ? `<ul class="contracts">${board.map((c) => this.contractRow(c, 'board')).join('')}</ul>`
         : '<p class="empty">No cargo on offer right now. Let some time pass, or sail on.</p>'}
+      ${this.tradeCard(ship)}
       ${hold}
       ${this.nextStepBar()}`;
   }
@@ -1611,6 +1621,79 @@ class App {
       <ul class="dests">${list}</ul>`;
   }
 
+  /** A known price, with how old the news is. */
+  private newsText(n: PriceNews, unit = ''): string {
+    if (n.live) return `${money(n.price)}${unit} <span class="asof">today</span>`;
+    return `${money(n.price)}${unit} <span class="asof" title="The latest letter from there">as of ${gameDate(n.asOf)}</span>`;
+  }
+
+  /** Where a good sells best, by the news you have. */
+  private bestMarkets(good: string, except: string, n = 2): string {
+    const best = bestKnownMarkets(world, this.g, good, except).slice(0, n);
+    return best.length ? best.map((b) => `${esc(world.ports[b.port].name)} ${this.newsText(b)}`).join(' · ') : 'no buyer you know of';
+  }
+
+  /** Goods on your own account aboard a ship (shown at sea too). */
+  private ownGoods(ship: ShipState): string {
+    const lots = ship.goods ?? [];
+    if (!lots.length) return '';
+    const here = isReady(this.g, ship) ? ship.location : null;
+    return `<h3>Own goods aboard</h3><ul class="own-goods">${lots.map((l) => {
+      const q = here ? goodsSaleQuote(world, this.g, here, l.good, l.tons) : null;
+      const profit = q ? q.total - l.cost : 0;
+      return `<li><div class="og-main"><strong>${esc(world.goods[l.good].name)}</strong> · ${tons(l.tons)} <span class="hint">bought at ${money(Math.round(l.cost / l.tons))}/t in ${esc(world.ports[l.from].name)}</span></div>
+        <div class="og-where hint">Best known: ${this.bestMarkets(l.good, here ?? '')}</div>
+        ${here ? (q ? `<button class="btn small ${profit >= 0 ? 'primary' : 'loss'}" data-action="sell-goods" data-good="${l.good}">Sell all here<span>${money(q.total)} · ${money(profit, true)}</span></button>`
+          : `<span class="hint">Nobody here buys it.</span>`) : ''}
+      </li>`;
+    }).join('')}</ul>`;
+  }
+
+  /** For the voyage plan: what your own goods should fetch at the destination, by the news you have. */
+  private goodsOutlook(ship: ShipState, dest: string): string {
+    const lots = ship.goods ?? [];
+    if (!lots.length) return '';
+    const name = world.ports[dest].name;
+    const rows = lots.map((l) => {
+      const n = priceNews(world, this.g, dest, l.good);
+      const wanted = world.ports[dest].demands.some((d) => d.good === l.good);
+      const good = esc(world.goods[l.good].name.toLowerCase());
+      if (!wanted || !n) return `<li>${tons(l.tons)} of ${good}: nobody in ${esc(name)} buys it.</li>`;
+      const value = n.price * l.tons;
+      return `<li>${tons(l.tons)} of ${good}: ${esc(name)} paid ${this.newsText(n, '/t')}, ≈ ${compactMoney(value)} (${money(value - l.cost, true)} on cost).</li>`;
+    }).join('');
+    return `<div class="goods-outlook"><span class="lbl">Your own goods</span><ul>${rows}</ul></div>`;
+  }
+
+  /** Buy and sell on your own account (Age of Sail). */
+  private tradeCard(ship: ShipState): string {
+    if (!hasTrade(world)) return '';
+    const g = this.g;
+    const port = world.ports[ship.location];
+    const type = typeOf(ship);
+    const room = type.capacity - cargoTons(ship);
+    const forSale = port.produces.map((x) => x.good).filter((good) => type.cargoClasses.includes(world.goods[good].cargoClass));
+    const wanted = port.demands.map((d) => d.good);
+    const buyBtn = (good: string, n: number | 'max', label: string) => {
+      const t = n === 'max' ? room : Math.min(n, room);
+      const q = t > 0 ? goodsBuyQuote(world, g, port.id, good, t) : null;
+      return `<button class="btn small" data-action="buy-goods" data-good="${good}" data-tons="${n}" ${!q || q.total > g.cash ? 'disabled' : ''}>${label}<span>${q ? compactMoney(q.total) : '—'}</span></button>`;
+    };
+    const rows = forSale.map((good) => `<li>
+        <div class="tg-main"><strong>${esc(world.goods[good].name)}</strong> <b>${money(buyPrice(world, g, port.id, good)!)}/t</b></div>
+        <div class="hint">Sells best in: ${this.bestMarkets(good, port.id)}</div>
+        <div class="btn-row">${room > 10 ? buyBtn(good, 10, '+10 t') : ''}${room > 50 ? buyBtn(good, 50, '+50 t') : ''}${buyBtn(good, 'max', room > 0 ? `Fill ${tons(room)}` : 'Hold full')}</div>
+      </li>`).join('');
+    const wants = wanted.map((good) => `${esc(world.goods[good].name.toLowerCase())} ${money(priceNews(world, g, port.id, good)!.price)}`).join(' · ');
+    return `<section class="card trade-card">
+      <h3>⚖ Trade on your own account</h3>
+      <p class="hint">Buy goods here and sell them where they're wanted. Prices elsewhere are as of the latest letter from there: news travels by ship.</p>
+      ${this.ownGoods(ship)}
+      ${rows ? `<h4>For sale in ${esc(port.name)}</h4><ul class="trade-goods">${rows}</ul>` : `<p class="hint">${esc(port.name)} sells nothing your ${esc(type.name.toLowerCase())} can carry.</p>`}
+      ${wants ? `<p class="hint"><strong>${esc(port.name)} buys:</strong> ${wants}</p>` : ''}
+    </section>`;
+  }
+
   /** Other nations' charts on sale in this port (Age of Sail). */
   private chartsCard(portId: string): string {
     const offers = chartOffers(world, this.g, portId);
@@ -1686,6 +1769,7 @@ class App {
         </div>
         ${fuelBlock}
         ${warnings.length ? `<ul class="warnings">${warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
+        ${this.goodsOutlook(ship, plan.dest)}
         ${sailButton}
       </section>`;
   }

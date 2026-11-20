@@ -92,7 +92,18 @@ on 1 January 1650, and the chart is drawn on parchment.
   coast in Goa, the Spanish galleon route in Manila, a rutter of the South Sea
   in Portobelo.
 
-Still to come for this era: slow news and trading on your own account, and more nations (a Chinese merchant house next). The trade in enslaved
+- **Trade on your own account**: alongside charters, buy goods where they're
+  produced (pepper in Bantam, nutmeg in Banda, cloth in Amsterdam) and sell
+  them where they're wanted. A buyer pays more the farther it is from the
+  nearest producer; prices wander from day to day, your own buying pushes the
+  price up and a big sale floods the market. Goods aboard take hold space and
+  count in your net worth at cost; profit is booked when you sell.
+- **Slow news**: where one of your ships lies you see today's prices. Anywhere
+  else you know prices only as of the latest letter from there, carried by
+  other people's ships from wherever yours are (or from home): Batavia's prices
+  reach Amsterdam months old. Every price shown is dated.
+
+Still to come for this era: and more nations (a Chinese merchant house next). The trade in enslaved
 people is not part of the game.
 
 ## How to play
@@ -211,6 +222,7 @@ src/sim/         Pure simulation, no DOM (deterministic: seeded RNG stored in th
   world.ts       Loads data per era (worldFor, setEra, getWorld); shortest sea routes (Dijkstra)
   wind.ts        Prevailing winds and the monsoon; speed factor along a route
   charts.ts      Fog of war: charted waters, voyages of discovery, charts for sale (CHART_TUNING)
+  trade.ts       Own-account trade and slow news: prices, drift, weekly samples, letters (TRADE_TUNING)
   contracts.ts   Contract generation and pay formula (CONTRACT_TUNING)
   game.ts        Fleet, world clock (advance), player actions and voyages (RULES); every action returns a new state
   ships.ts       Ship value, age effects, the ship market, purchase quotes, loans (SHIP_TUNING)

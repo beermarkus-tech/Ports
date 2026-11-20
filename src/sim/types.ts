@@ -96,6 +96,8 @@ export interface ShipState {
   /** Years. Older ships are slower, thirstier and break down more. */
   age: number;
   cargo: Contract[];
+  /** Goods bought on your own account (Age of Sail): what's aboard and what it cost in all. */
+  goods?: OwnLot[];
   /** Set while the ship is at sea. */
   voyage?: ActiveVoyage;
   /** In dry dock until this day. */
@@ -174,6 +176,15 @@ export interface ShipOffer {
   price: number;
 }
 
+export interface OwnLot {
+  good: string;
+  tons: number;
+  /** What you paid for these tons, in all. */
+  cost: number;
+  /** Where it was bought. */
+  from: string;
+}
+
 export interface PortState {
   /** Deviation from base fuel price, e.g. 0.1 = +10%. */
   fuelDev: number;
@@ -184,6 +195,10 @@ export interface PortState {
    * events push it up, and it drifts back to normal over time.
    */
   prices: Record<string, number>;
+  /** Age of Sail trade: how far each good's price has wandered from normal (1 = normal). */
+  drift?: Record<string, number>;
+  /** Age of Sail trade: weekly price samples (ƒ/t per good), for the news that reaches you late. */
+  hist?: { day: number; p: Record<string, number> }[];
 }
 
 export type WorldEventKind = 'strike' | 'harvest' | 'boom' | 'canal' | 'oilShock';
@@ -320,6 +335,8 @@ export interface MonthBook {
   incidents: number;
   /** Captains' wages (missing in books from before captains). */
   wages?: number;
+  /** Profit (or loss) on goods traded on your own account: what they sold for less what they cost. */
+  trade?: number;
   shipsBought: number;
   shipsSold: number;
   /** Position at the end of the month (or the latest day, for the current month). */

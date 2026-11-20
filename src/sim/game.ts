@@ -11,6 +11,7 @@ import { CAPTAIN_TUNING, captainSlots, churnCaptainPool, fillCaptainPool } from 
 import { bookServiceCargo, churnBoard, latePayFactor, regenerateBoard } from './contracts';
 import { areaName, areaPorts, region, regionOf } from './regions';
 import { routeWind } from './wind';
+import { buyPrice, ensureTrade, goodsBuyQuote, goodsSaleQuote, goodsTons, recordPurchase, recordSale, tradeDay } from './trade';
 import { applyChart, CHART_TUNING, chartOffers, chartPath, ensureCharts, isCharted, unchartedShare } from './charts';
 
 /** Speed factor on a route: the wind (Age of Sail), and slower going in uncharted water. */
@@ -79,7 +80,7 @@ export function monthOf(day: number): number {
   return (d.getUTCFullYear() - 2000) * 12 + d.getUTCMonth();
 }
 
-type BookField = 'revenue' | 'fuel' | 'fees' | 'upkeep' | 'interest' | 'repairs' | 'incidents' | 'wages' | 'shipsBought' | 'shipsSold';
+type BookField = 'revenue' | 'fuel' | 'fees' | 'upkeep' | 'interest' | 'repairs' | 'incidents' | 'wages' | 'trade' | 'shipsBought' | 'shipsSold';
 
 /** This month's page in the books (kept for 20 years). */
 function bookFor(g: GameState, world: World, day = g.day): MonthBook {
@@ -125,7 +126,7 @@ function snapshot(g: GameState, world: World, day = g.day): void {
 
 /** Operating result of a month: revenue less running costs (ship purchases and sales aside). */
 export function monthProfit(b: MonthBook): number {
-  return b.revenue - b.fuel - b.fees - b.upkeep - b.interest - b.repairs - b.incidents - (b.wages ?? 0);
+  return b.revenue + (b.trade ?? 0) - b.fuel - b.fees - b.upkeep - b.interest - b.repairs - b.incidents - (b.wages ?? 0);
 }
 
 // ---------------------------------------------------------------- lookups
@@ -200,8 +201,9 @@ export function harbourServices(g: GameState, ship: Pick<ShipState, 'typeId'>, p
   return Math.round(portFee(g, ship, portId, world) * RULES.harbourServices / 100) * 100;
 }
 
+/** Tons aboard: charters and goods on your own account. */
 export function cargoTons(ship: ShipState): number {
-  return ship.cargo.reduce((s, c) => s + c.tons, 0);
+  return ship.cargo.reduce((s, c) => s + c.tons, 0) + goodsTons(ship);
 }
 
 export function dailyUpkeep(g: GameState, world: World = getWorld()): number {
@@ -310,6 +312,7 @@ function runClock(world: World, g: GameState, days: number): void {
       if (rand(g) < RULES.marketTurnover) regenerateMarket(world, g, p.id);
     }
     economyDay(world, g, d);
+    tradeDay(world, g, d);
     for (const ship of g.fleet) {
       if (ship.busyUntil !== undefined && ship.busyUntil <= d) delete ship.busyUntil;
     }
@@ -392,6 +395,7 @@ export function newGame(seed: number = Date.now() % 2 ** 31, world: World = getW
     regenerateBoard(world, g, p.id);
     regenerateMarket(world, g, p.id);
   }
+  ensureTrade(world, g);
   g.captains = [];
   fillCaptainPool(g);
   log(g, world.era.start.intro);
@@ -1198,6 +1202,56 @@ function arrive(world: World, g: GameState, ship: ShipState): void {
     report.net >= 0 ? '+' : '-'}${cur()}${Math.abs(report.net).toLocaleString('en-US')}.`);
 }
 
+/** Buy goods on your own account into a ship's hold, at this port's price. */
+export function buyGoods(state: GameState, shipId: number, good: string, tons: number, world: World = getWorld()): GameState {
+  const g = clone(state);
+  const ship = readyShip(g, shipId);
+  const type = typeOf(ship, world);
+  const def = world.goods[good];
+  const price = buyPrice(world, g, ship.location, good);
+  if (price === null) throw new ActionError(`${world.ports[ship.location].name} has no ${def.name.toLowerCase()} for sale.`);
+  if (!type.cargoClasses.includes(def.cargoClass)) throw new ActionError(`The ${type.name} can't carry ${def.cargoClass} cargo.`);
+  const room = type.capacity - cargoTons(ship);
+  let n = Math.min(Math.floor(tons), room, Math.floor(Math.max(0, g.cash) / price));
+  while (n > 0 && goodsBuyQuote(world, g, ship.location, good, n)!.total > g.cash) n = Math.floor(n * 0.95);
+  if (n <= 0) throw new ActionError(room <= 0 ? 'The hold is full.' : 'Not enough cash.');
+  const cost = goodsBuyQuote(world, g, ship.location, good, n)!.total;
+  g.cash -= cost;
+  const lots = (ship.goods ??= []);
+  const lot = lots.find((x) => x.good === good);
+  if (lot) { lot.tons += n; lot.cost += cost; } else lots.push({ good, tons: n, cost, from: ship.location });
+  recordPurchase(world, g, ship.location, good, n);
+  log(g, `${ship.name}: bought ${n} t of ${def.name.toLowerCase()} in ${world.ports[ship.location].name} for ${cur()}${cost.toLocaleString('en-US')} (${cur()}${Math.round(cost / n).toLocaleString('en-US')}/t).`, -cost);
+  return g;
+}
+
+/** Sell goods from a ship's hold at this port's price (all of them, or `tons`). */
+export function sellGoods(state: GameState, shipId: number, good: string, tons?: number, world: World = getWorld()): GameState {
+  const g = clone(state);
+  const ship = readyShip(g, shipId);
+  const def = world.goods[good];
+  const lot = ship.goods?.find((x) => x.good === good);
+  if (!lot) throw new ActionError(`No ${def.name.toLowerCase()} aboard.`);
+  const n = Math.min(lot.tons, Math.floor(tons ?? lot.tons));
+  if (n <= 0) throw new ActionError('Nothing to sell.');
+  const q = goodsSaleQuote(world, g, ship.location, good, n);
+  if (q === null) throw new ActionError(`Nobody in ${world.ports[ship.location].name} buys ${def.name.toLowerCase()}.`);
+  const proceeds = q.total;
+  const basis = Math.round(lot.cost * (n / lot.tons));
+  lot.tons -= n;
+  lot.cost -= basis;
+  if (lot.tons <= 0) ship.goods = ship.goods!.filter((x) => x !== lot);
+  g.cash += proceeds;
+  const profit = proceeds - basis;
+  book(g, world, 'trade', profit);
+  shipBook(ship, profit >= 0 ? 'revenue' : 'costs', Math.abs(profit), g.day);
+  g.stats.revenue += Math.max(0, profit);
+  recordSale(world, g, ship.location, good, n);
+  log(g, `${ship.name}: sold ${n} t of ${def.name.toLowerCase()} in ${world.ports[ship.location].name} for ${cur()}${proceeds.toLocaleString('en-US')} (${cur()}${Math.round(proceeds / n).toLocaleString('en-US')}/t), ${
+    profit >= 0 ? 'a profit' : 'a loss'} of ${cur()}${Math.abs(profit).toLocaleString('en-US')}.`, proceeds);
+  return g;
+}
+
 /** Buy another nation's chart in the port where a ship of yours lies. */
 export function buyChart(state: GameState, offerId: string, world: World = getWorld()): GameState {
   const here = new Set(state.fleet.filter((s) => !atSea(s)).map((s) => s.location));
@@ -1302,6 +1356,7 @@ export function saleQuote(g: GameState, shipId: number, world: World = getWorld(
   if (g.fleet.length <= 1) blocked = 'You can\'t sell your last ship.';
   else if (!isReady(g, ship)) blocked = atSea(ship) ? 'The ship is at sea.' : 'The ship is in dry dock.';
   else if (ship.cargo.length) blocked = 'Deliver or unload its cargo first.';
+  else if (ship.goods?.length) blocked = 'Sell the goods aboard first.';
   return { price, fuelRefund, repay, blocked };
 }
 

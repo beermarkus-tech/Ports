@@ -82,7 +82,9 @@ export function maxLoan(g: GameState, world: World): number {
 }
 
 export function netWorth(g: GameState, world: World): number {
-  return g.cash + fleetValue(g, world) - g.loan;
+  // Goods aboard count at what they cost.
+  const goods = g.fleet.reduce((s, ship) => s + (ship.goods ?? []).reduce((t, x) => t + x.cost, 0), 0);
+  return g.cash + fleetValue(g, world) + goods - g.loan;
 }
 
 // ---------------------------------------------------------------- market

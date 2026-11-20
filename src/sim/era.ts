@@ -33,6 +33,8 @@ export interface EraConfig {
   smallLot: number;
   /** Goods a harvest failure can hit. */
   harvestGoods: string[];
+  /** You can buy and sell goods on your own account, with prices known by slow news. */
+  trade?: boolean;
   /** Fog of war: the waters known at the start, and charts for sale (none: no fog). */
   charts?: { known: Box[]; offers: ChartOffer[] };
   /** Words for things that differ between the eras. */
@@ -65,6 +67,7 @@ export const ERAS: Record<EraId, EraConfig> = {
     hasOil: false, harbourServices: false, portView: false, wind: true,
     referenceSpeedKn: 4, payFactor: 2, smallLot: 80,
     harvestGoods: ['pepper', 'nutmeg', 'sugar', 'grain', 'tea', 'silk', 'rice', 'coffee'],
+    trade: true,
     charts: {
       // What the Dutch knew around 1650: the Cape route to the Indies, the China seas and Japan,
       // the Atlantic coasts, and the way round Cape Horn (Le Maire, 1616). East Africa is Portuguese

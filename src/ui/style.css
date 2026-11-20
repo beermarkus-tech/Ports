@@ -893,3 +893,17 @@ button.era-card:hover { border-color: var(--accent); }
 .discovery p { margin: 0; }
 .charted { color: var(--muted); }
 .dest.uncharted .d-exports.none { color: var(--accent); font-style: italic; }
+
+/* ---------- trade on own account ---------- */
+.trade-card h3 { margin-top: 0; }
+.trade-card h4 { margin: 10px 0 4px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.trade-goods, .own-goods, .goods-outlook ul { list-style: none; margin: 0; padding: 0; }
+.trade-goods li, .own-goods li { padding: 8px 0; border-top: 1px solid var(--line); }
+.trade-goods li:first-child, .own-goods li:first-child { border-top: none; }
+.tg-main { display: flex; justify-content: space-between; gap: 8px; }
+.trade-goods .hint, .own-goods .hint { margin: 2px 0 6px; }
+.own-goods .btn { margin-top: 4px; }
+.asof { color: var(--muted); font-size: 0.86em; font-style: italic; white-space: nowrap; }
+.goods-outlook { margin: 8px 0; padding: 8px 10px; border-left: 3px solid var(--accent); background: var(--surface); border-radius: 4px; }
+.goods-outlook .lbl { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.goods-outlook li { margin-top: 3px; }
