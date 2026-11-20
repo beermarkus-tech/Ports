@@ -103,7 +103,7 @@ on 1 January 1650, and the chart is drawn on parchment.
   other people's ships from wherever yours are (or from home): Batavia's prices
   reach Amsterdam months old. Every price shown is dated.
 
-Still to come for this era: and more nations (a Chinese merchant house next). The trade in enslaved
+Still to come for this era: more nations (a Chinese merchant house next). The trade in enslaved
 people is not part of the game.
 
 ## How to play
