@@ -48,6 +48,8 @@ export const RULES = {
   breakdownBase: 0.001,
   breakdownPerMissingPoint: 0.0003,
   emergencyFuelMarkup: 2.5,
+  /** Jettisoned charter cargo: the shipper claims this share of the pay as compensation. */
+  jettisonClaim: 0.3,
   /** Repairs take one day per this many condition points. */
   repairPointsPerDay: 10,
   fuelDrift: { reversion: 0.97, volatility: 0.012, limit: 0.3 },
@@ -446,6 +448,44 @@ export function unloadContract(state: GameState, shipId: number, contractId: num
   ship.cargo.splice(idx, 1);
   g.ports[ship.location].board.push(c);
   log(g, `${ship.name}: unloaded ${world.goods[c.good].name} back onto the quay.`);
+  return g;
+}
+
+/** What jettisoning a charter costs: the shipper's claim. */
+export function jettisonClaim(c: Contract): number {
+  return Math.round((c.pay * RULES.jettisonClaim) / 100) * 100;
+}
+
+/**
+ * Throw a charter's cargo overboard (or abandon it on the quay), anywhere, at
+ * sea too: the shipper claims compensation for the lost goods.
+ */
+export function jettisonContract(state: GameState, shipId: number, contractId: number, world: World = getWorld()): GameState {
+  const g = clone(state);
+  const ship = getShip(g, shipId);
+  const idx = ship.cargo.findIndex((c) => c.id === contractId);
+  if (idx < 0) throw new ActionError('No such cargo aboard.');
+  const c = ship.cargo[idx];
+  const claim = jettisonClaim(c);
+  ship.cargo.splice(idx, 1);
+  g.cash -= claim;
+  book(g, world, 'incidents', claim);
+  shipBook(ship, 'costs', claim, g.day);
+  const good = world.goods[c.good].name.toLowerCase();
+  log(g, `${ship.name}: jettisoned ${c.tons.toLocaleString('en-US')} t of ${good} for ${world.ports[c.dest].name}. The shipper claims ${cur()}${claim.toLocaleString('en-US')} in compensation.`, -claim);
+  return g;
+}
+
+/** Throw goods bought on your own account overboard: what they cost is lost. */
+export function jettisonGoods(state: GameState, shipId: number, good: string, world: World = getWorld()): GameState {
+  const g = clone(state);
+  const ship = getShip(g, shipId);
+  const lot = ship.goods?.find((x) => x.good === good);
+  if (!lot) throw new ActionError('None of that aboard.');
+  ship.goods = ship.goods!.filter((x) => x !== lot);
+  book(g, world, 'trade', -lot.cost);
+  shipBook(ship, 'costs', lot.cost, g.day);
+  log(g, `${ship.name}: jettisoned ${lot.tons.toLocaleString('en-US')} t of ${world.goods[good].name.toLowerCase()}, a loss of ${cur()}${lot.cost.toLocaleString('en-US')}.`);
   return g;
 }
 

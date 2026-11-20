@@ -122,6 +122,9 @@ people is not part of the game.
    a ship in the strip under the map (or on the map) and the tabs act on it.
 1. **Contracts:** load cargo offered in your port. You can carry lots for
    several destinations at once, as long as they fit in the hold.
+   Cargo can be handed back free in the port where it was loaded. Anywhere
+   else, at sea too, you can **jettison** it: the shipper then claims 30% of
+   the pay as compensation (goods on your own account are simply lost).
 2. **Ship:** bunker fuel (prices differ by port and drift daily), or repair
    in dry dock (the ship is out of action for a few days). Low condition means
    more breakdowns and a thirstier engine. Upkeep is paid daily for every ship.

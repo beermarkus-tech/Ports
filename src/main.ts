@@ -7,7 +7,7 @@ import {
   assignCaptain, buyChart, buyGoods, sellGoods, captainOf, fireCaptain, hireCaptain, monthOf, monthProfit, onOrders, resumeOrders,
   dailyUpkeep, daysUntilNextShip, fuelPrice, getShip, inDryDock, isReady, isWaiting, needsDecision, newGame,
   dockByHand, nextMilestone, planVoyage, portFee, repair, repairQuote, repayLoan, sail, saleQuote, sellShip,
-  shipsNeedingDecision, takeReport, typeOf, unloadContract, voyageProgress, waitInPort, type VoyagePlan,
+  shipsNeedingDecision, takeReport, typeOf, unloadContract, jettisonClaim, jettisonContract, jettisonGoods, voyageProgress, waitInPort, type VoyagePlan,
 } from './sim/game';
 import {
   clearSave, createSlot, deleteSlot, listSlots, loadGame, loadSlot, renameSlot, saveGame, setActiveSlot, activeSlot, type SlotInfo,
@@ -386,6 +386,19 @@ class App {
         break;
       }
       case 'unload': this.act((g) => unloadContract(g, id, Number(data.id))); break;
+      case 'jettison': {
+        const c = ship.cargo.find((x) => x.id === Number(data.id));
+        if (!c) break;
+        if (!confirm(`Jettison ${tons(c.tons)} of ${world.goods[c.good].name.toLowerCase()} for ${world.ports[c.dest].name}? The shipper will claim ${money(jettisonClaim(c))} in compensation.`)) return;
+        this.act((g) => jettisonContract(g, id, c.id));
+        break;
+      }
+      case 'jettison-goods': {
+        const l = ship.goods?.find((x) => x.good === data.good);
+        if (!l || !confirm(`Throw ${tons(l.tons)} of ${world.goods[l.good].name.toLowerCase()} overboard? You lose the ${money(l.cost)} it cost.`)) return;
+        this.act((g) => jettisonGoods(g, id, l.good));
+        break;
+      }
       case 'fuel': {
         const amount = data.amount === 'fill' ? type.bunkerCapacity : Number(data.amount);
         this.act((g) => buyFuel(g, id, amount));
@@ -1026,7 +1039,8 @@ class App {
     const button = mode === 'board'
       ? `<button class="btn small" data-action="accept" data-id="${c.id}" ${why ? 'disabled' : ''} title="${esc(why ?? 'Load this cargo')}">Load</button>`
       : c.origin === ship.location && isReady(g, ship)
-        ? `<button class="btn small ghost" data-action="unload" data-id="${c.id}">Unload</button>` : '';
+        ? `<button class="btn small ghost" data-action="unload" data-id="${c.id}">Unload</button>`
+        : `<button class="btn small ghost jettison" data-action="jettison" data-id="${c.id}" title="Throw it overboard: the shipper claims ${money(jettisonClaim(c))}">Jettison</button>`;
     return `
       <li class="contract ${why ? 'unavailable' : ''} ${c.premium ? 'premium' : ''}" data-hover-dest="${c.dest}">
         <div class="c-main">
@@ -1649,8 +1663,9 @@ class App {
       const profit = q ? q.total - l.cost : 0;
       return `<li><div class="og-main"><strong>${esc(world.goods[l.good].name)}</strong> · ${tons(l.tons)} <span class="hint">bought at ${money(Math.round(l.cost / l.tons))}/t in ${esc(world.ports[l.from].name)}</span></div>
         <div class="og-where hint">Best known: ${this.bestMarkets(l.good, here ?? '')}</div>
-        ${here ? (q ? `<button class="btn small ${profit >= 0 ? 'primary' : 'loss'}" data-action="sell-goods" data-good="${l.good}">Sell all here<span>${money(q.total)} · ${money(profit, true)}</span></button>`
+        <div class="btn-row">${here ? (q ? `<button class="btn small ${profit >= 0 ? 'primary' : 'loss'}" data-action="sell-goods" data-good="${l.good}">Sell all here<span>${money(q.total)} · ${money(profit, true)}</span></button>`
           : `<span class="hint">Nobody here buys it.</span>`) : ''}
+          <button class="btn small ghost jettison" data-action="jettison-goods" data-good="${l.good}" title="Throw it overboard: you lose what it cost">Jettison</button></div>
       </li>`;
     }).join('')}</ul>`;
   }
