@@ -908,3 +908,37 @@ button.era-card:hover { border-color: var(--accent); }
 :root.era-sail .port .label { font-size: 11px; letter-spacing: -0.01em; }
 #music.off { opacity: 0.45; text-decoration: line-through; }
 #music[hidden] { display: none; }
+
+/* ---------- drawn goods icons (src/ui/goods-icons.ts) ---------- */
+.gi { display: inline-block; flex-shrink: 0; overflow: visible; vertical-align: middle; }
+.gi-modern { stroke: var(--text); stroke-width: 1.45; stroke-linejoin: round; stroke-linecap: round; }
+.gi-modern .f { fill: var(--c); fill-opacity: 0.9; }
+.gi-modern .w { fill: var(--surface-2); }
+.gi-modern .k { fill: var(--text); stroke: none; }
+.gi-modern .l { fill: none; }
+.gi-modern .m { fill: none; stroke: var(--text); }
+.gi-sail { stroke: #2b1d0e; stroke-width: 1.15; stroke-linejoin: round; stroke-linecap: round; }
+.gi-sail .f { fill: var(--c); }
+.gi-sail .h { fill: url(#gi-hatch); stroke: none; }
+.gi-sail .w { fill: #f8f0dc; }
+.gi-sail .k { fill: #2b1d0e; }
+.gi-sail .l { fill: none; }
+.gi-sail .m { fill: none; stroke: var(--c2); stroke-width: 1.1; }
+/* On the dark 1650 theme the engravings sit on a small parchment tile, so the ink stays readable. */
+:root.era-sail .gi-sail { background: #efe3c4; border-radius: 5px; padding: 2px; box-sizing: content-box; }
+@media (prefers-color-scheme: light) { :root.era-sail:not([data-theme='dark']) .gi-sail { background: none; padding: 0; } }
+:root.era-sail[data-theme='light'] .gi-sail { background: none; padding: 0; }
+.contract .c-icon { display: flex; align-items: center; }
+.contract .c-main { flex: 1; min-width: 0; }
+.cmark { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: 1px; background: var(--muted); }
+.cmark.bulk { background: #d9a24c; }
+.cmark.general { background: #4f8fd8; }
+.cmark.liquid { background: #d0625a; }
+.cmark.reefer { background: #7fcbe6; }
+:root.era-sail .cmark.bulk { background: #a0763c; }
+:root.era-sail .cmark.general { background: #4f6f9a; }
+.og-main, .tg-main { display: flex; align-items: center; gap: 8px; }
+.tg-main b { margin-left: auto; }
+.gchip { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; margin-right: 4px; }
+.gline { display: inline-flex; align-items: center; gap: 6px; }
+.goods-outlook li .gi { margin-right: 2px; }

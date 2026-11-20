@@ -20,6 +20,7 @@ import type { Captain, Contract, GameState, PremiumKind, ShipOffer, ShipState, S
 import { currentEra, getWorld, setEra } from './sim/world';
 import { compactMoney, currency, days, esc, gameDate, money, setEraFormat, startYear, tons } from './ui/format';
 import { mapIconPath, shipFamily, shipSideView } from './ui/art';
+import { CLASS_LABEL, goodIcon } from './ui/goods-icons';
 import { MapView, type LonLat, type PortMarker, type ShipMarker, type WeatherCell } from './ui/map';
 import { PortScene, shipLength, type SceneShip, type TimeOfDay } from './ui/port-scene';
 import { DockingGame } from './ui/docking-game';
@@ -1043,9 +1044,10 @@ class App {
         : `<button class="btn small ghost jettison" data-action="jettison" data-id="${c.id}" title="Throw it overboard: the shipper claims ${money(jettisonClaim(c))}">Jettison</button>`;
     return `
       <li class="contract ${why ? 'unavailable' : ''} ${c.premium ? 'premium' : ''}" data-hover-dest="${c.dest}">
+        <div class="c-icon">${goodIcon(c.good, 36)}</div>
         <div class="c-main">
-          <div class="c-good">${c.premium ? `<span class="tag premium">★ ${PREMIUM_LABEL[c.premium]}</span> ` : ''}<span class="cls ${good.cargoClass}">${good.cargoClass}</span> ${esc(good.name)} · ${tons(c.tons)}</div>
-          <div class="c-route">→ <strong>${esc(world.ports[c.dest].name)}</strong> · ${nm.toLocaleString('en-US')} nm ${reach}</div>
+          <div class="c-good">${c.premium ? `<span class="tag premium">★ ${PREMIUM_LABEL[c.premium]}</span> ` : ''}${esc(good.name)} · ${tons(c.tons)}</div>
+          <div class="c-route"><span class="cmark ${good.cargoClass}" title="${CLASS_LABEL[good.cargoClass]}" aria-label="${CLASS_LABEL[good.cargoClass]}"></span>→ <strong>${esc(world.ports[c.dest].name)}</strong> · ${nm.toLocaleString('en-US')} nm ${reach}</div>
           <div class="c-meta ${urgent ? 'urgent' : ''}">Due ${gameDate(c.deadline)} (${days(Math.max(0, Math.round(daysLeft)))})${why ? ` · <span class="why">${esc(why)}</span>` : ''}</div>
         </div>
         <div class="c-side">
@@ -1624,12 +1626,13 @@ class App {
     const type = typeOf(ship);
     const list = rows.map(({ p, plan }) => {
       const cargo = plan.deliveries.length;
-      const exports = exportsFor(world, type, p.id).map((id) => world.goods[id].name.toLowerCase());
+      const exportIds = exportsFor(world, type, p.id);
+      const exports = exportIds.map((id) => world.goods[id].name.toLowerCase());
       const dark = !isCharted(g, p.id);
       return `<li class="dest ${p.id === this.dest ? 'selected' : ''} ${plan.inRange ? '' : 'out'} ${dark ? 'uncharted' : ''}" data-action="dest" data-id="${p.id}" data-hover-dest="${p.id}">
         <span class="d-name">${esc(p.name)}${cargo ? ` <span class="tag good">${cargo} to deliver</span>` : ''}${dark ? ' <span class="tag">uncharted</span>' : ''}</span>
         <span class="d-meta">${plan.route.nm.toLocaleString('en-US')} nm · ${days(Math.round(plan.seaDays * 10) / 10)} · ${plan.inRange ? fuelAmt(plan.fuelNeeded) : 'out of range'}</span>
-        <span class="d-exports ${exports.length && !dark ? '' : 'none'}">${dark ? 'Known only from rumour: a voyage of discovery' : exports.length ? `Exports for you: ${esc(exports.join(', '))}` : 'Exports nothing this ship can carry'}</span>
+        <span class="d-exports ${exports.length && !dark ? '' : 'none'}">${dark ? 'Known only from rumour: a voyage of discovery' : exports.length ? `Exports for you: ${exportIds.map((id) => `<span class="gchip">${goodIcon(id, 16)}${esc(world.goods[id].name.toLowerCase())}</span>`).join(' ')}` : 'Exports nothing this ship can carry'}</span>
       </li>`;
     }).join('');
     return `
@@ -1661,7 +1664,7 @@ class App {
     return `<h3>Own goods aboard</h3><ul class="own-goods">${lots.map((l) => {
       const q = here ? goodsSaleQuote(world, this.g, here, l.good, l.tons) : null;
       const profit = q ? q.total - l.cost : 0;
-      return `<li><div class="og-main"><strong>${esc(world.goods[l.good].name)}</strong> · ${tons(l.tons)} <span class="hint">bought at ${money(Math.round(l.cost / l.tons))}/t in ${esc(world.ports[l.from].name)}</span></div>
+      return `<li><div class="og-main">${goodIcon(l.good, 28)}<strong>${esc(world.goods[l.good].name)}</strong> · ${tons(l.tons)} <span class="hint">bought at ${money(Math.round(l.cost / l.tons))}/t in ${esc(world.ports[l.from].name)}</span></div>
         <div class="og-where hint">Best known: ${this.bestMarkets(l.good, here ?? '')}</div>
         <div class="btn-row">${here ? (q ? `<button class="btn small ${profit >= 0 ? 'primary' : 'loss'}" data-action="sell-goods" data-good="${l.good}">Sell all here<span>${money(q.total)} · ${money(profit, true)}</span></button>`
           : `<span class="hint">Nobody here buys it.</span>`) : ''}
@@ -1679,9 +1682,9 @@ class App {
       const n = priceNews(world, this.g, dest, l.good);
       const wanted = world.ports[dest].demands.some((d) => d.good === l.good);
       const good = esc(world.goods[l.good].name.toLowerCase());
-      if (!wanted || !n) return `<li>${tons(l.tons)} of ${good}: nobody in ${esc(name)} buys it.</li>`;
+      if (!wanted || !n) return `<li>${goodIcon(l.good, 18)} ${tons(l.tons)} of ${good}: nobody in ${esc(name)} buys it.</li>`;
       const value = n.price * l.tons;
-      return `<li>${tons(l.tons)} of ${good}: ${esc(name)} paid ${this.newsText(n, '/t')}, ≈ ${compactMoney(value)} (${money(value - l.cost, true)} on cost).</li>`;
+      return `<li>${goodIcon(l.good, 18)} ${tons(l.tons)} of ${good}: ${esc(name)} paid ${this.newsText(n, '/t')}, ≈ ${compactMoney(value)} (${money(value - l.cost, true)} on cost).</li>`;
     }).join('');
     return `<div class="goods-outlook"><span class="lbl">Your own goods</span><ul>${rows}</ul></div>`;
   }
@@ -1701,11 +1704,11 @@ class App {
       return `<button class="btn small" data-action="buy-goods" data-good="${good}" data-tons="${n}" ${!q || q.total > g.cash ? 'disabled' : ''}>${label}<span>${q ? compactMoney(q.total) : '—'}</span></button>`;
     };
     const rows = forSale.map((good) => `<li>
-        <div class="tg-main"><strong>${esc(world.goods[good].name)}</strong> <b>${money(buyPrice(world, g, port.id, good)!)}/t</b></div>
+        <div class="tg-main">${goodIcon(good, 28)}<strong>${esc(world.goods[good].name)}</strong> <b>${money(buyPrice(world, g, port.id, good)!)}/t</b></div>
         <div class="hint">Sells best in: ${this.bestMarkets(good, port.id)}</div>
         <div class="btn-row">${room > 10 ? buyBtn(good, 10, '+10 t') : ''}${room > 50 ? buyBtn(good, 50, '+50 t') : ''}${buyBtn(good, 'max', room > 0 ? `Fill ${tons(room)}` : 'Hold full')}</div>
       </li>`).join('');
-    const wants = wanted.map((good) => `${esc(world.goods[good].name.toLowerCase())} ${money(priceNews(world, g, port.id, good)!.price)}`).join(' · ');
+    const wants = wanted.map((good) => `<span class="gchip">${goodIcon(good, 18)}${esc(world.goods[good].name.toLowerCase())} ${money(priceNews(world, g, port.id, good)!.price)}</span>`).join(' ');
     return `<section class="card trade-card">
       <h3>⚖ Trade on your own account</h3>
       <p class="hint">Buy goods here and sell them where they're wanted. Prices elsewhere are as of the latest letter from there: news travels by ship.</p>
@@ -1971,7 +1974,7 @@ class App {
         : r.charted ? `<p class="charted">🧭 Charted ${r.charted} new stretch${r.charted > 1 ? 'es' : ''} of water on the way.</p>` : ''}
       ${r.news.length ? `<div class="news-in-report"><h3>News while at sea</h3><ul>${r.news.map((n) => `<li>📰 ${esc(n)}</li>`).join('')}</ul></div>` : ''}
       <div class="ledger">
-        ${r.deliveries.map((d) => line(`${world.goods[d.contract.good].name}, ${tons(d.contract.tons)}${d.lateDays > 0 ? ` (late, ${Math.round((d.paid / d.contract.pay) * 100)}% paid)` : ''}`, d.paid, 'good')).join('')}
+        ${r.deliveries.map((d) => `<div class="line good"><span class="gline">${goodIcon(d.contract.good, 22)}${esc(`${world.goods[d.contract.good].name}, ${tons(d.contract.tons)}${d.lateDays > 0 ? ` (late, ${Math.round((d.paid / d.contract.pay) * 100)}% paid)` : ''}`)}</span><span>${money(d.paid, true)}</span></div>`).join('')}
         ${line('Upkeep on the way (paid daily)', -r.upkeep)}
         ${line('Port fee', -r.portFee)}
         ${r.services ? line('Pilot & tugs', -r.services) : ''}

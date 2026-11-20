@@ -238,7 +238,7 @@ src/sim/         Pure simulation, no DOM (deterministic: seeded RNG stored in th
   economy.ts     Port price levels, oil market, world events (ECONOMY)
   bot.ts         Greedy and casual captains used for balancing (and a seed for automation later)
   save.ts        localStorage save/load, with upgrades for older saves
-src/ui/          Rendering: d3-geo world map (map.ts), ship art (art.ts), port view (port-scene.ts), sound (sound.ts), music (music.ts), panels, styles
+src/ui/          Rendering: d3-geo world map (map.ts), ship art (art.ts), goods icons (goods-icons.ts), port view (port-scene.ts), sound (sound.ts), music (music.ts), panels, styles
 scripts/         balance.ts, compare.sh, progression.ts, ships.ts, economy.ts, tune-ships.py
 tests/           vitest
 ```
