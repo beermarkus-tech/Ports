@@ -103,6 +103,12 @@ on 1 January 1650, and the chart is drawn on parchment.
   other people's ships from wherever yours are (or from home): Batavia's prices
   reach Amsterdam months old. Every price shown is dated.
 
+- **Music**: an original sarabande in D minor (the slow dance in fashion in the
+  1650s) for lute, recorder and bass viol, synthesised in the browser and
+  looping quietly in the background (about 75 seconds: lute alone, then the
+  recorder, then the viol, ending on a D major chord). The ♪ button turns it
+  off or on; the speaker button silences everything.
+
 Still to come for this era: more nations (a Chinese merchant house next). The trade in enslaved
 people is not part of the game.
 
@@ -229,7 +235,7 @@ src/sim/         Pure simulation, no DOM (deterministic: seeded RNG stored in th
   economy.ts     Port price levels, oil market, world events (ECONOMY)
   bot.ts         Greedy and casual captains used for balancing (and a seed for automation later)
   save.ts        localStorage save/load, with upgrades for older saves
-src/ui/          Rendering: d3-geo world map (map.ts), ship art (art.ts), port view (port-scene.ts), sound (sound.ts), panels, styles
+src/ui/          Rendering: d3-geo world map (map.ts), ship art (art.ts), port view (port-scene.ts), sound (sound.ts), music (music.ts), panels, styles
 scripts/         balance.ts, compare.sh, progression.ts, ships.ts, economy.ts, tune-ships.py
 tests/           vitest
 ```

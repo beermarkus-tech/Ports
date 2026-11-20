@@ -41,6 +41,8 @@ function applyEra(era: 'modern' | 'sail'): void {
   world = getWorld();
   setEraFormat(world.era.startYear, world.era.currency);
   document.documentElement.classList.toggle('era-sail', era === 'sail');
+  // The Age of Sail has its own music (it starts with the first tap, as browsers require).
+  sound.setMusicWanted(era === 'sail');
 }
 
 /** Words that differ between the eras. */
@@ -539,6 +541,10 @@ class App {
         return;
       case 'mute':
         sound.setEnabled(!sound.enabled);
+        this.renderMute();
+        return;
+      case 'music':
+        sound.setMusicOn(!sound.musicOn);
         this.renderMute();
         return;
       case 'dock-yourself':
@@ -1992,6 +1998,11 @@ class App {
   }
 
   private renderMute(): void {
+    const mu = $('#music');
+    mu.hidden = !world.era.wind;
+    mu.classList.toggle('off', !sound.musicOn || !sound.enabled);
+    mu.title = !sound.enabled ? 'Sound is off' : sound.musicOn ? 'Music on: tap to stop it' : 'Music off: tap to play it';
+    mu.setAttribute('aria-pressed', String(sound.musicOn));
     const b = $('#mute');
     b.textContent = sound.enabled ? '🔊' : '🔇';
     b.title = sound.enabled ? 'Sound on: tap to mute' : 'Sound off: tap to unmute';

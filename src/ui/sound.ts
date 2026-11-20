@@ -2,25 +2,53 @@
 // so they work offline). Off until the first tap, as browsers require; the
 // mute setting is remembered on the device.
 
+import { Music } from './music';
+
 export type SoundName = 'horn' | 'bell' | 'coins' | 'thunder' | 'clank' | 'fanfare' | 'click';
 
 const KEY = 'deadweight.sound';
+const MUSIC_KEY = 'deadweight.music';
 
 class SoundBoard {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   enabled: boolean;
+  /** Background music on (the player's choice; it only plays where the era has some). */
+  musicOn: boolean;
+  /** Whether the current game has music (the Age of Sail does). */
+  private musicWanted = false;
+  private music = new Music();
 
   constructor() {
-    let saved: string | null = null;
-    try { saved = localStorage.getItem(KEY); } catch { /* private mode */ }
+    let saved: string | null = null, music: string | null = null;
+    try { saved = localStorage.getItem(KEY); music = localStorage.getItem(MUSIC_KEY); } catch { /* private mode */ }
     this.enabled = saved !== 'off';
+    this.musicOn = music !== 'off';
+  }
+
+  /** Play or stop the background music to match the settings and the game. */
+  private syncMusic(): void {
+    const ctx = this.ctx;
+    if (ctx && this.master && ctx.state === 'running' && this.enabled && this.musicOn && this.musicWanted) this.music.start(ctx, this.master);
+    else this.music.stop();
+  }
+
+  setMusicWanted(on: boolean): void {
+    this.musicWanted = on;
+    this.syncMusic();
+  }
+
+  setMusicOn(on: boolean): void {
+    this.musicOn = on;
+    try { localStorage.setItem(MUSIC_KEY, on ? 'on' : 'off'); } catch { /* ignore */ }
+    this.syncMusic();
   }
 
   /** Must be called from a user gesture before the first sound. */
   unlock(): void {
     if (this.ctx) {
-      if (this.ctx.state === 'suspended') void this.ctx.resume();
+      if (this.ctx.state === 'suspended') void this.ctx.resume().then(() => this.syncMusic());
+      else this.syncMusic();
       return;
     }
     const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -29,11 +57,14 @@ class SoundBoard {
     this.master = this.ctx.createGain();
     this.master.gain.value = 0.5;
     this.master.connect(this.ctx.destination);
+    if (this.ctx.state === 'running') this.syncMusic();
+    else void this.ctx.resume().then(() => this.syncMusic());
   }
 
   setEnabled(on: boolean): void {
     this.enabled = on;
     try { localStorage.setItem(KEY, on ? 'on' : 'off'); } catch { /* ignore */ }
+    this.syncMusic();
   }
 
   play(name: SoundName): void {
