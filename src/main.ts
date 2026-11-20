@@ -1110,9 +1110,11 @@ class App {
   private areaReport(regions: string[], ship: ShipState): string {
     const g = this.g;
     const type = typeOf(ship);
-    const ports = areaPorts(regions);
+    // Captains only sail to charted ports, so uncharted ones (1650) don't count here either.
+    const known = (id: string) => isCharted(g, id);
+    const ports = areaPorts(regions).filter(known);
     const pairs: [string, string][] = regions.length > 1
-      ? region(regions[0]).ports.flatMap((a) => region(regions[1]).ports.flatMap((b) => [[a, b], [b, a]] as [string, string][]))
+      ? region(regions[0]).ports.filter(known).flatMap((a) => region(regions[1]).ports.filter(known).flatMap((b) => [[a, b], [b, a]] as [string, string][]))
       : ports.flatMap((a) => ports.filter((b) => b !== a).map((b) => [a, b] as [string, string]));
     const perNm = (type.fuelPerDay * consumptionFactor(ship)) / (effectiveSpeed(type, ship) * 24);
     const legs = pairs.map(([a, b]) => ({ a, b, nm: world.route(a, b)?.nm ?? Infinity }));
@@ -1148,12 +1150,17 @@ class App {
       : '<p class="warn-line">No free captain. Hire one in the Company tab first.</p>';
     const cards = regions().map((r) => {
       const on = d.regions.includes(r.id);
-      const laneWith = !on && d.regions.length === 1 ? d.regions[0] : null;
+      // What each card shows is what the captain would actually sail: the chosen region or
+      // lane on the chosen cards; on the others, the lane they would make with the first choice.
+      const laneWith = !on && d.regions.length >= 1 ? d.regions[0] : null;
+      const replaces = !on && d.regions.length === 2 ? d.regions[1] : null;
       const home = captains.find((c) => c.id === d.captainId)?.home === r.id;
       return `<li class="region ${on ? 'on' : ''}" data-action="area-region" data-id="${r.id}">
         <div class="r-head"><strong>${on ? '✓ ' : ''}${esc(r.name)}</strong>${home ? '<span class="tag good">captain\'s home</span>' : ''}</div>
         <div class="r-ports">${r.ports.map((p) => esc(world.ports[p].name)).join(' · ')}</div>
-        ${laneWith ? `<div class="r-lane">As a lane with ${esc(region(laneWith).name)}:</div>${this.areaReport([laneWith, r.id], ship)}` : this.areaReport([r.id], ship)}
+        ${on ? `<div class="r-lane">${d.regions.length > 1 ? `Your lane, ${esc(region(d.regions[0]).name)} ⇄ ${esc(region(d.regions[1]).name)}:` : 'Your area, on its own:'}</div>${this.areaReport(d.regions, ship)}`
+          : laneWith ? `<div class="r-lane">${replaces ? `In place of ${esc(region(replaces).name)}, as a lane with ${esc(region(laneWith).name)}:` : `As a lane with ${esc(region(laneWith).name)}:`}</div>${this.areaReport([laneWith, r.id], ship)}`
+          : this.areaReport([r.id], ship)}
       </li>`;
     }).join('');
     const pct = [40, 50, 60, 70].map((p) =>
