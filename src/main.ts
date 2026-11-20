@@ -264,7 +264,6 @@ class App {
         if (s.orders?.halted) this.toast(`${s.name} stopped its route in ${world.ports[s.location].name}: ${s.orders.halted}`, 'bad');
         else this.toast(`${s.name} ${wasDocked ? (isSail() ? 'is careened and afloat again' : 'is out of dry dock') : 'has finished waiting'} in ${world.ports[s.location].name} and needs orders.`, 'good');
       }
-      sound.play('bell');
       this.goToNextDecision();
       this.render();
       return;
@@ -446,13 +445,13 @@ class App {
         break;
       }
       case 'dest': this.selectDest(data.id!); return;
-      case 'sail': this.isSail(); return;
+      case 'sail': this.castOff(); return;
       case 'bunker-sail': {
         const plan = this.dest ? planVoyage(this.g, id, this.dest) : null;
         if (!plan) break;
         const target = Math.min(type.bunkerCapacity, Math.ceil(plan.fuelNeeded * 1.15));
         if (this.act((g) => buyFuel(g, id, target - getShip(g, id).fuel)) && this.ship().fuel >= plan.fuelNeeded) {
-          this.isSail();
+          this.castOff();
           return;
         }
         break;
@@ -502,7 +501,7 @@ class App {
         if (this.act((g) => assignCaptain(g, captainId, d.shipId, d.regions, d.repairBelow))) {
           this.areaDraft = null;
           this.dest = null;
-          sound.play('horn');
+          sound.play(isSail() ? 'sails' : 'horn');
           const c = this.g.captains!.find((x) => x.id === captainId)!;
           this.toast(`Captain ${c.name} takes the ${ship.name}: ${areaName(d.regions)}.`, 'good');
           this.afterDecision();
@@ -648,11 +647,12 @@ class App {
     this.render();
   }
 
-  private isSail(): void {
+  private castOff(): void {
     if (!this.dest) return;
     const ship = this.ship();
     if (!this.act((g) => sail(g, ship.id, this.dest!))) { this.render(); return; }
-    sound.play('horn');
+    // A horn for a steamer; for a sailing ship, the sails filling with wind.
+    sound.play(isSail() ? 'sails' : 'horn');
     this.dest = null;
     this.tab = 'voyage';
     this.view = 'map';
@@ -1829,7 +1829,6 @@ class App {
       this.marketPort = null;
       this.tab = 'contracts';
     }
-    sound.play('bell');
     if (report.revenue > 0) {
       this.map.flashAt(this.map.portPosition(report.to), money(report.revenue, true), 'good');
       this.map.pulseAt(this.map.portPosition(report.to), 'good');

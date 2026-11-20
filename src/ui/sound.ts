@@ -4,7 +4,7 @@
 
 import { Music } from './music';
 
-export type SoundName = 'horn' | 'bell' | 'coins' | 'thunder' | 'clank' | 'fanfare' | 'click';
+export type SoundName = 'horn' | 'sails' | 'bell' | 'coins' | 'thunder' | 'clank' | 'fanfare' | 'click';
 
 const KEY = 'deadweight.sound';
 const MUSIC_KEY = 'deadweight.music';
@@ -70,7 +70,7 @@ class SoundBoard {
   play(name: SoundName): void {
     if (!this.enabled || !this.ctx || !this.master || this.ctx.state !== 'running') return;
     const t = this.ctx.currentTime;
-    ({ horn: () => this.horn(t), bell: () => this.bell(t), coins: () => this.coins(t), thunder: () => this.thunder(t),
+    ({ horn: () => this.horn(t), sails: () => this.sails(t), bell: () => this.bell(t), coins: () => this.coins(t), thunder: () => this.thunder(t),
       clank: () => this.clank(t), fanfare: () => this.fanfare(t), click: () => this.tone(t, 900, 0.03, 'square', 0.03) })[name]();
   }
 
@@ -110,6 +110,36 @@ class SoundBoard {
     this.env(gain, t + at, 0.05, peak, dur);
     src.connect(filter).connect(gain).connect(this.master!);
     src.start(t + at);
+  }
+
+  /**
+   * Sails filling with wind as a sailing ship gets under way: a soft gust of
+   * filtered noise swelling and fading, with a dull flap of canvas in it.
+   */
+  private sails(t: number): void {
+    const ctx = this.ctx!;
+    const dur = 1.8;
+    const buffer = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate);
+    const d = buffer.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    // The gust: band-passed noise whose pitch rises a little as the wind takes the sails.
+    const band = ctx.createBiquadFilter();
+    band.type = 'bandpass';
+    band.Q.value = 0.8;
+    band.frequency.setValueAtTime(380, t);
+    band.frequency.linearRampToValueAtTime(700, t + 0.9);
+    band.frequency.linearRampToValueAtTime(450, t + dur);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.16, t + 0.7);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(band).connect(gain).connect(this.master!);
+    src.start(t);
+    src.stop(t + dur);
+    // Two soft flaps of canvas as the sails fill.
+    for (const at of [0.35, 0.62]) this.noise(t, 0.12, 300, 0.12, at);
   }
 
   /** A ship's horn: two low, slightly detuned sawtooths through a low-pass filter. */
