@@ -108,12 +108,18 @@ export function chartPath(world: World, g: GameState, path: string[]): string[] 
   return found;
 }
 
+/** "textiles, rice and porcelain": what a port buys, in words. */
+export function wantedGoods(world: World, portId: string): string {
+  const names = world.ports[portId].demands.map((d) => world.goods[d.good].name.toLowerCase());
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0] ?? 'its imports';
+}
+
 function discoveryBoom(world: World, g: GameState, portId: string): void {
   const [a, b] = CHART_TUNING.discoveryDays;
   const days = a + Math.floor(rand(g) * (b - a));
   g.events.push({
     id: g.nextId++, kind: 'boom', port: portId, startDay: g.day, endDay: g.day + days, boost: CHART_TUNING.discoveryBoost,
-    headline: `First of our ships in ${world.ports[portId].name}: its merchants pay handsomely for anything from home.`,
+    headline: `First of our ships in ${world.ports[portId].name}: its merchants pay handsomely for ${wantedGoods(world, portId)} for a while.`,
   });
 }
 

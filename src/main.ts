@@ -1,6 +1,6 @@
 import './ui/style.css';
 import { activeEvents, closedCanals, priceLevel, routeFor } from './sim/economy';
-import { CHART_TUNING, chartOffers, fogFor, isCharted, unchartedShare } from './sim/charts';
+import { CHART_TUNING, chartOffers, fogFor, isCharted, unchartedShare, wantedGoods } from './sim/charts';
 import { bestKnownMarkets, buyPrice, goodsBuyQuote, goodsSaleQuote, hasTrade, priceNews, type PriceNews } from './sim/trade';
 import {
   ActionError, LAID_UP, RULES, acceptContract, advance, atSea, borrow, buyFuel, buyShip, canCarry, cargoTons, clearOrders,
@@ -1739,7 +1739,7 @@ class App {
     if (plan.strike) warnings.push(`Dock strike in ${name}: ${plan.strikeDays} extra days in port and double fees (included above).`);
     const normal = world.route(ship.location, plan.dest, [], fogFor(g), CHART_TUNING.unchartedPenalty);
     const dark = unchartedShare(world, g, plan.route.path);
-    if (dark > 0) warnings.push(`A voyage of discovery: ${Math.round(dark * 100)}% of the way is uncharted water, slower going and more danger. Every league sailed gets charted${isCharted(g, plan.dest) ? '' : `, and the first of your ships in ${name} will find its merchants eager to buy`}.`);
+    if (dark > 0) warnings.push(`A voyage of discovery: ${Math.round(dark * 100)}% of the way is uncharted water, slower going and more danger. Every league sailed gets charted${isCharted(g, plan.dest) ? '' : `, , and the first of your ships in ${name} will find it paying well above the usual for ${wantedGoods(world, plan.dest)}`}.`);
     if (normal && normal.nm < plan.route.nm - 50) {
       const closed = closedCanals(g).filter((c) => normal.canals.includes(c)).map((c) => world.canals[c].name).join(' and ');
       warnings.push(`The ${closed} is closed: this route is ${(plan.route.nm - normal.nm).toLocaleString('en-US')} nm longer than usual.`);
@@ -1968,7 +1968,7 @@ class App {
       <h2>${esc(r.shipName)} arrived in ${esc(world.ports[r.to].name)}</h2>
       <p class="sub">${r.distance.toLocaleString('en-US')} nm from ${esc(world.ports[r.from].name)} in ${days(Math.round((r.arriveDay - r.departDay) * 10) / 10)} · ${fuelAmt(r.fuelUsed)} ${isSail() ? 'eaten' : 'fuel burned'} · condition −${r.conditionLoss}%</p>
       ${r.events.length ? `<ul class="events">${r.events.map((e) => `<li class="${e.kind}"><span>Day ${e.day}</span> ${esc(e.text)}</li>`).join('')}</ul>` : '<p class="calm">A calm passage.</p>'}
-      ${r.discovered?.length ? `<div class="discovery"><h3>Discovery!</h3><p>The first of your ships to reach ${r.discovered.map((id) => esc(world.ports[id].name)).join(' and ')}. Its merchants will pay handsomely for goods from home for a while, and charters to it now appear on the quays.</p></div>`
+      ${r.discovered?.length ? `<div class="discovery"><h3>Discovery!</h3><p>The first of your ships to reach ${r.discovered.map((id) => esc(world.ports[id].name)).join(' and ')}. ${r.discovered.map((id) => `${esc(world.ports[id].name)} pays well above the usual for ${esc(wantedGoods(world, id))} for the next few months`).join('; ')}, and charters to it now appear on the quays.</p></div>`
         : r.charted ? `<p class="charted">🧭 Charted ${r.charted} new stretch${r.charted > 1 ? 'es' : ''} of water on the way.</p>` : ''}
       ${r.news.length ? `<div class="news-in-report"><h3>News while at sea</h3><ul>${r.news.map((n) => `<li>📰 ${esc(n)}</li>`).join('')}</ul></div>` : ''}
       <div class="ledger">
