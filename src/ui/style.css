@@ -942,3 +942,26 @@ button.era-card:hover { border-color: var(--accent); }
 .gchip { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; margin-right: 4px; }
 .gline { display: inline-flex; align-items: center; gap: 6px; }
 .goods-outlook li .gi { margin-right: 2px; }
+
+/* ---------- calls on the way ---------- */
+.onway { display: inline-block; font-size: 11px; font-weight: 600; padding: 0 7px; border-radius: 999px; margin-left: 4px; white-space: nowrap;
+  background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); }
+.offway { display: inline-block; font-size: 11px; margin-left: 4px; white-space: nowrap; color: var(--muted); }
+.contract.offcourse { opacity: 0.6; }
+.contract.offcourse:hover { opacity: 0.85; }
+.ways { border-top: 1px solid var(--line); padding-top: 6px; margin-top: 4px; }
+.ways h5 { margin: 4px 0 2px; font-size: 11.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.way { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; padding: 9px 0; align-items: start; }
+.way + .way { border-top: 1px solid var(--line); }
+.way .n { font-weight: 600; }
+.way .d { font-size: 13px; color: var(--muted); }
+.way .d .gi { margin-right: 2px; }
+.way .foot { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+.way .net { font-weight: 700; color: var(--good); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.way .net small { display: block; font-weight: 400; font-size: 11px; color: var(--muted); }
+.planned, .via-note { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; padding: 8px 12px; margin-bottom: 10px;
+  border-radius: var(--radius); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+.planned .k { display: block; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+.via-note { font-size: 13.5px; }
+.port.via .dot { fill: var(--accent-2); }
+.port.via .halo { fill: none; stroke: var(--accent-2); stroke-width: 2.5; fill-opacity: 0; }

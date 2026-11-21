@@ -11,7 +11,8 @@ import { CAPTAIN_TUNING, captainSlots, churnCaptainPool, fillCaptainPool } from 
 import { bookServiceCargo, churnBoard, latePayFactor, regenerateBoard } from './contracts';
 import { areaName, areaPorts, region, regionOf } from './regions';
 import { routeWind } from './wind';
-import { buyPrice, ensureTrade, goodsBuyQuote, goodsSaleQuote, goodsTons, recordPurchase, recordSale, tradeDay } from './trade';
+import { buyPrice, ensureTrade, goodsBuyQuote, goodsSaleQuote, goodsTons, hasTrade, priceNews, recordPurchase, recordSale, tradeDay } from './trade';
+import { CONTRACT_TUNING } from './contracts';
 import { applyChart, CHART_TUNING, chartOffers, chartPath, ensureCharts, isCharted, unchartedShare } from './charts';
 
 /** Speed factor on a route: the wind (Age of Sail), and slower going in uncharted water. */
@@ -830,6 +831,118 @@ function legValue(g: GameState, ship: ShipState, from: string, to: string, cargo
   return { ...leg, gain: revenue - leg.costs };
 }
 
+// ---------------------------------------------------------------- calls on the way
+
+export const ONWAY = {
+  /** A port is "on the way" if calling there makes the voyage at most this much longer. */
+  maxDetour: 0.15,
+  /** Suggestions shown at most. */
+  maxCalls: 3,
+  /** 1650: a port's regular trade is a guess (the lot may be gone): count this share of its typical pay. */
+  hunch: 0.8,
+};
+
+/** How much longer here → stop → dest is than sailing direct (nm, and as a share). */
+export function detour(g: GameState, from: string, stop: string, dest: string, world: World = getWorld()): { extraNm: number; share: number } | null {
+  const a = routeFor(world, g, from, stop), b = routeFor(world, g, stop, dest), d = routeFor(world, g, from, dest);
+  if (!a || !b || !d || d.nm <= 0) return null;
+  const extraNm = Math.max(0, a.nm + b.nm - d.nm);
+  return { extraNm, share: extraNm / d.nm };
+}
+
+export interface CallOnTheWay {
+  port: string;
+  extraNm: number;
+  /** Extra days the call adds (sailing plus the time in port). */
+  extraDays: number;
+  /** Cargo aboard delivered there. */
+  deliveries: { good: string; tons: number; pay: number }[];
+  /** Charters there for the destination: live lots (modern) or the port's regular trade (1650, estimated). */
+  freight: { good: string; tons: number; pay: number }[];
+  estimated: boolean;
+  /** Own goods aboard that sell better there than at the destination (by the news you have). */
+  sales: { good: string; tons: number; gain: number; price: number; asOf: number; live: boolean }[];
+  /** Late pay the call would cost cargo aboard for the destination. */
+  lateLoss: number;
+  /** What the call adds after its costs. */
+  net: number;
+}
+
+/**
+ * Ports a short detour away (at most 15% longer) where calling on the way to `dest`
+ * pays: cargo aboard for them, cargo there heading for `dest`, or a better buyer for
+ * goods aboard. Costs count the extra days of upkeep, fuel or victuals, the port fee
+ * and late pay for cargo aboard. Best first; only those that pay.
+ */
+export function callsOnTheWay(g: GameState, shipId: number, dest: string, world: World = getWorld()): CallOnTheWay[] {
+  const ship = getShip(g, shipId);
+  const here = ship.location;
+  const type = typeOf(ship, world);
+  const direct = legCost(g, ship, here, dest, world);
+  if (!direct || !isReady(g, ship) || dest === here) return [];
+  const sail = hasTrade(world);
+  const out: CallOnTheWay[] = [];
+  for (const p of world.portList) {
+    if (p.id === here || p.id === dest || !isCharted(g, p.id)) continue;
+    const dt = detour(g, here, p.id, dest, world);
+    if (!dt || dt.share > ONWAY.maxDetour) continue;
+    const a = legCost(g, ship, here, p.id, world), b = legCost(g, ship, p.id, dest, world);
+    if (!a || !b || !a.inRange || !b.inRange) continue;
+    const extraDays = a.days + b.days - direct.days;
+    const arriveStop = g.day + a.seaDays;
+    const arriveDest = g.day + a.days + b.seaDays;
+    const arriveDirect = g.day + direct.seaDays;
+    const deliveries = ship.cargo.filter((c) => c.dest === p.id)
+      .map((c) => ({ good: c.good, tons: c.tons, pay: Math.round(c.pay * latePayFactor(arriveStop - c.deadline)) }));
+    const lateLoss = Math.round(ship.cargo.filter((c) => c.dest === dest)
+      .reduce((s, c) => s + c.pay * (latePayFactor(arriveDirect - c.deadline) - latePayFactor(arriveDest - c.deadline)), 0));
+    const free = type.capacity - cargoTons(ship) + deliveries.reduce((s, d) => s + d.tons, 0);
+    let freight: CallOnTheWay['freight'] = [];
+    if (!sail) {
+      freight = pickLots(g.ports[p.id].board, dest, free, arriveDest, type, world).map((c) => ({ good: c.good, tons: c.tons, pay: c.pay }));
+    } else if (free > 0) {
+      // 1650: you can't see that quay. Judge by what the port usually ships that the destination wants.
+      const nm = routeFor(world, g, p.id, dest)!.nm;
+      const best = p.produces.map((x) => world.goods[x.good])
+        .filter((good) => type.cargoClasses.includes(good.cargoClass))
+        .map((good) => {
+          const want = world.ports[dest].demands.find((d) => d.good === good.id);
+          if (!want) return null;
+          const tons = Math.min(free, Math.round((good.lotMin + good.lotMax) / 2 / 10) * 10);
+          const pay = CONTRACT_TUNING.payScale * world.era.payFactor * tons * good.freightRate * ((CONTRACT_TUNING.handlingNm + nm) / 1000) * want.strength * ONWAY.hunch;
+          return { good: good.id, tons, pay: Math.round(pay / 100) * 100 };
+        })
+        .filter((x): x is { good: string; tons: number; pay: number } => x !== null && x.tons > 0)
+        .sort((x, y) => y.pay - x.pay)[0];
+      if (best) freight = [best];
+    }
+    const sales: CallOnTheWay['sales'] = [];
+    for (const lot of ship.goods ?? []) {
+      const there = priceNews(world, g, p.id, lot.good);
+      if (!there || !world.ports[p.id].demands.some((d) => d.good === lot.good)) continue;
+      const atDest = world.ports[dest].demands.some((d) => d.good === lot.good) ? priceNews(world, g, dest, lot.good) : null;
+      const gain = Math.round((there.price - (atDest?.price ?? 0)) * lot.tons);
+      if (gain > 0) sales.push({ good: lot.good, tons: lot.tons, gain, price: there.price, asOf: there.asOf, live: there.live });
+    }
+    const gain = deliveries.reduce((s, d) => s + d.pay, 0) + freight.reduce((s, f) => s + f.pay, 0) + sales.reduce((s, x) => s + x.gain, 0);
+    if (gain <= 0) continue;
+    const cost = a.costs + b.costs - direct.costs + extraDays * type.dailyCost;
+    const net = Math.round(gain - cost - lateLoss);
+    if (net <= 0) continue;
+    out.push({ port: p.id, extraNm: Math.round(dt.extraNm), extraDays, deliveries, freight, estimated: sail, sales, lateLoss, net });
+  }
+  return out.sort((x, y) => y.net - x.net).slice(0, ONWAY.maxCalls);
+}
+
+/** Remember (or forget, with null) where a ship is ultimately heading while it calls on the way. */
+export function setPlannedDest(state: GameState, shipId: number, dest: string | null): GameState {
+  const g = clone(state);
+  const ship = getShip(g, shipId);
+  if (dest && dest !== ship.location) ship.plannedDest = dest;
+  else delete ship.plannedDest;
+  return g;
+}
+
 /** Pick lots from a board for `dest` that fit and arrive in time, best pay per ton first. */
 function pickLots(board: Contract[], dest: string, free: number, arriveDay: number, type: ShipTypeDef, world: World, taken = new Set<number>()) {
   const lots: Contract[] = [];
@@ -1167,6 +1280,8 @@ function arrive(world: World, g: GameState, ship: ShipState): void {
   }
   const type = typeOf(ship, world);
   ship.location = dest;
+  // Arrived where the player was ultimately heading: the "Go via" plan is done.
+  if (ship.plannedDest === dest) delete ship.plannedDest;
   ship.fuel = v.fuelAtArrival;
   ship.condition = v.conditionAtArrival;
 

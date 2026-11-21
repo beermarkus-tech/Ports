@@ -96,6 +96,8 @@ export interface ShipState {
   /** Years. Older ships are slower, thirstier and break down more. */
   age: number;
   cargo: Contract[];
+  /** Where the player is ultimately heading, kept while the ship calls at ports on the way ("Go via"). */
+  plannedDest?: string;
   /** Goods bought on your own account (Age of Sail): what's aboard and what it cost in all. */
   goods?: OwnLot[];
   /** Set while the ship is at sea. */

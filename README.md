@@ -127,6 +127,12 @@ people is not part of the game.
    a ship in the strip under the map (or on the map) and the tabs act on it.
 1. **Contracts:** load cargo offered in your port. You can carry lots for
    several destinations at once, as long as they fit in the hold.
+   With a destination chosen, lots for ports on the way (calling there makes the
+   voyage at most 15% longer) are tagged "on your way", lots for the destination
+   "your destination", and the rest are faded with the extra distance shown. The
+   voyage plan suggests up to three **calls on the way** that pay after their
+   costs (in 1650 judged by each port's regular trade and the latest news);
+   **Go via** sails to the stop and remembers the final destination.
    Cargo can be handed back free in the port where it was loaded. Anywhere
    else, at sea too, you can **jettison** it: the shipper then claims 30% of
    the pay as compensation (goods on your own account are simply lost).

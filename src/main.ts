@@ -4,7 +4,7 @@ import { CHART_TUNING, chartOffers, fogFor, isCharted, unchartedShare, wantedGoo
 import { bestKnownMarkets, buyPrice, goodsBuyQuote, goodsSaleQuote, hasTrade, priceNews, type PriceNews } from './sim/trade';
 import {
   ActionError, LAID_UP, RULES, acceptContract, advance, atSea, borrow, buyFuel, buyShip, canCarry, cargoTons, clearOrders,
-  assignCaptain, buyChart, buyGoods, sellGoods, captainOf, fireCaptain, hireCaptain, monthOf, monthProfit, onOrders, resumeOrders,
+  assignCaptain, buyChart, callsOnTheWay, detour, ONWAY, setPlannedDest, type CallOnTheWay, buyGoods, sellGoods, captainOf, fireCaptain, hireCaptain, monthOf, monthProfit, onOrders, resumeOrders,
   dailyUpkeep, daysUntilNextShip, fuelPrice, getShip, inDryDock, isReady, isWaiting, needsDecision, newGame,
   dockByHand, nextMilestone, planVoyage, portFee, repair, repairQuote, repayLoan, sail, saleQuote, sellShip,
   shipsNeedingDecision, takeReport, typeOf, unloadContract, jettisonClaim, jettisonContract, jettisonGoods, voyageProgress, waitInPort, type VoyagePlan,
@@ -510,6 +510,25 @@ class App {
         this.render();
         return;
       }
+      case 'go-via': {
+        const final = this.dest;
+        if (!final || !data.id) return;
+        this.viaFinal = final;
+        this.dest = data.id;
+        this.routesHidden = false;
+        this.tab = 'voyage';
+        break;
+      }
+      case 'clear-via':
+        this.viaFinal = null;
+        break;
+      case 'clear-planned': {
+        const sid = this.ship().id;
+        this.act((g) => setPlannedDest(g, sid, null));
+        this.dest = null;
+        this.viaFinal = null;
+        break;
+      }
       case 'buy-goods':
         this.act((g) => buyGoods(g, this.activeId, data.good!, data.tons === 'max' ? Infinity : Number(data.tons)));
         break;
@@ -622,10 +641,14 @@ class App {
     this.render();
   }
 
+  /** Set by "Go via": the destination to remember while the ship calls at `this.dest`. */
+  private viaFinal: string | null = null;
+
   private selectShip(id: number, tab?: Tab): void {
     if (id !== this.activeId) {
       this.activeId = id;
       this.dest = null;
+      this.viaFinal = null;
       this.marketPort = null;
       this.routesHidden = false;
     } else if (!tab) {
@@ -638,11 +661,28 @@ class App {
     this.render();
   }
 
+  /** Ready in port with a remembered destination ("Go via")? Then that's the destination to plan for. */
+  private applyPlannedDest(): void {
+    const ship = this.ship();
+    if (!this.dest && ship.plannedDest && ship.plannedDest !== ship.location && isReady(this.g, ship)) this.dest = ship.plannedDest;
+  }
+
+  /** Calls on the way for the active ship's chosen destination (worked out once per state). */
+  private callsCache: { g: GameState; key: string; calls: CallOnTheWay[] } | null = null;
+  private calls(): CallOnTheWay[] {
+    const ship = this.ship();
+    if (!this.dest || !isReady(this.g, ship)) return [];
+    const key = `${ship.id}>${this.dest}`;
+    if (this.callsCache?.g !== this.g || this.callsCache.key !== key) this.callsCache = { g: this.g, key, calls: callsOnTheWay(this.g, ship.id, this.dest) };
+    return this.callsCache.calls;
+  }
+
   private selectDest(portId: string): void {
     const ship = this.ship();
     if (this.areaDraft?.shipId === ship.id) { const r = regionOf(portId); if (r) this.toggleRegion(r); return; }
     if (!isReady(this.g, ship)) return;
     this.dest = portId === ship.location ? null : portId;
+    this.viaFinal = null;
     this.routesHidden = false;
     this.tab = 'voyage';
     this.render();
@@ -651,7 +691,11 @@ class App {
   private castOff(): void {
     if (!this.dest) return;
     const ship = this.ship();
-    if (!this.act((g) => sail(g, ship.id, this.dest!))) { this.render(); return; }
+    const via = this.viaFinal;
+    // Going via a stop keeps (or sets) where she's ultimately bound; any other destination replaces it.
+    const planned = via ?? (ship.plannedDest && ship.plannedDest !== this.dest ? null : ship.plannedDest ?? null);
+    if (!this.act((g) => sail(setPlannedDest(g, ship.id, planned), ship.id, this.dest!))) { this.render(); return; }
+    this.viaFinal = null;
     // A horn for a steamer; for a sailing ship, the sails filling with wind.
     sound.play(isSail() ? 'sails' : 'horn');
     this.dest = null;
@@ -664,6 +708,7 @@ class App {
   // ------------------------------------------------------------ rendering
 
   private render(): void {
+    this.applyPlannedDest();
     this.renderLive();
     this.renderPanel();
     this.renderPorts();
@@ -903,6 +948,7 @@ class App {
     const g = this.g;
     const ship = this.ship();
     const cargoDests = new Set(ship.cargo.map((c) => c.dest));
+    const viaPorts = new Set(this.calls().map((c) => c.port));
     const events = activeEvents(g);
     const here = ship.voyage ? null : ship.location;
     const markers: PortMarker[] = world.portList.map((p) => ({
@@ -911,7 +957,7 @@ class App {
       fuelPrice: fuelPrice(g, p.id),
       role: p.id === here ? 'here'
         : p.id === (this.dest ?? ship.voyage?.to) || (this.areaDraft?.shipId === ship.id && areaPorts(this.areaDraft.regions).includes(p.id)) ? 'dest'
-          : cargoDests.has(p.id) ? 'cargo' : 'normal',
+          : viaPorts.has(p.id) ? 'via' : cargoDests.has(p.id) ? 'cargo' : 'normal',
       strike: events.some((e) => e.kind === 'strike' && e.port === p.id),
       boom: events.some((e) => e.kind === 'boom' && e.port === p.id),
     }));
@@ -1037,17 +1083,24 @@ class App {
     const plan = mode === 'board' ? planVoyage(g, ship.id, c.dest) : null;
     const reach = plan && !plan.inRange ? '<span class="tag warn">needs refuel stop</span>' : '';
     const urgent = daysLeft < (nm / (effectiveSpeed(typeOf(ship), ship) * 24)) + 1.5;
+    // With a destination chosen: is this lot for it, on the way (at most 15% longer), or off course?
+    const target = mode === 'board' && isReady(g, ship) ? this.dest : null;
+    const way = !target ? null : c.dest === target ? { kind: 'dest' as const, nm: 0 }
+      : (() => { const d = detour(g, ship.location, c.dest, target); return d ? { kind: d.share <= ONWAY.maxDetour ? 'on' as const : 'off' as const, nm: Math.round(d.extraNm) } : null; })();
+    const wayTag = !way ? '' : way.kind === 'dest' ? '<span class="onway">your destination</span>'
+      : way.kind === 'on' ? `<span class="onway">on your way · +${way.nm.toLocaleString('en-US')} nm</span>`
+        : `<span class="offway" title="Calling there makes the voyage to ${esc(world.ports[target!].name)} this much longer">+${way.nm.toLocaleString('en-US')} nm</span>`;
     const button = mode === 'board'
       ? `<button class="btn small" data-action="accept" data-id="${c.id}" ${why ? 'disabled' : ''} title="${esc(why ?? 'Load this cargo')}">Load</button>`
       : c.origin === ship.location && isReady(g, ship)
         ? `<button class="btn small ghost" data-action="unload" data-id="${c.id}">Unload</button>`
         : `<button class="btn small ghost jettison" data-action="jettison" data-id="${c.id}" title="Throw it overboard: the shipper claims ${money(jettisonClaim(c))}">Jettison</button>`;
     return `
-      <li class="contract ${why ? 'unavailable' : ''} ${c.premium ? 'premium' : ''}" data-hover-dest="${c.dest}">
+      <li class="contract ${why ? 'unavailable' : ''} ${c.premium ? 'premium' : ''} ${way?.kind === 'off' ? 'offcourse' : ''}" data-hover-dest="${c.dest}">
         <div class="c-icon">${goodIcon(c.good, 36)}</div>
         <div class="c-main">
           <div class="c-good">${c.premium ? `<span class="tag premium">★ ${PREMIUM_LABEL[c.premium]}</span> ` : ''}${esc(good.name)} · ${tons(c.tons)}</div>
-          <div class="c-route"><span class="cmark ${good.cargoClass}" title="${CLASS_LABEL[good.cargoClass]}" aria-label="${CLASS_LABEL[good.cargoClass]}"></span>→ <strong>${esc(world.ports[c.dest].name)}</strong> · ${nm.toLocaleString('en-US')} nm ${reach}</div>
+          <div class="c-route"><span class="cmark ${good.cargoClass}" title="${CLASS_LABEL[good.cargoClass]}" aria-label="${CLASS_LABEL[good.cargoClass]}"></span>→ <strong>${esc(world.ports[c.dest].name)}</strong> · ${nm.toLocaleString('en-US')} nm ${wayTag}${reach}</div>
           <div class="c-meta ${urgent ? 'urgent' : ''}">Due ${gameDate(c.deadline)} (${days(Math.max(0, Math.round(daysLeft)))})${why ? ` · <span class="why">${esc(why)}</span>` : ''}</div>
         </div>
         <div class="c-side">
@@ -1377,6 +1430,7 @@ class App {
       <header class="port-head">
         <div><h2>${esc(port.name)}</h2><span class="sub">${esc(ship.name)} · port fee ${money(portFee(g, ship, port.id))} · ${FUEL().toLowerCase()} ${money(fuelPrice(g, port.id))}${perFuel()}</span></div>
       </header>
+      ${this.plannedBanner(ship)}
       ${this.waitControls()}
       ${this.chartsCard(port.id)}
       <p class="hint">Free hold space: <strong>${tons(free)}</strong>. New offers appear as days pass. Hover a contract to see its route.</p>
@@ -1645,6 +1699,7 @@ class App {
     return `
       ${this.newsCard()}
       ${this.captainCard()}
+      ${this.plannedBanner(ship)}
       ${this.waitControls()}
       ${this.dest ? this.planCard(planVoyage(g, ship.id, this.dest)!) : `<p class="hint">Where should the ${esc(ship.name)} go? Pick a destination below or tap a port on the map.</p>`}
       <p class="hint">"Exports for you" lists what each port ships that your ${esc(type.name.toLowerCase())} can carry.</p>
@@ -1735,6 +1790,44 @@ class App {
     </section>`;
   }
 
+  /** "Worth a call on the way": ports a short detour away where calling pays, with Go via. */
+  private callsCard(dest: string): string {
+    if (this.viaFinal) {
+      return `<div class="via-note">Calling here on the way to <strong>${esc(world.ports[this.viaFinal].name)}</strong>; the game will remember it.
+        <button class="btn small ghost" data-action="clear-via">Sail direct instead</button></div>`;
+    }
+    const calls = this.calls();
+    if (!calls.length) return '';
+    const sail = isSail();
+    const lines = calls.map((c) => {
+      const what = [
+        ...c.deliveries.map((d) => `${goodIcon(d.good, 18)} deliver your ${esc(world.goods[d.good].name.toLowerCase())} (${tons(d.tons)}, ${compactMoney(d.pay)})`),
+        ...c.freight.map((f) => sail
+          ? `${goodIcon(f.good, 18)} usually ships ${esc(world.goods[f.good].name.toLowerCase())} for ${esc(world.ports[dest].name)}: a lot of ${tons(f.tons)} pays about ${compactMoney(f.pay)}`
+          : `${goodIcon(f.good, 18)} ${esc(world.goods[f.good].name)} ${tons(f.tons)} for ${esc(world.ports[dest].name)} on the quay, ${compactMoney(f.pay)}`),
+        ...c.sales.map((s) => `${goodIcon(s.good, 18)} buys your ${esc(world.goods[s.good].name.toLowerCase())} at ${this.newsText({ price: s.price, asOf: s.asOf, live: s.live }, '/t')}: +${compactMoney(s.gain)} over ${esc(world.ports[dest].name)}`),
+      ].join('<br>');
+      const extra = c.extraNm < 30 ? 'on the route' : `+${c.extraNm.toLocaleString('en-US')} nm`;
+      return `<div class="way">
+        <div><div class="n">${esc(world.ports[c.port].name)} <span class="onway">${extra} · +${days(Math.round(c.extraDays * 10) / 10)}</span></div><div class="d">${what}</div></div>
+        <div class="net">${sail ? `≈ +${compactMoney(c.net)}` : money(c.net, true)}<small>after the call</small></div>
+        <div class="d foot">${c.lateLoss > 0 ? `Cargo for ${esc(world.ports[dest].name)} arrives later: −${compactMoney(c.lateLoss)} late pay (counted).` : 'Cargo aboard still arrives in time.'}
+          <button class="btn small" data-action="go-via" data-id="${c.port}">Go via ${esc(world.ports[c.port].name)}</button></div>
+      </div>`;
+    }).join('');
+    return `<div class="ways"><h5>Worth a call on the way${sail ? ' · by the latest news' : ''}</h5>${lines}</div>`;
+  }
+
+  /** The remembered destination, while a ship calls on the way. */
+  private plannedBanner(ship: ShipState): string {
+    if (!ship.plannedDest || !isReady(this.g, ship) || ship.plannedDest === ship.location) return '';
+    const p = world.ports[ship.plannedDest];
+    const nm = routeFor(world, this.g, ship.location, p.id)?.nm;
+    const aboard = ship.cargo.filter((c) => c.dest === p.id).length;
+    return `<div class="planned"><div><span class="k">Continuing to</span><strong>${esc(p.name)}</strong>${nm ? ` · ${nm.toLocaleString('en-US')} nm` : ''}${aboard ? ` · ${aboard} lot${aboard > 1 ? 's' : ''} aboard for it` : ''}</div>
+      <button class="btn small ghost" data-action="clear-planned">Change destination</button></div>`;
+  }
+
   private planCard(plan: VoyagePlan): string {
     const g = this.g;
     const ship = this.ship();
@@ -1801,6 +1894,7 @@ class App {
         ${fuelBlock}
         ${warnings.length ? `<ul class="warnings">${warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
         ${this.goodsOutlook(ship, plan.dest)}
+        ${this.callsCard(plan.dest)}
         ${sailButton}
       </section>`;
   }

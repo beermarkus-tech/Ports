@@ -19,7 +19,7 @@ export interface PortMarker {
   name: string;
   fuelPrice: number;
   /** Visual role, drives styling. */
-  role: 'here' | 'dest' | 'cargo' | 'normal';
+  role: 'here' | 'dest' | 'cargo' | 'via' | 'normal';
   /** World events at this port. */
   strike?: boolean;
   boom?: boolean;
