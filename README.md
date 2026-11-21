@@ -119,6 +119,10 @@ people is not part of the game.
 
 ## How to play
 
+0. **The map** zooms: pinch or use the mouse wheel, drag to move around, double-tap
+   (or double-click) to zoom in, and the **+ / − / World** buttons. Port names and
+   ships keep their size, and the coastline gets more detailed up close. Only the
+   map zooms; the rest of the screen stays as it is.
 0. **Time and the fleet.** The clock runs at 1 day per second (2× and 4× in the
    header; space bar pauses), but only while no ship needs a decision: a ship in
    port without orders stops everything (prices too) until you cast it off or
@@ -249,7 +253,7 @@ src/sim/         Pure simulation, no DOM (deterministic: seeded RNG stored in th
   economy.ts     Port price levels, oil market, world events (ECONOMY)
   bot.ts         Greedy and casual captains used for balancing (and a seed for automation later)
   save.ts        localStorage save/load, with upgrades for older saves
-src/ui/          Rendering: d3-geo world map (map.ts), ship art (art.ts), goods icons (goods-icons.ts), port view (port-scene.ts, port-scene-sail.ts), sound (sound.ts), music (music.ts), panels, styles
+src/ui/          Rendering: d3-geo world map (map.ts: a canvas background under SVG layers, zoomable), ship art (art.ts), goods icons (goods-icons.ts), port view (port-scene.ts, port-scene-sail.ts), sound (sound.ts), music (music.ts), panels, styles
 scripts/         balance.ts, compare.sh, progression.ts, ships.ts, economy.ts, tune-ships.py
 tests/           vitest
 ```

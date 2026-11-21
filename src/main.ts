@@ -2002,6 +2002,7 @@ class App {
   /** Put a game on the table: reset what the screen remembers about the last one. */
   private loadInto(g: GameState): void {
     this.g = g;
+    this.map.resetZoom();
     const waiting = shipsNeedingDecision(g);
     this.activeId = (waiting[0] ?? g.fleet[0]).id;
     this.dest = null;

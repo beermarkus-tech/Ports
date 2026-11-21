@@ -35,6 +35,9 @@ function el<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, 
 type LabelKey = 'right' | 'left' | 'above' | 'below' | 'ne' | 'se' | 'nw' | 'sw';
 interface LabelSpot { x: number; y: number; fy: number; anchor: 'start' | 'end' | 'middle' }
 /** Where a port's name (baseline y) and price (baseline fy) can sit round its dot. */
+/** How far the map zooms in. */
+const MAX_ZOOM = 8;
+
 const LABEL_SPOTS: Record<LabelKey, LabelSpot> = {
   right: { x: 10, y: -6, fy: 8, anchor: 'start' },
   left: { x: -10, y: -6, fy: 8, anchor: 'end' },
@@ -57,7 +60,6 @@ export class MapView {
   private nightLayer: SVGGElement;
   private weatherLayer: SVGGElement;
   private effectLayer: SVGGElement;
-  private wavePattern: SVGPatternElement;
   private ships = new Map<number, SVGGElement>();
   private wakes = new Map<number, SVGPathElement>();
   private clouds = new Map<string, SVGGElement>();
@@ -69,8 +71,23 @@ export class MapView {
   private fogImage: SVGImageElement;
   private fogTexts: { lon: number; lat: number; el: SVGTextElement }[] = [];
   private fogKnownSet: Set<string> | null = null;
-  private laneEls: { a: string; b: string; el: SVGPathElement }[] = [];
+  private laneEls: { a: string; b: string; d: string; p: Path2D; canal?: string; uncharted: boolean; closed: boolean }[] = [];
+  private canvas!: HTMLCanvasElement;
+  private spherePath!: Path2D;
+  private sphereBox!: [[number, number], [number, number]];
+  private graticulePath!: Path2D;
+  private landPath!: Path2D;
+  private landBox!: [[number, number], [number, number]];
   private fogKey = '';
+  private fogParts = '';
+  /** Zoom: everything on the map sits in one layer, scaled by k and moved by (tx, ty). */
+  private vp!: SVGGElement;
+  private k = 1;
+  private tx = 0;
+  private ty = 0;
+  private zoomTimer = 0;
+  private detailedCoast = false;
+  private suppressClick = false;
 
   constructor(
     container: HTMLElement,
@@ -79,8 +96,20 @@ export class MapView {
     onPortHover: (id: string | null) => void,
     private onShipClick: (id: number) => void = () => {},
   ) {
-    this.svg = el('svg', { viewBox: `0 0 ${W} ${H}`, class: 'map', role: 'img', 'aria-label': 'World map' });
-    container.appendChild(this.svg);
+    // Two stacked layers: the still background (sea, coasts, graticule, lanes) is painted onto a
+    // canvas, redrawn only when the view or the charts change; everything else (fog, night, weather,
+    // routes, ports, ships) is SVG on top. As SVG the background, with its detailed coastline, was
+    // re-examined by the browser on every tick, which made the zoomed-in map slow.
+    const stack = document.createElement('div');
+    stack.className = 'map-stack';
+    container.appendChild(stack);
+    this.canvas = document.createElement('canvas');
+    this.canvas.className = 'map map-base';
+    this.canvas.setAttribute('aria-hidden', 'true');
+    stack.appendChild(this.canvas);
+    this.svg = el('svg', { viewBox: `0 0 ${W} ${H}`, class: 'map map-top', role: 'img', 'aria-label': 'World map' });
+    stack.appendChild(this.svg);
+    new ResizeObserver(() => this.drawBase()).observe(stack);
 
     this.projection = geoEqualEarth().fitExtent([[8, 8], [W - 8, H - 8]], {
       type: 'MultiPoint',
@@ -99,55 +128,47 @@ export class MapView {
       <filter id="shallow" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="3.5"/></filter>
       <filter id="cloud" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="4"/></filter>
       <filter id="night-soft" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="10"/></filter>
-      <linearGradient id="land-shade" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="var(--land-hi)"/><stop offset="100%" stop-color="var(--land)"/>
-      </linearGradient>
-      <clipPath id="sphere-clip"><path d="${this.path({ type: 'Sphere' })}"/></clipPath>
-      <pattern id="waves" width="46" height="22" patternUnits="userSpaceOnUse">
-        <path d="M2 8 q5 -4 10 0 t10 0" class="wave"/><path d="M25 18 q5 -4 10 0 t10 0" class="wave"/>
-      </pattern>`;
-    this.wavePattern = defs.querySelector('#waves')!;
+      <clipPath id="sphere-clip"><path d="${this.path({ type: 'Sphere' })}"/></clipPath>`;
+    this.vp = el('g', { class: 'viewport' }, this.svg) as SVGGElement;
 
-    el('path', { d: this.path({ type: 'Sphere' })!, fill: 'url(#ocean)', class: 'sphere' }, this.svg);
-    el('rect', { x: 0, y: 0, width: W, height: H, fill: 'url(#waves)', class: 'waves', 'clip-path': 'url(#sphere-clip)' }, this.svg);
-    el('path', { d: this.path(geoGraticule10())!, class: 'graticule' }, this.svg);
+    // The background's shapes, as canvas paths (drawn in drawBase()).
+    this.spherePath = new Path2D(this.path({ type: 'Sphere' })!);
+    this.sphereBox = this.path.bounds({ type: 'Sphere' });
+    this.graticulePath = new Path2D(this.path(geoGraticule10())!);
     const topo = landTopo as unknown as Topology;
     const land = feature(topo, topo.objects.land);
-    const landD = this.path(land)!;
-    // Shallow water: a soft light halo around every coast.
-    el('path', { d: landD, class: 'shallow', filter: 'url(#shallow)' }, this.svg);
-    el('path', { d: landD, class: 'land', fill: 'url(#land-shade)' }, this.svg);
-
-    const lanes = el('g', { class: 'lanes' }, this.svg);
+    this.landPath = new Path2D(this.path(land)!);
+    this.landBox = this.path.bounds(land);
     for (const e of world.edges) {
-      const lane = el('path', { d: this.path(this.line([e.a, e.b]))!, class: e.canal ? 'lane canal' : 'lane', ...(e.canal ? { 'data-canal': e.canal } : {}) }, lanes);
-      this.laneEls.push({ a: e.a, b: e.b, el: lane as SVGPathElement });
+      const d = this.path(this.line([e.a, e.b]))!;
+      this.laneEls.push({ a: e.a, b: e.b, d, p: new Path2D(d), canal: e.canal, uncharted: false, closed: false });
     }
 
     // Fog of war (Age of Sail): unknown water lies under a parchment haze. It is drawn
     // once into a still image (blur and texture are far too costly as live SVG filters
     // on a map that redraws every tick) and redrawn only when the charts change.
-    this.fogLayer = el('g', { class: 'fog' }, this.svg);
+    this.fogLayer = el('g', { class: 'fog' }, this.vp);
     this.fogLayer.style.display = 'none';
     this.fogImage = el('image', { x: 0, y: 0, width: W, height: H, preserveAspectRatio: 'none' }, this.fogLayer) as SVGImageElement;
     for (const [lon, lat, text, size] of [[-150, 5, 'Mare Incognitum', 22], [-120, -30, 'Mare del Sur', 18], [-140, 40, 'Here be dragons', 15],
       [50, -8, 'Zanguebar', 14], [140, -58, 'Terra Australis Incognita', 16], [175, 20, 'Mare Pacificum', 16]] as const) {
       const [x, y] = this.projection([lon, lat])!;
-      const t = el('text', { x, y, class: 'fog-text', 'font-size': size, 'text-anchor': 'middle' }, this.fogLayer) as SVGTextElement;
+      const t = el('text', { x, y, class: 'fog-text', 'font-size': size, 'data-size': size, 'text-anchor': 'middle' }, this.fogLayer) as SVGTextElement;
       t.textContent = text;
       this.fogTexts.push({ lon, lat, el: t });
     }
     // The fog's colour follows light and dark mode.
     window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener?.('change', () => {
+      this.drawBase();
       this.fogKey = '';
       this.setCharted(this.fogKnownSet);
     });
 
-    this.nightLayer = el('g', { class: 'night', 'clip-path': 'url(#sphere-clip)' }, this.svg);
-    this.weatherLayer = el('g', { class: 'weather', 'clip-path': 'url(#sphere-clip)' }, this.svg);
-    this.routeLayer = el('g', { class: 'routes' }, this.svg);
-    this.wakeLayer = el('g', { class: 'wakes' }, this.svg);
-    this.portLayer = el('g', { class: 'ports' }, this.svg);
+    this.nightLayer = el('g', { class: 'night', 'clip-path': 'url(#sphere-clip)' }, this.vp);
+    this.weatherLayer = el('g', { class: 'weather', 'clip-path': 'url(#sphere-clip)' }, this.vp);
+    this.routeLayer = el('g', { class: 'routes' }, this.vp);
+    this.wakeLayer = el('g', { class: 'wakes' }, this.vp);
+    this.portLayer = el('g', { class: 'ports' }, this.vp);
 
     // Ports a few miles apart (Canton and Macau, Bantam and Batavia) would sit on one
     // dot: nudge such dots apart on the chart, a few map units at most.
@@ -190,9 +211,252 @@ export class MapView {
     // Once the web fonts are in, names have their final widths: place them again.
     document.fonts?.ready.then(() => this.placeLabels());
 
-    this.shipLayer = el('g', { class: 'ships' }, this.svg);
-    this.effectLayer = el('g', { class: 'effects' }, this.svg);
+    this.shipLayer = el('g', { class: 'ships' }, this.vp);
+    this.effectLayer = el('g', { class: 'effects' }, this.vp);
+    this.setupZoom(container);
   }
+
+  // ------------------------------------------------------------ zoom
+
+  /** Zoom with the wheel or a pinch, pan by dragging, double-tap to zoom in; ＋ － World buttons. */
+  private setupZoom(container: HTMLElement): void {
+    const svg = this.svg;
+    const toMap = (cx: number, cy: number): [number, number] => {
+      const m = svg.getScreenCTM();
+      if (!m) return [W / 2, H / 2];
+      const pt = svg.createSVGPoint(); pt.x = cx; pt.y = cy;
+      const r = pt.matrixTransform(m.inverse());
+      return [r.x * this.k + this.tx, r.y * this.k + this.ty];
+    };
+    // Unzoomed map units per screen pixel (the viewBox already includes the zoom).
+    const unitsPerPx = () => this.k / (svg.getScreenCTM()?.a || 1);
+    svg.addEventListener('wheel', (ev) => {
+      ev.preventDefault();
+      const [x, y] = toMap(ev.clientX, ev.clientY);
+      this.zoomAt(x, y, Math.exp(-ev.deltaY * (ev.deltaMode === 1 ? 0.05 : 0.0018)));
+    }, { passive: false });
+    // A drag never counts as a tap on a port or a ship.
+    svg.addEventListener('click', (ev) => { if (this.suppressClick) { ev.stopPropagation(); ev.preventDefault(); this.suppressClick = false; } }, true);
+    svg.addEventListener('gesturestart', (ev) => ev.preventDefault()); // Safari: no page zoom over the map
+    const pts = new Map<number, { x: number; y: number }>();
+    let moved = 0;
+    let pinch: { d: number; mx: number; my: number } | null = null;
+    let lastTap = { t: 0, x: 0, y: 0 };
+    svg.addEventListener('pointerdown', (ev) => {
+      pts.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      if (pts.size === 1) moved = 0;
+      if (pts.size === 2) pinch = null;
+    });
+    window.addEventListener('pointermove', (ev) => {
+      const prev = pts.get(ev.pointerId);
+      if (!prev) return;
+      const now = { x: ev.clientX, y: ev.clientY };
+      if (pts.size === 1) {
+        moved += Math.hypot(now.x - prev.x, now.y - prev.y);
+        if (moved > 6 && this.k > 1) {
+          const u = unitsPerPx();
+          this.panBy((now.x - prev.x) * u, (now.y - prev.y) * u);
+        }
+      } else if (pts.size === 2) {
+        moved = 99;
+        pts.set(ev.pointerId, now);
+        const [a, b] = [...pts.values()];
+        const d = Math.hypot(a.x - b.x, a.y - b.y), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+        if (pinch) {
+          const u = unitsPerPx();
+          this.panBy((mx - pinch.mx) * u, (my - pinch.my) * u);
+          const [x, y] = toMap(mx, my);
+          this.zoomAt(x, y, d / pinch.d);
+        }
+        pinch = { d, mx, my };
+        return;
+      }
+      pts.set(ev.pointerId, now);
+    });
+    const up = (ev: PointerEvent) => {
+      if (!pts.has(ev.pointerId)) return;
+      pts.delete(ev.pointerId);
+      if (pts.size < 2) pinch = null;
+      if (moved > 6) { this.suppressClick = true; setTimeout(() => { this.suppressClick = false; }, 350); }
+      else if (ev.pointerType !== 'mouse' && pts.size === 0) {
+        // Double-tap on a touch screen: zoom in there.
+        if (ev.timeStamp - lastTap.t < 320 && Math.hypot(ev.clientX - lastTap.x, ev.clientY - lastTap.y) < 30) {
+          const [x, y] = toMap(ev.clientX, ev.clientY);
+          this.zoomAt(x, y, 2);
+          lastTap = { t: 0, x: 0, y: 0 };
+        } else lastTap = { t: ev.timeStamp, x: ev.clientX, y: ev.clientY };
+      }
+    };
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+    svg.addEventListener('dblclick', (ev) => {
+      const [x, y] = toMap(ev.clientX, ev.clientY);
+      this.zoomAt(x, y, 2);
+    });
+    const tools = document.createElement('div');
+    tools.className = 'map-zoom';
+    tools.innerHTML = `<button type="button" data-z="in" aria-label="Zoom in">+</button><button type="button" data-z="out" aria-label="Zoom out">−</button><button type="button" data-z="world" aria-label="Whole world">World</button>`;
+    tools.addEventListener('click', (ev) => {
+      const z = (ev.target as HTMLElement).closest<HTMLElement>('[data-z]')?.dataset.z;
+      // Around the middle of what's on screen.
+      if (z === 'in') this.zoomAt(W / 2, H / 2, 2);
+      else if (z === 'out') this.zoomAt(W / 2, H / 2, 0.5);
+      else if (z === 'world') this.resetZoom();
+    });
+    container.appendChild(tools);
+    this.applyZoom();
+  }
+
+  /**
+   * Paint the still background onto the canvas, lined up with the SVG on top (same viewBox
+   * mapping): the sea with its waves, the graticule, the shallows, the land and the sea lanes.
+   * Line widths stay the same on screen at any zoom, as they did when this was SVG.
+   */
+  private drawBase(): void {
+    const cv = this.canvas, svg = this.svg;
+    if (!cv || !this.landPath) return;
+    const rect = cv.getBoundingClientRect();
+    const m = svg.getScreenCTM();
+    if (!m || rect.width < 2) return;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const pw = Math.round(rect.width * dpr), ph = Math.round(rect.height * dpr);
+    if (cv.width !== pw || cv.height !== ph) { cv.width = pw; cv.height = ph; }
+    const c = cv.getContext('2d');
+    if (!c) return;
+    const css = getComputedStyle(document.documentElement);
+    const v = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
+    const sail = this.world.era.wind;
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.clearRect(0, 0, pw, ph);
+    // Map units → device pixels, exactly as the browser maps the SVG's viewBox.
+    c.setTransform(m.a * dpr, 0, 0, m.d * dpr, (m.e - rect.left) * dpr, (m.f - rect.top) * dpr);
+    const px = 1 / m.a; // one screen pixel, in map units
+    const s0 = m.a / this.k; // screen pixels per map unit at the whole-world view
+    // The sea: a soft radial gradient over the globe.
+    const [[sx0, sy0], [sx1, sy1]] = this.sphereBox;
+    const sw = sx1 - sx0, sh = sy1 - sy0;
+    const g = c.createRadialGradient(sx0 + sw * 0.5, sy0 + sh * 0.45, 0, sx0 + sw * 0.5, sy0 + sh * 0.45, Math.hypot(sw, sh) * 0.75 / Math.SQRT2);
+    g.addColorStop(0, v('--ocean-1', '#12304d')); g.addColorStop(1, v('--ocean-2', '#0a1a2c'));
+    c.fillStyle = g; c.fill(this.spherePath);
+    c.save();
+    c.clip(this.spherePath);
+    // Wave marks, the same size on screen at any zoom.
+    const tile = document.createElement('canvas');
+    tile.width = Math.round(46 * s0 * dpr); tile.height = Math.round(22 * s0 * dpr);
+    const tc = tile.getContext('2d');
+    if (tc && tile.width > 4) {
+      tc.scale(s0 * dpr, s0 * dpr);
+      tc.strokeStyle = v('--text', '#e3edf7'); tc.globalAlpha = 0.09; tc.lineWidth = 1; tc.lineCap = 'round';
+      tc.stroke(new Path2D('M2 8 q5 -4 10 0 t10 0')); tc.stroke(new Path2D('M25 18 q5 -4 10 0 t10 0'));
+      const pat = c.createPattern(tile, 'repeat');
+      if (pat) {
+        pat.setTransform(new DOMMatrix().scale(1 / (m.a * dpr), 1 / (m.d * dpr)));
+        c.fillStyle = pat;
+        c.fillRect(sx0, sy0, sw, sh);
+      }
+    }
+    c.restore();
+    // Graticule.
+    c.strokeStyle = v('--text', '#e3edf7'); c.globalAlpha = sail ? 0.12 : 0.05; c.lineWidth = 0.6 * px;
+    c.setLineDash(sail ? [1 * px, 2 * px] : []);
+    c.stroke(this.graticulePath);
+    c.setLineDash([]); c.globalAlpha = 1;
+    // Shallows: a soft light halo round every coast.
+    c.save();
+    c.filter = `blur(${(3.5 * s0 * dpr).toFixed(1)}px)`;
+    c.strokeStyle = v('--shallow', '#2a6f97'); c.globalAlpha = 0.55; c.lineWidth = 7 * s0 * px;
+    c.stroke(this.landPath);
+    c.restore();
+    // Land, shaded from top to bottom, with its coastline.
+    const [[, ly0], [, ly1]] = this.landBox;
+    const lg = c.createLinearGradient(0, ly0, 0, ly1);
+    lg.addColorStop(0, v('--land-hi', '#36597a')); lg.addColorStop(1, v('--land', '#2b4a63'));
+    c.fillStyle = lg; c.fill(this.landPath);
+    c.strokeStyle = v('--land-edge', '#3d6683'); c.lineWidth = (sail ? 0.9 : 0.6) * px; c.lineJoin = 'round';
+    c.stroke(this.landPath);
+    // Sea lanes (charted ones), canals solid, a closed canal dashed red.
+    for (const l of this.laneEls) {
+      if (l.uncharted) continue;
+      if (l.canal) {
+        c.strokeStyle = l.closed ? v('--bad', '#ff6b6b') : v('--accent-2', '#f2b84b');
+        c.globalAlpha = l.closed ? 1 : 0.7; c.lineWidth = (l.closed ? 2.2 : 1.6) * px; c.setLineDash(l.closed ? [3 * px, 3 * px] : []);
+      } else {
+        c.strokeStyle = v('--accent', '#3ec7e0'); c.globalAlpha = sail ? 0.22 : 0.14; c.lineWidth = 0.8 * px; c.setLineDash([2 * px, 3 * px]);
+      }
+      c.stroke(l.p);
+    }
+    c.setLineDash([]); c.globalAlpha = 1;
+    // The globe's rim.
+    c.strokeStyle = v('--line', '#21405f'); c.lineWidth = 1 * px; c.stroke(this.spherePath);
+  }
+
+  /** Zoom by `factor` keeping the map point (x, y) (in the map's own units) under the finger. */
+  private zoomAt(x: number, y: number, factor: number): void {
+    const k = Math.max(1, Math.min(MAX_ZOOM, this.k * factor));
+    if (k === this.k) return;
+    // (x, y) is in screen units of the unzoomed map; find the map point under it and keep it there.
+    const mx = (x - this.tx) / this.k, my = (y - this.ty) / this.k;
+    this.tx = x - mx * k;
+    this.ty = y - my * k;
+    this.k = k;
+    this.applyZoom();
+  }
+
+  private panBy(dx: number, dy: number): void {
+    this.tx += dx;
+    this.ty += dy;
+    this.applyZoom();
+  }
+
+  /** Back to the whole world. */
+  resetZoom(): void {
+    this.k = 1; this.tx = 0; this.ty = 0;
+    this.applyZoom();
+  }
+
+  private applyZoom(): void {
+    const k = this.k;
+    this.tx = Math.min(0, Math.max(W * (1 - k), this.tx));
+    this.ty = Math.min(0, Math.max(H * (1 - k), this.ty));
+    // Zoom by moving the window onto the map (the viewBox), not by scaling the drawing: the browser
+    // then knows what's off screen and skips it (a scaled group made it work on the whole enlarged map).
+    const vb = `${(-this.tx / k).toFixed(3)} ${(-this.ty / k).toFixed(3)} ${(W / k).toFixed(3)} ${(H / k).toFixed(3)}`;
+    this.svg.setAttribute('viewBox', vb);
+    this.drawBase();
+    this.svg.classList.toggle('zoomed', k > 1.01);
+
+    // Ports, names and ships keep their size on screen: zooming spreads them apart.
+    for (const p of this.world.portList) {
+      const [x, y] = this.portXY[p.id];
+      this.ports[p.id].setAttribute('transform', `translate(${x},${y}) scale(${(1 / k).toFixed(4)})`);
+    }
+    for (const t of this.fogTexts) t.el.setAttribute('font-size', String(Number(t.el.dataset.size) / k));
+    this.svg.style.setProperty('--zoom', String(k));
+    this.shipScale = 1 / k;
+    for (const g of this.ships.values()) {
+      const tr = g.getAttribute('transform') ?? '';
+      g.setAttribute('transform', tr.replace(/ scale\([^)]*\)$/, '') + ` scale(${this.shipScale.toFixed(4)})`);
+    }
+    clearTimeout(this.zoomTimer);
+    this.zoomTimer = window.setTimeout(() => this.afterZoom(), 180);
+  }
+
+  /** When the zoom settles: place the names again, redraw the fog sharp, and use the detailed coastline up close. */
+  private afterZoom(): void {
+    this.placeLabels();
+    this.renderFog();
+    if (this.k >= 3 && !this.detailedCoast) {
+      this.detailedCoast = true;
+      void import('world-atlas/land-50m.json').then((mod) => {
+        const topo = (mod.default ?? mod) as unknown as Topology;
+        this.landPath = new Path2D(this.path(feature(topo, topo.objects.land)) ?? '');
+        this.drawBase();
+      });
+    }
+  }
+
+  private shipScale = 1;
+
 
   /**
    * Fog of war: `known` is the set of charted ports and waypoints (null: no fog,
@@ -205,7 +469,8 @@ export class MapView {
     this.fogKnownSet = known;
     this.fogLayer.style.display = known ? '' : 'none';
     const lit = (id: string) => !known || known.has(id);
-    for (const l of this.laneEls) l.el.classList.toggle('uncharted', !(lit(l.a) && lit(l.b)));
+    for (const l of this.laneEls) l.uncharted = !(lit(l.a) && lit(l.b));
+    this.drawBase();
     for (const p of this.world.portList) this.ports[p.id].classList.toggle('rumour', !lit(p.id));
     if (!known) return;
     // The known world: the waters the house knew at the start, a soft blob round every charted
@@ -226,7 +491,7 @@ export class MapView {
       parts.push(`<path d="${this.path(geoCircle().center([pt.lon, pt.lat]).radius(5.5).precision(12)()) ?? ''}" stroke="none"/>`);
     }
     for (const l of this.laneEls) {
-      if (lit(l.a) && lit(l.b)) parts.push(`<path d="${l.el.getAttribute('d')}" fill="none" stroke-width="34" stroke-linecap="round"/>`);
+      if (lit(l.a) && lit(l.b)) parts.push(`<path d="${l.d}" fill="none" stroke-width="34" stroke-linecap="round"/>`);
     }
     // Names on the fog fade once someone has charted water near them.
     for (const t of this.fogTexts) {
@@ -236,9 +501,20 @@ export class MapView {
       });
       t.el.style.display = near ? 'none' : '';
     }
+    this.fogParts = parts.join('');
+    this.renderFog();
+  }
+
+  /** Draw the fog for the part of the map on screen, once, into a bitmap at screen resolution. */
+  private renderFog(): void {
+    if (!this.fogKnownSet || !this.fogParts) return;
+    const k = this.k;
+    const x0 = -this.tx / k, y0 = -this.ty / k, w = W / k, h = H / k;
     const css = getComputedStyle(document.documentElement);
     const fog = css.getPropertyValue('--fog').trim() || '#d8d1c0';
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">
+    const scale = Math.min(2, window.devicePixelRatio || 1);
+    const pxW = Math.max(200, Math.round((this.svg.clientWidth || W) * scale)), pxH = Math.round(pxW * (H / W));
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${x0} ${y0} ${w} ${h}" width="${pxW}" height="${pxH}">
       <defs>
         <filter id="s" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="9"/></filter>
         <filter id="t" x="0" y="0" width="100%" height="100%">
@@ -246,7 +522,7 @@ export class MapView {
           <feColorMatrix values="0 0 0 0 0.5  0 0 0 0 0.45  0 0 0 0 0.38  0 0 0 0.55 0"/>
         </filter>
         <mask id="m" maskUnits="userSpaceOnUse" x="0" y="0" width="${W}" height="${H}">
-          <rect width="${W}" height="${H}" fill="white"/><g fill="black" stroke="black" filter="url(#s)">${parts.join('')}</g>
+          <rect width="${W}" height="${H}" fill="white"/><g fill="black" stroke="black" filter="url(#s)">${this.fogParts}</g>
         </mask>
         <clipPath id="c"><path d="${this.path({ type: 'Sphere' })}"/></clipPath>
       </defs>
@@ -256,20 +532,23 @@ export class MapView {
       </g></svg>`;
     // Rasterise it once to a bitmap: an SVG image with filters gets re-rendered on every frame.
     const img = new Image();
-    const key0 = key;
+    const stamp = `${this.fogKey}|${k}|${this.tx}|${this.ty}`;
+    this.fogStamp = stamp;
     img.onload = () => {
-      if (this.fogKey !== key0) return;
-      const scale = Math.min(2, window.devicePixelRatio || 1);
+      if (this.fogStamp !== stamp) return;
       const canvas = document.createElement('canvas');
-      canvas.width = Math.round(W * scale);
-      canvas.height = Math.round(H * scale);
+      canvas.width = pxW; canvas.height = pxH;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, pxW, pxH);
       this.fogImage.setAttribute('href', canvas.toDataURL('image/png'));
+      this.fogImage.setAttribute('x', String(x0)); this.fogImage.setAttribute('y', String(y0));
+      this.fogImage.setAttribute('width', String(w)); this.fogImage.setAttribute('height', String(h));
     };
     img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
   }
+
+  private fogStamp = '';
 
   // ------------------------------------------------------------ scenery
 
@@ -293,10 +572,8 @@ export class MapView {
     }
   }
 
-  /** Slide the wave texture (call with a slowly growing number). */
-  setWaves(offset: number): void {
-    this.wavePattern.setAttribute('patternTransform', `translate(${(offset * 9) % 46} ${(offset * 2) % 22})`);
-  }
+  /** Kept for callers; the sea's wave marks are part of the still background now. */
+  setWaves(_offset: number): void { /* still */ }
 
   /** Clouds and storm cells. Created, moved and removed to match the list. */
   updateWeather(cells: WeatherCell[]): void {
@@ -340,9 +617,12 @@ export class MapView {
 
   /** Draw closed canals as blocked. */
   setClosedCanals(closed: string[]): void {
-    this.svg.querySelectorAll<SVGPathElement>('.lane.canal').forEach((p) => {
-      p.classList.toggle('closed', closed.includes(p.dataset.canal ?? ''));
-    });
+    let changed = false;
+    for (const l of this.laneEls) {
+      const c = !!l.canal && closed.includes(l.canal);
+      if (c !== l.closed) { l.closed = c; changed = true; }
+    }
+    if (changed) this.drawBase();
   }
 
   /**
@@ -353,6 +633,8 @@ export class MapView {
   placeLabels(): void {
     type Box = [number, number, number, number]; // x0, y0, x1, y1 (map units)
     const ids = this.world.portList.map((p) => p.id);
+    // Positions in screen units at the current zoom (names and dots keep their screen size).
+    const P = (id: string): [number, number] => [this.portXY[id][0] * this.k, this.portXY[id][1] * this.k];
     const size: Record<string, { lw: number; lh: number; la: number; fw: number; fh: number; fa: number }> = {};
     for (const id of ids) {
       const g = this.ports[id];
@@ -366,7 +648,7 @@ export class MapView {
         fw: this.world.era.wind ? fb.width : Math.max(fb.width, 24), fh: fb.height || 10, fa: fb.height ? Number(fuel.getAttribute('y')) - fb.y : 8 };
     }
     const boxesFor = (id: string, spot: LabelSpot): Box[] => {
-      const [px, py] = this.portXY[id];
+      const [px, py] = P(id);
       const sz = size[id];
       const rect = (w: number, h: number, a: number, base: number): Box => {
         const x0 = spot.anchor === 'start' ? spot.x : spot.anchor === 'end' ? spot.x - w : spot.x - w / 2;
@@ -377,8 +659,8 @@ export class MapView {
     const overlap = (a: Box, b: Box) =>
       Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])) * Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
     // Other ports' dots, with a margin: a name right beside a foreign dot reads as that port's.
-    const dots: Box[] = ids.map((id) => { const [x, y] = this.portXY[id]; return [x - 13, y - 9, x + 13, y + 9]; });
-    const near = (a: string) => ids.filter((b) => b !== a && Math.hypot(this.portXY[a][0] - this.portXY[b][0], this.portXY[a][1] - this.portXY[b][1]) < 90).length;
+    const dots: Box[] = ids.map((id) => { const [x, y] = P(id); return [x - 13, y - 9, x + 13, y + 9]; });
+    const near = (a: string) => ids.filter((b) => b !== a && Math.hypot(P(a)[0] - P(b)[0], P(a)[1] - P(b)[1]) < 90).length;
     const order = [...ids].sort((a, b) => near(b) - near(a) || ids.indexOf(a) - ids.indexOf(b));
     const chosen: Record<string, LabelKey> = {};
     for (const p of this.world.portList) chosen[p.id] = p.label ?? 'right';
@@ -393,10 +675,12 @@ export class MapView {
       // A name must sit nearer its own dot than any other, or it reads as the other port's.
       const nb = mine[0];
       const gap = (q: [number, number]) => Math.hypot(Math.max(nb[0] - q[0], 0, q[0] - nb[2]), Math.max(nb[1] - q[1], 0, q[1] - nb[3]));
-      const own = gap(this.portXY[id]);
-      for (const other of ids) if (other !== id && gap(this.portXY[other]) < own + 4) c += 300;
+      const own = gap(P(id));
+      for (const other of ids) if (other !== id && gap(P(other)) < own + 4) c += 300;
       // Off the edge of the map counts too.
-      for (const m of mine) c += Math.max(0, -m[0]) * 20 + Math.max(0, m[2] - W) * 20 + Math.max(0, -m[1]) * 20 + Math.max(0, m[3] - H) * 20;
+      // Off the edge of what's on screen counts too.
+      const [vx0, vy0] = [-this.tx, -this.ty];
+      for (const m of mine) c += Math.max(0, vx0 - m[0]) * 20 + Math.max(0, m[2] - vx0 - W) * 20 + Math.max(0, vy0 - m[1]) * 20 + Math.max(0, m[3] - vy0 - H) * 20;
       return c;
     };
     for (let pass = 0; pass < 3; pass++) {
@@ -506,7 +790,8 @@ export class MapView {
       }
       const [x, y] = this.projection(m.at)!;
       const [dx, dy] = m.offset ?? [0, 0];
-      g.setAttribute('transform', `translate(${(x + dx).toFixed(1)},${(y + dy).toFixed(1)}) rotate(${m.angle.toFixed(0)})`);
+      // Offsets fan out ships in one port in screen units, so they shrink with the zoom too.
+      g.setAttribute('transform', `translate(${(x + dx * this.shipScale).toFixed(2)},${(y + dy * this.shipScale).toFixed(2)}) rotate(${m.angle.toFixed(0)}) scale(${this.shipScale.toFixed(4)})`);
       g.setAttribute('class', `ship ${m.state} ${m.family}${m.selected ? ' selected' : ''}`);
       g.setAttribute('aria-label', m.name);
       g.querySelector('title')!.textContent = m.name;
@@ -522,7 +807,7 @@ export class MapView {
   /** Brief floating label at a point on the map (events, payments). */
   flashAt(at: LonLat, text: string, kind: 'good' | 'bad' | 'info'): void {
     const [x, y] = this.projection(at)!;
-    const t = el('text', { x: x.toFixed(1), y: (y - 16).toFixed(1), class: `flash ${kind}`, 'text-anchor': 'middle' }, this.effectLayer);
+    const t = el('text', { x: 0, y: -16, transform: `translate(${x.toFixed(1)},${y.toFixed(1)}) scale(${this.shipScale.toFixed(4)})`, class: `flash ${kind}`, 'text-anchor': 'middle' }, this.effectLayer);
     t.textContent = text;
     setTimeout(() => t.remove(), 2200);
   }
