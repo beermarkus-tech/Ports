@@ -834,8 +834,10 @@ function legValue(g: GameState, ship: ShipState, from: string, to: string, cargo
 // ---------------------------------------------------------------- calls on the way
 
 export const ONWAY = {
-  /** A port is "on the way" if calling there makes the voyage at most this much longer. */
+  /** A port is "on the way" if calling there makes the voyage at most this much longer, */
   maxDetour: 0.15,
+  /** and never more than this many nautical miles (long voyages would otherwise allow big detours). */
+  maxDetourNm: 500,
   /** Suggestions shown at most. */
   maxCalls: 3,
   /** 1650: a port's regular trade is a guess (the lot may be gone): count this share of its typical pay. */
@@ -848,6 +850,11 @@ export function detour(g: GameState, from: string, stop: string, dest: string, w
   if (!a || !b || !d || d.nm <= 0) return null;
   const extraNm = Math.max(0, a.nm + b.nm - d.nm);
   return { extraNm, share: extraNm / d.nm };
+}
+
+/** Is a detour short enough to count as "on the way"? */
+export function onTheWay(d: { extraNm: number; share: number }): boolean {
+  return d.share <= ONWAY.maxDetour && d.extraNm <= ONWAY.maxDetourNm;
 }
 
 export interface CallOnTheWay {
@@ -885,7 +892,7 @@ export function callsOnTheWay(g: GameState, shipId: number, dest: string, world:
   for (const p of world.portList) {
     if (p.id === here || p.id === dest || !isCharted(g, p.id)) continue;
     const dt = detour(g, here, p.id, dest, world);
-    if (!dt || dt.share > ONWAY.maxDetour) continue;
+    if (!dt || !onTheWay(dt)) continue;
     const a = legCost(g, ship, here, p.id, world), b = legCost(g, ship, p.id, dest, world);
     if (!a || !b || !a.inRange || !b.inRange) continue;
     const extraDays = a.days + b.days - direct.days;

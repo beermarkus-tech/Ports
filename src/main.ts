@@ -4,7 +4,7 @@ import { CHART_TUNING, chartOffers, fogFor, isCharted, unchartedShare, wantedGoo
 import { bestKnownMarkets, buyPrice, goodsBuyQuote, goodsSaleQuote, hasTrade, priceNews, type PriceNews } from './sim/trade';
 import {
   ActionError, LAID_UP, RULES, acceptContract, advance, atSea, borrow, buyFuel, buyShip, canCarry, cargoTons, clearOrders,
-  assignCaptain, buyChart, callsOnTheWay, detour, ONWAY, setPlannedDest, type CallOnTheWay, buyGoods, sellGoods, captainOf, fireCaptain, hireCaptain, monthOf, monthProfit, onOrders, resumeOrders,
+  assignCaptain, buyChart, callsOnTheWay, detour, onTheWay, setPlannedDest, type CallOnTheWay, buyGoods, sellGoods, captainOf, fireCaptain, hireCaptain, monthOf, monthProfit, onOrders, resumeOrders,
   dailyUpkeep, daysUntilNextShip, fuelPrice, getShip, inDryDock, isReady, isWaiting, needsDecision, newGame,
   dockByHand, nextMilestone, planVoyage, portFee, repair, repairQuote, repayLoan, sail, saleQuote, sellShip,
   shipsNeedingDecision, takeReport, typeOf, unloadContract, jettisonClaim, jettisonContract, jettisonGoods, voyageProgress, waitInPort, type VoyagePlan,
@@ -1086,7 +1086,7 @@ class App {
     // With a destination chosen: is this lot for it, on the way (at most 15% longer), or off course?
     const target = mode === 'board' && isReady(g, ship) ? this.dest : null;
     const way = !target ? null : c.dest === target ? { kind: 'dest' as const, nm: 0 }
-      : (() => { const d = detour(g, ship.location, c.dest, target); return d ? { kind: d.share <= ONWAY.maxDetour ? 'on' as const : 'off' as const, nm: Math.round(d.extraNm) } : null; })();
+      : (() => { const d = detour(g, ship.location, c.dest, target); return d ? { kind: onTheWay(d) ? 'on' as const : 'off' as const, nm: Math.round(d.extraNm) } : null; })();
     const wayTag = !way ? '' : way.kind === 'dest' ? '<span class="onway">your destination</span>'
       : way.kind === 'on' ? `<span class="onway">on your way · +${way.nm.toLocaleString('en-US')} nm</span>`
         : `<span class="offway" title="Calling there makes the voyage to ${esc(world.ports[target!].name)} this much longer">+${way.nm.toLocaleString('en-US')} nm</span>`;

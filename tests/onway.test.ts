@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { advance, callsOnTheWay, detour, newGame, ONWAY, sail, setPlannedDest } from '../src/sim/game';
+import { advance, callsOnTheWay, detour, newGame, ONWAY, onTheWay, sail, setPlannedDest } from '../src/sim/game';
 import { setEra } from '../src/sim/world';
 
 describe('calls on the way', () => {
@@ -11,6 +11,11 @@ describe('calls on the way', () => {
     // Lisbon lies almost exactly on the way from Amsterdam to Batavia; Danzig doesn't.
     expect(detour(g, 'amsterdam', 'lisbon', 'batavia')!.share).toBeLessThan(0.01);
     expect(detour(g, 'amsterdam', 'danzig', 'batavia')!.share).toBeGreaterThan(ONWAY.maxDetour);
+    // 15%, but never more than 500 nm: Bergen (+978 nm, 8.5%) is off course on the long Batavia run.
+    const bergen = detour(g, 'amsterdam', 'bergen', 'batavia')!;
+    expect(bergen.share).toBeLessThan(ONWAY.maxDetour);
+    expect(onTheWay(bergen)).toBe(false);
+    expect(onTheWay(detour(g, 'amsterdam', 'cadiz', 'batavia')!)).toBe(true);
   });
 
   it('suggests only calls within 15% that pay, at most three, best first', () => {
@@ -21,7 +26,8 @@ describe('calls on the way', () => {
     expect(calls.length).toBeGreaterThan(0);
     expect(calls.length).toBeLessThanOrEqual(ONWAY.maxCalls);
     for (const c of calls) {
-      expect(detour(g, 'amsterdam', c.port, 'batavia')!.share).toBeLessThanOrEqual(ONWAY.maxDetour);
+      expect(onTheWay(detour(g, 'amsterdam', c.port, 'batavia')!)).toBe(true);
+      expect(c.extraNm).toBeLessThanOrEqual(ONWAY.maxDetourNm);
       expect(c.net).toBeGreaterThan(0);
       expect(c.estimated).toBe(true); // 1650: judged by regular trade, not the quay itself
     }
