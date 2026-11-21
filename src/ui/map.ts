@@ -77,6 +77,8 @@ export class MapView {
   private sphereBox!: [[number, number], [number, number]];
   private graticulePath!: Path2D;
   private landPath!: Path2D;
+  /** The simple world outline, for quick redraws during a zoom gesture. */
+  private landCoarse!: Path2D;
   private landBox!: [[number, number], [number, number]];
   private fogKey = '';
   private fogParts = '';
@@ -109,7 +111,7 @@ export class MapView {
     stack.appendChild(this.canvas);
     this.svg = el('svg', { viewBox: `0 0 ${W} ${H}`, class: 'map map-top', role: 'img', 'aria-label': 'World map' });
     stack.appendChild(this.svg);
-    new ResizeObserver(() => this.drawBase()).observe(stack);
+    new ResizeObserver(() => this.commitZoom()).observe(stack);
 
     this.projection = geoEqualEarth().fitExtent([[8, 8], [W - 8, H - 8]], {
       type: 'MultiPoint',
@@ -138,6 +140,7 @@ export class MapView {
     const topo = landTopo as unknown as Topology;
     const land = feature(topo, topo.objects.land);
     this.landPath = new Path2D(this.path(land)!);
+    this.landCoarse = this.landPath;
     this.landBox = this.path.bounds(land);
     for (const e of world.edges) {
       const d = this.path(this.line([e.a, e.b]))!;
@@ -282,7 +285,7 @@ export class MapView {
         // Double-tap on a touch screen: zoom in there.
         if (ev.timeStamp - lastTap.t < 320 && Math.hypot(ev.clientX - lastTap.x, ev.clientY - lastTap.y) < 30) {
           const [x, y] = toMap(ev.clientX, ev.clientY);
-          this.zoomAt(x, y, 2);
+          this.glideZoom(x, y, 2);
           lastTap = { t: 0, x: 0, y: 0 };
         } else lastTap = { t: ev.timeStamp, x: ev.clientX, y: ev.clientY };
       }
@@ -291,7 +294,7 @@ export class MapView {
     window.addEventListener('pointercancel', up);
     svg.addEventListener('dblclick', (ev) => {
       const [x, y] = toMap(ev.clientX, ev.clientY);
-      this.zoomAt(x, y, 2);
+      this.glideZoom(x, y, 2);
     });
     const tools = document.createElement('div');
     tools.className = 'map-zoom';
@@ -299,9 +302,9 @@ export class MapView {
     tools.addEventListener('click', (ev) => {
       const z = (ev.target as HTMLElement).closest<HTMLElement>('[data-z]')?.dataset.z;
       // Around the middle of what's on screen.
-      if (z === 'in') this.zoomAt(W / 2, H / 2, 2);
-      else if (z === 'out') this.zoomAt(W / 2, H / 2, 0.5);
-      else if (z === 'world') this.resetZoom();
+      if (z === 'in') this.glideZoom(W / 2, H / 2, 2);
+      else if (z === 'out') this.glideZoom(W / 2, H / 2, 0.5);
+      else if (z === 'world') this.glideZoom(0, 0, 1 / this.k);
     });
     container.appendChild(tools);
     this.applyZoom();
@@ -312,7 +315,7 @@ export class MapView {
    * mapping): the sea with its waves, the graticule, the shallows, the land and the sea lanes.
    * Line widths stay the same on screen at any zoom, as they did when this was SVG.
    */
-  private drawBase(): void {
+  private drawBase(quick = false): void {
     const cv = this.canvas, svg = this.svg;
     if (!cv || !this.landPath) return;
     const rect = cv.getBoundingClientRect();
@@ -361,19 +364,21 @@ export class MapView {
     c.setLineDash(sail ? [1 * px, 2 * px] : []);
     c.stroke(this.graticulePath);
     c.setLineDash([]); c.globalAlpha = 1;
-    // Shallows: a soft light halo round every coast.
+    const landPath = quick ? this.landCoarse : this.landPath;
+    // Shallows: a soft light halo round every coast (left out while a zoom gesture lasts).
     c.save();
+    if (quick) c.globalAlpha = 0;
     c.filter = `blur(${(3.5 * s0 * dpr).toFixed(1)}px)`;
     c.strokeStyle = v('--shallow', '#2a6f97'); c.globalAlpha = 0.55; c.lineWidth = 7 * s0 * px;
-    c.stroke(this.landPath);
+    if (!quick) c.stroke(landPath);
     c.restore();
     // Land, shaded from top to bottom, with its coastline.
     const [[, ly0], [, ly1]] = this.landBox;
     const lg = c.createLinearGradient(0, ly0, 0, ly1);
     lg.addColorStop(0, v('--land-hi', '#36597a')); lg.addColorStop(1, v('--land', '#2b4a63'));
-    c.fillStyle = lg; c.fill(this.landPath);
+    c.fillStyle = lg; c.fill(landPath);
     c.strokeStyle = v('--land-edge', '#3d6683'); c.lineWidth = (sail ? 0.9 : 0.6) * px; c.lineJoin = 'round';
-    c.stroke(this.landPath);
+    c.stroke(landPath);
     // Sea lanes (charted ones), canals solid, a closed canal dashed red.
     for (const l of this.laneEls) {
       if (l.uncharted) continue;
@@ -411,19 +416,63 @@ export class MapView {
   /** Back to the whole world. */
   resetZoom(): void {
     this.k = 1; this.tx = 0; this.ty = 0;
-    this.applyZoom();
+    this.commitZoom();
   }
 
+  /**
+   * A zoom or pan step. While the gesture lasts, the layers already drawn are only moved and
+   * scaled as images (cheap, done by the graphics chip); the crisp redraw comes once it settles.
+   */
   private applyZoom(): void {
     const k = this.k;
     this.tx = Math.min(0, Math.max(W * (1 - k), this.tx));
     this.ty = Math.min(0, Math.max(H * (1 - k), this.ty));
+    if (!this.drawn) { this.commitZoom(); return; }
+    clearTimeout(this.commitTimer);
+    clearTimeout(this.zoomTimer);
+    this.commitTimer = window.setTimeout(() => this.commitZoom(), 160);
+    // At most one update per screen frame, however fast the wheel or the fingers send steps.
+    if (this.liveFrame) return;
+    this.liveFrame = requestAnimationFrame(() => { this.liveFrame = 0; if (this.drawn) this.liveStep(); });
+  }
+
+  private liveFrame = 0;
+
+  private liveStep(): void {
+    const k = this.k;
+    const d = this.drawn!;
+    // Where the drawn view (ck, ctx, cty) must move to show the new one: in unzoomed map units a
+    // point at U on screen goes to (U - ctx) * s + tx, with s = k / ck. In CSS pixels, around the
+    // origin of the viewBox as drawn.
+    const sc = k / d.k;
+    const dx = (this.tx - d.tx * sc) * d.f, dy = (this.ty - d.ty * sc) * d.f;
+    const css = `translate(${dx.toFixed(2)}px, ${dy.toFixed(2)}px) scale(${sc.toFixed(5)})`;
+    // The interactive layer moves as an image; the background is redrawn quickly (simple coastline,
+    // no glow) at the live view, so no part of the map is ever left blank while zooming out.
+    this.svg.style.transformOrigin = `${d.ox.toFixed(2)}px ${d.oy.toFixed(2)}px`;
+    this.svg.style.transform = css;
+    this.drawBase(true);
+  }
+
+  /** The view as last drawn, and how it maps to CSS pixels in the map box. */
+  private drawn: { k: number; tx: number; ty: number; f: number; ox: number; oy: number } | null = null;
+  private commitTimer = 0;
+
+  /** Draw the current view crisply: the SVG's window, the canvas, ports and ships at their size. */
+  private commitZoom(): void {
+    clearTimeout(this.commitTimer);
+    if (this.liveFrame) { cancelAnimationFrame(this.liveFrame); this.liveFrame = 0; }
+    const k = this.k;
+    this.svg.style.transform = '';
+    this.canvas.style.transform = '';
     // Zoom by moving the window onto the map (the viewBox), not by scaling the drawing: the browser
     // then knows what's off screen and skips it (a scaled group made it work on the whole enlarged map).
     const vb = `${(-this.tx / k).toFixed(3)} ${(-this.ty / k).toFixed(3)} ${(W / k).toFixed(3)} ${(H / k).toFixed(3)}`;
     this.svg.setAttribute('viewBox', vb);
     this.drawBase();
     this.svg.classList.toggle('zoomed', k > 1.01);
+    // While zooming out, the edges the stretched picture doesn't cover yet show the sea, not the page.
+    this.canvas.parentElement?.classList.toggle('zoomed', k > 1.01);
 
     // Ports, names and ships keep their size on screen: zooming spreads them apart.
     for (const p of this.world.portList) {
@@ -437,8 +486,36 @@ export class MapView {
       const tr = g.getAttribute('transform') ?? '';
       g.setAttribute('transform', tr.replace(/ scale\([^)]*\)$/, '') + ` scale(${this.shipScale.toFixed(4)})`);
     }
+    // Remember how this view maps to CSS pixels, for the next gesture.
+    const m = this.svg.getScreenCTM();
+    const box = this.svg.getBoundingClientRect();
+    if (m && box.width > 2) {
+      // A map point p sits at CSS x = (m.e - left) + m.a·p; with U = p·k + tx (unzoomed units) that is
+      // x = ox + f·U, where f = m.a / k and ox = (m.e - left) - f·tx. Same for y.
+      const f = m.a / k;
+      this.drawn = { k, tx: this.tx, ty: this.ty, f, ox: m.e - box.left - f * this.tx, oy: m.f - box.top - f * this.ty };
+    } else this.drawn = null;
     clearTimeout(this.zoomTimer);
-    this.zoomTimer = window.setTimeout(() => this.afterZoom(), 180);
+    this.zoomTimer = window.setTimeout(() => this.afterZoom(), 60);
+  }
+
+  /** Glide to a zoom around (x, y) (unzoomed map units on screen) in about a quarter of a second. */
+  private glideZoom(x: number, y: number, factor: number): void {
+    const k0 = this.k, tx0 = this.tx, ty0 = this.ty;
+    const k1 = Math.max(1, Math.min(MAX_ZOOM, k0 * factor));
+    if (k1 === k0) return;
+    const mx = (x - tx0) / k0, my = (y - ty0) / k0;
+    const t0 = performance.now(), dur = 240;
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const step = (now: number) => {
+      const u = reduce ? 1 : Math.min(1, (now - t0) / dur);
+      const e = 1 - (1 - u) ** 3; // ease out
+      const k = k0 * (k1 / k0) ** e;
+      this.k = k; this.tx = x - mx * k; this.ty = y - my * k;
+      this.applyZoom();
+      if (u < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
   }
 
   /** When the zoom settles: place the names again, redraw the fog sharp, and use the detailed coastline up close. */
@@ -541,14 +618,22 @@ export class MapView {
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
       ctx.drawImage(img, 0, 0, pxW, pxH);
-      this.fogImage.setAttribute('href', canvas.toDataURL('image/png'));
-      this.fogImage.setAttribute('x', String(x0)); this.fogImage.setAttribute('y', String(y0));
-      this.fogImage.setAttribute('width', String(w)); this.fogImage.setAttribute('height', String(h));
+      // Encoding a PNG on the main thread took up to half a second: let the browser do it in the background.
+      canvas.toBlob((blob) => {
+        if (!blob || this.fogStamp !== stamp) return;
+        const url = URL.createObjectURL(blob);
+        if (this.fogUrl) URL.revokeObjectURL(this.fogUrl);
+        this.fogUrl = url;
+        this.fogImage.setAttribute('href', url);
+        this.fogImage.setAttribute('x', String(x0)); this.fogImage.setAttribute('y', String(y0));
+        this.fogImage.setAttribute('width', String(w)); this.fogImage.setAttribute('height', String(h));
+      }, 'image/png');
     };
     img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
   }
 
   private fogStamp = '';
+  private fogUrl = '';
 
   // ------------------------------------------------------------ scenery
 
