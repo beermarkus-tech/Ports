@@ -1,7 +1,7 @@
 # Deadweight: handover and progress log
 
 The single document to read before continuing work, in any chat or account.
-Last updated at **build 53** (22 Nov 2026). Keep this file current: add to the
+Last updated at **build 54** (22 Nov 2026). Keep this file current: add to the
 build log and move items in "Next" as work lands.
 
 ## 1. What this is
@@ -213,12 +213,18 @@ real-map look, hard to keep fog/night/art). Canvas raster tiles were rejected
   cargo ports, strike/boom first, then the rest; each takes its current spot, the data's
   spot, then the other spots, the first that's clear of placed names, other dots, the map edge
   the buttons over the map (zoom, Port view) and ships in port, and nearer its own dot than any
-  other (build 53). Note line dropped before the name is. No room:
+  other (build 53). Ports that must show their name (here, destination, stops, cargo) and find no
+  spot that reads as theirs (dense clusters at the world view: Amsterdam among London, Bergen,
+  Danzig; Amoy on a phone) take one of the same eight spots further out with a leader line to the
+  dot, outlined like the names and starting outside a ship in port (build 54). Note line dropped before the name is. No room:
   hidden (important ports always show). Names fade out/in over 150 ms, also when moving spot.
 - Input: wheel, pinch, drag with inertia, double-tap / double-click, + − World (eased).
   Taps are hit-tested in JS (ships first, then dots, then names). Hover highlights (desktop).
   Invisible `.map-port-btn` buttons over the dots for keyboard and screen readers.
-- `window.__map` is the live view, for Playwright checks.
+- `window.__map` is the live view, for Playwright checks. Two checks worth re-running after map
+  changes (build 54): every port's ship-in-port position equals its dot at 1x/2x/4x/8x in all
+  three worlds; and every visible name (without a leader line) is nearer its own dot than any
+  other, desktop and phone, at several zooms.
 - Measured (4x-throttled CPU, Playwright): ~2.3 ms JS + ~3.1 ms render submission per zoom
   frame. The container renders WebGL in software (SwiftShader), so whole-frame timings there
   are not representative; check on a real phone.
@@ -316,3 +322,4 @@ Check `vite-plugin-pwa` precache size limits after adding it.
 | 51 | Music for the Chinese house: an original pentatonic piece for pipa, zheng, xiao, wooden fish and gong (the Dutch house keeps the sarabande) |
 | 52 | Every 1650 good sells somewhere (tin, ivory, gold had no buyer); more Asian buyers for the Chinese house (ivory, tin, saltpetre, nutmeg, cinnamon) |
 | 53 | Ships, routes and lanes meet the pushed-apart dots of crowded ports (Batavia/Bantam) at every zoom; names stay nearest their own dot |
+| 54 | Names of crowded ports: never placed nearer another port's dot (Amoy, Canton, Amsterdam); where no spot works, a leader line joins name and dot. Ship and dot positions checked for every port, all worlds and zooms |

@@ -393,10 +393,12 @@ class FillLayer {
 
 // ------------------------------------------------------------------ labels
 
-type LabelKey = 'right' | 'left' | 'above' | 'below' | 'ne' | 'se' | 'nw' | 'sw';
+type NearKey = 'right' | 'left' | 'above' | 'below' | 'ne' | 'se' | 'nw' | 'sw';
+/** The eight spots round a dot, and the same eight a little further out (for crowded clusters). */
+type LabelKey = NearKey | `${NearKey}2`;
 interface LabelSpot { x: number; y: number; fy: number; anchor: 'start' | 'end' | 'middle' }
 /** Where a port's name (baseline y) and note (baseline fy) can sit round its dot, in label units. */
-const LABEL_SPOTS: Record<LabelKey, LabelSpot> = {
+const NEAR_SPOTS: Record<NearKey, LabelSpot> = {
   right: { x: 10, y: -6, fy: 8, anchor: 'start' },
   left: { x: -10, y: -6, fy: 8, anchor: 'end' },
   above: { x: 0, y: -21, fy: -9, anchor: 'middle' },
@@ -406,7 +408,13 @@ const LABEL_SPOTS: Record<LabelKey, LabelSpot> = {
   nw: { x: -6, y: -16, fy: -4, anchor: 'end' },
   sw: { x: -6, y: 15, fy: 27, anchor: 'end' },
 };
-const SPOT_KEYS = Object.keys(LABEL_SPOTS) as LabelKey[];
+const LABEL_SPOTS = { ...NEAR_SPOTS } as Record<LabelKey, LabelSpot>;
+for (const [k, v] of Object.entries(NEAR_SPOTS)) {
+  const dy = v.y * 0.7;
+  LABEL_SPOTS[`${k}2` as LabelKey] = { x: v.x * 2.4, y: v.y + dy, fy: v.fy + dy, anchor: v.anchor };
+}
+const SPOT_KEYS = Object.keys(NEAR_SPOTS) as LabelKey[];
+const FAR_KEYS = SPOT_KEYS.map((k) => `${k}2` as LabelKey);
 /** How long a name takes to fade in or out. */
 const FADE_MS = 150;
 
@@ -433,6 +441,11 @@ interface PortView {
   wantSpot: LabelKey;
   showNote: boolean;
   wantNote: boolean;
+  /** A thin line from the dot to the name, where a crowded cluster leaves no unambiguous spot. */
+  leader: boolean;
+  wantLeader: boolean;
+  leaderG: Graphics;
+  leaderKey: string;
   visible: boolean;
   alpha: number;
   button: HTMLButtonElement;
@@ -642,9 +655,9 @@ export class GlMapView {
         id: p.id, name: p.name, x: truePos[p.id][0], y: truePos[p.id][1], dataSpot: (p.label ?? 'right') as LabelKey,
         g: new Graphics(), label: new Text({ text: p.name }), note: new Text({ text: '' }), tag,
         marker: null, rumour: false, night: false, styleKey: '', spot: (p.label ?? 'right') as LabelKey,
-        wantSpot: (p.label ?? 'right') as LabelKey, showNote: true, wantNote: true, visible: false, alpha: 0, button,
+        wantSpot: (p.label ?? 'right') as LabelKey, showNote: true, wantNote: true, leader: false, wantLeader: false, leaderG: new Graphics(), leaderKey: '', visible: false, alpha: 0, button,
       };
-      tag.addChild(view.label, view.note);
+      tag.addChild(view.leaderG, view.label, view.note);
       tag.alpha = 0;
       this.ports.push(view);
       this.portById[p.id] = view;
@@ -1235,7 +1248,7 @@ export class GlMapView {
         this.dirty = true;
       }
     }
-    const fading = this.ports.some((p) => Math.abs(p.alpha - (p.visible ? 1 : 0)) > 0.001 || p.spot !== p.wantSpot || p.showNote !== p.wantNote);
+    const fading = this.ports.some((p) => Math.abs(p.alpha - (p.visible ? 1 : 0)) > 0.001 || p.spot !== p.wantSpot || p.showNote !== p.wantNote || p.leader !== p.wantLeader);
     // Things that move by themselves: marching route, pulsing ready ships, storms, effects.
     const ambient = this.routes.primary.length > 0 || this.shipMarkers.some((m) => m.state === 'ready') || this.clouds.size > 0 || this.effects.length > 0;
     if (!this.dirty && !fading && !this.labelsDirty && !(ambient && now - this.lastPaint > 32)) return;
@@ -1279,9 +1292,9 @@ export class GlMapView {
     const step = dt / FADE_MS;
     for (const p of this.ports) {
       // A name that has to move fades out first, then comes back in its new place.
-      const moving = p.spot !== p.wantSpot || p.showNote !== p.wantNote;
+      const moving = p.spot !== p.wantSpot || p.showNote !== p.wantNote || p.leader !== p.wantLeader;
       const target = p.visible && !moving ? 1 : 0;
-      if (moving && p.alpha <= 0.001) { p.spot = p.wantSpot; p.showNote = p.wantNote; this.styleSpot(p); }
+      if (moving && p.alpha <= 0.001) { p.spot = p.wantSpot; p.showNote = p.wantNote; p.leader = p.wantLeader; this.styleSpot(p); }
       p.alpha = target > p.alpha ? Math.min(target, p.alpha + step) : Math.max(target, p.alpha - step);
       p.tag.alpha = p.alpha;
       p.tag.visible = p.alpha > 0.001;
@@ -1393,6 +1406,33 @@ export class GlMapView {
     p.label.position.set(spot.x * ui, spot.y * ui - lm.ascent);
     p.note.position.set(spot.x * ui, spot.fy * ui - nm.ascent);
     p.note.visible = p.showNote && !!p.note.text;
+    // The leader line: from just outside the dot to the nearest point of the name.
+    // Start outside a ship lying in this port, so the line isn't hidden under it.
+    const [px, py] = this.screenOf(...this.portXY(p));
+    let shipR = 0;
+    for (const v of this.shipViews.values()) {
+      if (v.marker.state !== 'sea' && Math.hypot(v.root.x - px, v.root.y - py) < 3) shipR = Math.max(shipR, Math.max(8, v.marker.icon.length * 0.55) * this.dot);
+    }
+    const lk = p.leader ? `${p.spot}|${p.label.width.toFixed(1)}|${this.dot}|${this.ui}|${shipR.toFixed(1)}` : '';
+    if (lk === p.leaderKey) return;
+    p.leaderKey = lk;
+    p.leaderG.clear();
+    if (p.leader) {
+      const w = p.label.width, h = p.label.height;
+      const x0 = p.label.x - p.label.anchor.x * w, y0 = p.label.y;
+      const tx = Math.max(x0, Math.min(0, x0 + w)), ty = Math.max(y0 + h * 0.2, Math.min(0, y0 + h * 0.8));
+      const len = Math.hypot(tx, ty);
+      const r0 = Math.max(6 * this.dot, shipR + 1.5);
+      if (len > r0 + 2) {
+        const ux = tx / len, uy = ty / len;
+        // A pale outline under the line, as the names have, so it stands out over coasts.
+        const pal = this.pal;
+        p.leaderG.moveTo(ux * r0, uy * r0).lineTo(tx - ux * 1.5, ty - uy * 1.5)
+          .stroke({ width: 3.2 * this.ui, color: hexOf(pal.halo), alpha: Math.min(1, pal.halo[3] + 0.1), cap: 'round' });
+        p.leaderG.moveTo(ux * r0, uy * r0).lineTo(tx - ux * 1.5, ty - uy * 1.5)
+          .stroke({ width: Math.max(1, 1.1 * this.ui), color: hexOf(pal.text), alpha: 0.85, cap: 'round' });
+      }
+    }
   }
 
   /** Ascent of a text's font above its baseline (texts are positioned by their top edge). */
@@ -1474,28 +1514,50 @@ export class GlMapView {
           const bs = boxes(p, xy, key, note);
           if (fits(bs, self)) {
             placed.push(...bs);
-            p.wantSpot = key; p.wantNote = note; p.visible = true; done = true;
+            p.wantSpot = key; p.wantNote = note; p.wantLeader = false; p.visible = true; done = true;
             break;
           }
         }
         if (done) break;
       }
       if (!done && rank(p) <= 3) {
-        // Ports that matter now always show their name, in the least bad spot.
-        let best = p.dataSpot, bestCost = Infinity;
-        for (const key of prefs) {
+        // Ports that matter now always show their name: in the least bad spot, or where the cluster
+        // leaves none that reads as theirs, a little further out with a line to the dot.
+        let best = p.dataSpot, bestCost = Infinity, leader = false;
+        const keys = [...prefs, ...FAR_KEYS];
+        const cost = (key: LabelKey, strict: boolean) => {
           const bs = boxes(p, xy, key, false);
+          const area = (b: Box, q: Box) => Math.max(0, Math.min(b[2], q[2]) - Math.max(b[0], q[0])) * Math.max(0, Math.min(b[3], q[3]) - Math.max(b[1], q[1]));
           let c = 0;
-          for (const b of bs) for (const q of placed) c += Math.max(0, Math.min(b[2], q[2]) - Math.max(b[0], q[0])) * Math.max(0, Math.min(b[3], q[3]) - Math.max(b[1], q[1]));
-          if (c < bestCost) { bestCost = c; best = key; }
+          for (const b of bs) {
+            for (const q of placed) c += area(b, q);
+            // Covering another port's dot is worse than covering a name.
+            for (let i = 0; i < dots.length; i++) if (i !== self) c += 4 * area(b, dots[i]);
+            // Off the edge of the map.
+            c += 40 * (Math.max(0, 2 - b[0]) + Math.max(0, 2 - b[1]) + Math.max(0, b[2] - this.cssW + 2) + Math.max(0, b[3] - this.cssH + 2));
+          }
+          // Worst of all: a name nearer another port's dot, which reads as that port's name.
+          if (strict) {
+            const own = gap(bs[0], xy[0], xy[1]);
+            for (let i = 0; i < onScreen.length; i++) {
+              if (i !== self) c += 10_000 * Math.max(0, own + 3 - gap(bs[0], onScreen[i].xy[0], onScreen[i].xy[1]));
+            }
+          }
+          return c;
+        };
+        for (const key of keys) { const c = cost(key, true); if (c < bestCost) { bestCost = c; best = key; } }
+        if (bestCost >= 10_000) {
+          // No spot reads as this port's: the far spot that covers least, and a leader line.
+          bestCost = Infinity; leader = true;
+          for (const key of FAR_KEYS) { const c = cost(key, false); if (c < bestCost) { bestCost = c; best = key; } }
         }
         placed.push(...boxes(p, xy, best, false));
-        p.wantSpot = best; p.wantNote = false; p.visible = true; done = true;
+        p.wantSpot = best; p.wantNote = false; p.wantLeader = leader; p.visible = true; done = true;
       }
       if (!done) p.visible = false;
     }
     // A name that isn't showing yet can take its new spot at once.
-    for (const p of this.ports) if (p.alpha <= 0.001) { p.spot = p.wantSpot; p.showNote = p.wantNote; }
+    for (const p of this.ports) if (p.alpha <= 0.001) { p.spot = p.wantSpot; p.showNote = p.wantNote; p.leader = p.wantLeader; }
   }
 
   updatePorts(markers: PortMarker[]): void {
