@@ -6,7 +6,7 @@ import {
   ActionError, LAID_UP, RULES, acceptContract, advance, atSea, borrow, buyFuel, buyShip, canCarry, cargoTons, clearOrders,
   assignCaptain, buyChart, callsOnTheWay, detour, onTheWay, setPlannedDest, type CallOnTheWay, buyGoods, sellGoods, captainOf, fireCaptain, hireCaptain, monthOf, monthProfit, onOrders, resumeOrders,
   dailyUpkeep, daysUntilNextShip, fuelPrice, getShip, inDryDock, isReady, isWaiting, needsDecision, newGame,
-  dockByHand, nextMilestone, planVoyage, portFee, repair, repairQuote, repayLoan, sail, saleQuote, sellShip,
+  dockByHand, planVoyage, portFee, repair, repairQuote, repayLoan, sail, saleQuote, sellShip,
   shipsNeedingDecision, takeReport, typeOf, unloadContract, jettisonClaim, jettisonContract, jettisonGoods, voyageProgress, waitInPort, type VoyagePlan,
 } from './sim/game';
 import {
@@ -18,6 +18,7 @@ import {
 } from './sim/ships';
 import type { Captain, Contract, GameState, PremiumKind, ShipOffer, ShipState, ShipTypeDef, VoyageReport } from './sim/types';
 import { currentEra, currentHouse, getWorld, setEra } from './sim/world';
+import { currentChapter, guideChapters, updateGuide, type GuideChapter } from './sim/guide';
 import { compactMoney, currency, days, esc, gameDate, money, setEraFormat, startYear, tons } from './ui/format';
 import { mapIconPath, shipFamily, shipSideView } from './ui/art';
 import { CLASS_LABEL, goodIcon } from './ui/goods-icons';
@@ -590,6 +591,7 @@ class App {
         if (this.g.reports.length) { this.showNextReport(); return; }
         break;
       case 'games': this.showGames(); return;
+      case 'guide': this.showGuide(); return;
       case 'close-games':
         $('#modal').hidden = true;
         $('#modal').classList.remove('wide');
@@ -827,16 +829,50 @@ class App {
     if (tag) tag.textContent = g.company ?? 'shipping company';
     this.animateCash(g.cash);
     const worth = netWorth(g, world);
-    const next = nextMilestone(g);
-    const prev = [...g.milestones].sort((a, b) => b.amount - a.amount)[0]?.amount ?? 0;
-    const progress = next ? Math.max(0, Math.min(1, (worth - prev) / (next - prev))) : 1;
-    $('#goal-bar').style.width = `${progress * 100}%`;
+    // The guide: the chapter being played and how far along it is (tap for the steps).
+    this.announceGuide();
+    const ch = currentChapter(world, g);
+    const done = ch ? ch.steps.filter((x) => x.done).length : 1, total = ch ? ch.steps.length : 1;
+    $('#goal-bar').style.width = `${(done / total) * 100}%`;
     $('#goal-text').textContent = g.cash < 0
       ? `Overdraft · limit ${compactMoney(RULES.overdraftLimit)} · 18%/yr`
-      : next
-        ? `Worth ${compactMoney(worth)} → ${compactMoney(next)}`
-        : `Worth ${compactMoney(worth)} · all goals reached`;
-    $('#goal-text').title = 'Net worth: cash + fleet value − loan';
+      : ch ? `${ch.n}. ${ch.title} · ${done}/${total}` : `Worth ${compactMoney(worth)}`;
+    $('.goal').title = `The guide: your next steps. Net worth ${compactMoney(worth)} (cash + fleet value − loan).`;
+  }
+
+  /** Steps and chapters of the guide finished since last time: a message, and the chapter's end in a dialog. */
+  private announceGuide(): void {
+    // A brand-new game opens with the guide's first steps.
+    const fresh = !this.g.guide && this.g.day < 1 && this.g.stats.voyages === 0;
+    const news = updateGuide(world, this.g);
+    if (fresh && $('#modal').hidden) { this.showGuide(); return; }
+    for (const st of news.steps) {
+      this.toast(`✓ ${st.title}`, 'good');
+      this.g.log.unshift({ day: this.g.day, text: `Guide: ${st.title} — done.` });
+    }
+    const ch = news.chapters[news.chapters.length - 1];
+    if (ch && $('#modal').hidden) this.showGuide(ch);
+  }
+
+  /** The guide: the chapter being played, its steps and how to do them; or a finished chapter's end. */
+  private showGuide(finished?: GuideChapter): void {
+    const g = this.g;
+    const chapters = guideChapters(world, g);
+    const cur = currentChapter(world, g);
+    const steps = (c: GuideChapter) => `<ol class="guide-steps">${c.steps.map((st) => `
+      <li class="${st.done ? 'done' : ''}"><span class="gs-tick" aria-hidden="true">${st.done ? '✓' : ''}</span>
+        <div><strong>${esc(st.title)}</strong>${st.done ? '' : `<span class="hint">${esc(st.hint)}</span>`}
+        ${st.progress && !st.done ? `<div class="gs-bar"><i style="width:${(st.progress[0] / st.progress[1]) * 100}%"></i></div><span class="gs-num">${st.progress[0].toLocaleString('en-US')} / ${st.progress[1].toLocaleString('en-US')}</span>` : ''}</div></li>`).join('')}</ol>`;
+    const past = chapters.filter((c) => c.steps.every((st) => st.done) && c !== finished);
+    $('#modal').classList.remove('wide');
+    $('#modal-body').innerHTML = `
+      ${finished ? `<p class="new-ship-kicker">Chapter ${finished.n} complete</p><h2>${esc(finished.title)}</h2><p class="guide-epilogue">${esc(finished.epilogue)}</p>` : ''}
+      ${cur ? `<p class="lbl">${finished ? 'Next' : `Chapter ${cur.n} of ${chapters.length}`}</p><h2>${esc(cur.title)}</h2>${steps(cur)}`
+        : `<h2>The guide</h2><p>Every chapter so far is done. The next ones arrive with coming builds.</p>`}
+      <p class="sub">Your ${isSail() ? 'house' : 'company'} is worth ${money(netWorth(g, world))} (cash and ships, less the loan).</p>
+      ${past.length && !finished ? `<details class="guide-past"><summary>Chapters done (${past.length})</summary><ul>${past.map((c) => `<li>${c.n}. ${esc(c.title)}</li>`).join('')}</ul></details>` : ''}
+      <button class="btn primary wide" data-action="close-games">${finished ? 'On we go' : 'Close'}</button>`;
+    $('#modal').hidden = false;
   }
 
   /** The cash figure counts towards its new value instead of jumping; big changes flash. */

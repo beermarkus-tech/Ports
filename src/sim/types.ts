@@ -319,6 +319,8 @@ export interface GameState {
   /** Captains on the payroll, and the ones looking for work. Missing in older saves. */
   captains?: Captain[];
   captainPool?: Captain[];
+  /** The guide: steps done (they stay done). Missing until the game first meets the guide. */
+  guide?: { done: string[] };
   /** Net-worth milestones reached, with the day each was reached. */
   milestones: { amount: number; day: number }[];
   oil: OilMarket;

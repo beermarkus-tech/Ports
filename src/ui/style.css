@@ -99,7 +99,11 @@ h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 .money { margin-left: auto; align-items: flex-end; }
 #cash { font-size: 22px; font-weight: 750; color: var(--good); transition: color 0.3s; }
 #cash.negative { color: var(--bad); }
-.goal { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); }
+.goal { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); font-family: inherit; background: none; border: none; padding: 2px 0; cursor: pointer; }
+.goal:hover #goal-text { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
+.goal:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.goal-track { display: block; }
+#goal-bar { display: block; }
 .goal-track { width: 90px; height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
 #goal-bar { height: 100%; background: var(--accent-2); transition: width 0.6s; }
 
@@ -910,3 +914,18 @@ button.era-card:hover { border-color: var(--accent); }
 .map-port-btn { position: absolute; left: 0; top: 0; width: 28px; height: 28px; padding: 0; border: none; border-radius: 50%; background: transparent; opacity: 0; pointer-events: none; }
 .map-port-btn:focus-visible { opacity: 1; outline: 2px solid var(--accent); outline-offset: 0; }
 .map-failed { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; padding: 16px; text-align: center; color: var(--muted); }
+
+/* ---------- the guide (src/sim/guide.ts) ---------- */
+.guide-steps { list-style: none; padding: 0; margin: 10px 0 14px; display: grid; gap: 10px; }
+.guide-steps li { display: grid; grid-template-columns: 22px 1fr; gap: 10px; align-items: start; }
+.guide-steps li > div { min-width: 0; display: grid; gap: 2px; }
+.guide-steps .hint { margin: 0; }
+.gs-tick { width: 20px; height: 20px; border: 1.5px solid var(--muted); border-radius: 4px; display: grid; place-items: center; font-size: 13px; font-weight: 700; margin-top: 1px; }
+.guide-steps li.done .gs-tick { background: var(--good); border-color: var(--good); color: var(--surface); }
+.guide-steps li.done strong { color: var(--muted); font-weight: 500; }
+.gs-bar { height: 5px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 4px; }
+.gs-bar i { display: block; height: 100%; background: var(--accent-2); }
+.gs-num { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.guide-epilogue { font-style: italic; margin: 6px 0 16px; }
+.guide-past { margin: 8px 0 12px; font-size: 13px; color: var(--muted); }
+.guide-past ul { margin: 6px 0 0; padding-left: 18px; }
