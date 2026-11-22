@@ -990,3 +990,9 @@ button.era-card:hover { border-color: var(--accent); }
   .map-zoom button[data-z="world"] { font-size: 11px; }
 }
 .map-stack.zoomed { background: var(--ocean-2); border-radius: 4px; }
+
+/* ---------- the WebGL map (src/ui/map-gl.ts) ---------- */
+.map-stack.gl > canvas.map-gl { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; -webkit-user-select: none; user-select: none; }
+.map-a11y { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.map-port-btn { position: absolute; left: 0; top: 0; width: 28px; height: 28px; padding: 0; border: none; border-radius: 50%; background: transparent; opacity: 0; pointer-events: none; }
+.map-port-btn:focus-visible { opacity: 1; outline: 2px solid var(--accent); outline-offset: 0; }
