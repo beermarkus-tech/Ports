@@ -293,14 +293,19 @@ Check `vite-plugin-pwa` precache size limits after adding it.
   Canton 1757, Cook 1770, clippers and steam), wars and privateers, a warping mini game.
 - Decision events (storms: go round or push through; distress calls; pirates; strikes).
 - Goals: a career with milestones and unlocks.
-- **The second loop (discussed Nov 2026, not decided):** ideas page "After the Big Fleet"
-  (https://claude.ai/artifact/5FTKiw5m84rwXHRWTmcncJ). Owner: trading posts that only raise income
-  are not wanted ("just numbers"); workshops/production chains interest them (they like factory
-  and base-building games) but need thinking through; own shipyard: later, late game. New ideas
-  on the page: found a settlement, commissions and wonders, cabinet of curiosities, family house
-  over generations, influence and politics, underwriting, chart workshop. Recommendation there:
-  settlement → workshops fed by the fleet → commissions → shipyard. Next: owner picks a direction,
-  then a detailed proposal with mock-ups (no programming before that).
+- **The second loop (decided direction, Nov 2026; proposal awaiting answers):**
+  ideas page "After the Big Fleet" (https://claude.ai/artifact/5FTKiw5m84rwXHRWTmcncJ) and the
+  proposal "A Settlement of Your Own" (https://claude.ai/artifact/HGquN7ATN8ctKYPCS2bRLo).
+  Owner's verdicts: ONE settlement at a few chosen sites (not anywhere), fed by the own fleet until
+  it becomes a port selling its own goods to the world; then commissions (once it makes something
+  the world wants); chart workshop yes; wonders and the cabinet of curiosities kept in mind;
+  family house over generations later, with the timeline; no politics; underwriting unsure;
+  trading posts that only raise income: no; shipyard: late game. Plus a GUIDE: chapters of next
+  steps so the game has a purpose beyond money ("money becomes the utility, not the goal").
+  Proposal: guide (step A), founding and surviving camp→village with supply runs (step B),
+  workshops and becoming a port (step C); three sites per house (Chinese: Tamsui, Bintan,
+  Songkhla; Dutch: the Cape, Mauritius, Wild Coast of Guiana), leased from local rulers (no
+  conquest). Open questions on the proposal page; no programming before the owner answers.
 - Harbour life in the modern port view (cranes, bunker barge, horn, tugs).
 - Rivals (at the very end).
 - Possibly: rescale victual cask prices (currently ƒ150–270 a cask; costs balance).
