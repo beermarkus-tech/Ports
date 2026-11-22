@@ -1,7 +1,7 @@
 # Deadweight: handover and progress log
 
 The single document to read before continuing work, in any chat or account.
-Last updated at **build 51** (22 Nov 2026). Keep this file current: add to the
+Last updated at **build 52** (22 Nov 2026). Keep this file current: add to the
 build log and move items in "Next" as work lands.
 
 ## 1. What this is
@@ -42,7 +42,7 @@ as an installable offline PWA (Vite + TypeScript, no framework).
 ```
 npm install
 npm run dev          # local dev server
-npm test             # vitest, 108 tests, all must pass
+npm test             # vitest, 109 tests, all must pass
 npm run build        # tsc + vite build into dist/
 npx vite preview --port 4173 --strictPort   # serve dist/ (base is './', open http://localhost:4173/)
 ERA=sail [HOUSE=chinese] npx tsx scripts/balance.ts 10 100 greedy   # balance bots (also: casual)
@@ -129,6 +129,11 @@ Age of Sail (1650): two merchant houses, picked when a game starts (each its own
   34 bars, ~2 min, looping; levels matched to the sarabande (RMS ~0.016 rendered offline). Own fog names ("The Western
   Ocean", "The Sea of the Franks"…). Freight pays factor 1.2 instead of 2 (short legs in rich
   seas): the bot ends 10 legs a little below the Dutch, earning a little more per day.
+- Every 1650 good has buyers (build 52; the generator asserts it): tin, ivory and gold had none
+  anywhere. Added (EXTRA_DEMANDS in scripts/sail-world.py): tin at Canton, Amoy, Surat; ivory at
+  Canton, Amoy, Surat, Goa, Lisbon, Amsterdam; gold at Surat, Goa, Madras, Amsterdam; saltpetre
+  and nutmeg at Amoy (and nutmeg at Canton); cinnamon at Batavia. Old saves' price news is
+  back-filled for goods a port newly deals in (ensureTrade).
 - New ports for both houses: Patani and Macassar (port id `macassar`: a sea-lane waypoint is
   already called `makassar`). Old Dutch saves gain them, charted.
 
@@ -304,3 +309,4 @@ Check `vite-plugin-pwa` precache size limits after adding it.
   account; the decisions they led to are recorded above.
 | 50 | The Chinese house: pick a house for a 1650 game; Amoy, junks (art for side view, harbour and map), taels, Chinese charts and fog names, Patani and Macassar added; market cards in 1650 no longer show $ |
 | 51 | Music for the Chinese house: an original pentatonic piece for pipa, zheng, xiao, wooden fish and gong (the Dutch house keeps the sarabande) |
+| 52 | Every 1650 good sells somewhere (tin, ivory, gold had no buyer); more Asian buyers for the Chinese house (ivory, tin, saltpetre, nutmeg, cinnamon) |

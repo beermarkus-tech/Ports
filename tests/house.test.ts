@@ -66,3 +66,25 @@ describe('merchant houses of the Age of Sail', () => {
     expect(routeWind(getWorld(), path, 181, 'junk')).toBeGreaterThanOrEqual(routeWind(getWorld(), path, 181));
   });
 });
+
+describe('every good has a market', () => {
+  afterEach(() => setEra('modern'));
+
+  it('in 1650 every good is bought somewhere, and an old save learns the new buyers at once', async () => {
+    const { bestKnownMarkets, sellPrice } = await import('../src/sim/trade');
+    for (const house of ['dutch', 'chinese'] as const) {
+      setEra('sail', house);
+      const w = getWorld();
+      for (const good of Object.keys(w.goods)) expect(w.portList.some((p) => p.demands.some((d) => d.good === good)), good).toBe(true);
+    }
+    setEra('sail', 'chinese');
+    const g = newGame(21);
+    const w = getWorld();
+    for (const good of ['tin', 'ivory', 'saltpetre', 'nutmeg']) expect(sellPrice(w, g, 'amoy', good), good).toBeGreaterThan(0);
+    // A save from before: Amoy's letters never mentioned tin.
+    const old = JSON.parse(JSON.stringify(g));
+    for (const h of old.ports.amoy.hist) delete h.p.tin;
+    const back = migrate(old)!;
+    expect(bestKnownMarkets(w, back, 'tin').some((b) => b.port === 'amoy')).toBe(true);
+  });
+});

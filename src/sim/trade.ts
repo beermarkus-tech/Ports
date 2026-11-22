@@ -85,7 +85,16 @@ function sample(world: World, g: GameState, portId: string, day = g.day): void {
 /** A new game (or an old save): every port's first price sample, the news you start with. */
 export function ensureTrade(world: World, g: GameState): void {
   if (!hasTrade(world)) return;
-  for (const p of world.portList) if (!g.ports[p.id]?.hist?.length) sample(world, g, p.id);
+  for (const p of world.portList) {
+    if (!g.ports[p.id]?.hist?.length) { sample(world, g, p.id); continue; }
+    // Goods a port took up dealing in after this game began: its letters always quoted them.
+    for (const good of traded(world, p.id)) {
+      const hist = g.ports[p.id].hist!;
+      if (hist.every((h) => h.p[good] !== undefined)) continue;
+      const price = (buyPrice(world, g, p.id, good) ?? sellPrice(world, g, p.id, good))!;
+      for (const h of hist) h.p[good] ??= price;
+    }
+  }
 }
 
 /** A day passes: prices wander, and every week the news gets a sample. */
