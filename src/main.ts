@@ -21,8 +21,8 @@ import { currentEra, getWorld, setEra } from './sim/world';
 import { compactMoney, currency, days, esc, gameDate, money, setEraFormat, startYear, tons } from './ui/format';
 import { mapIconPath, shipFamily, shipSideView } from './ui/art';
 import { CLASS_LABEL, goodIcon } from './ui/goods-icons';
-import { GlMapView, webglMapAvailable } from './ui/map-gl';
-import { MapView as SvgMapView, type LonLat, type PortMarker, type ShipMarker, type WeatherCell } from './ui/map';
+import { GlMapView as MapView } from './ui/map-gl';
+import { type LonLat, type PortMarker, type ShipMarker, type WeatherCell } from './ui/map';
 import { PortScene, shipLength, type SceneShip, type TimeOfDay } from './ui/port-scene';
 import { DockingGame } from './ui/docking-game';
 import { barChart, lineChart, miniBars, type ChartPoint } from './ui/charts';
@@ -142,7 +142,7 @@ class App {
   private shownCash: number | null = null;
   private cashAnim = 0;
   private cashTarget: number | null = null;
-  private map: SvgMapView | GlMapView;
+  private map: MapView;
 
   constructor(opts: { showStart: boolean } = { showStart: false }) {
     const loaded = loadGame();
@@ -150,8 +150,7 @@ class App {
     this.g = loaded ?? newGame();
     saveGame(this.g);
     this.activeId = (this.g.fleet.find((s) => isReady(this.g, s)) ?? this.g.fleet[0]).id;
-    // The WebGL map; the older SVG map where WebGL isn't available.
-    this.map = new (webglMapAvailable() ? GlMapView : SvgMapView)(
+    this.map = new MapView(
       $('#map'),
       world,
       (id) => this.selectDest(id),

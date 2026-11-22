@@ -4,8 +4,7 @@
 // (they are widened in the vertex shader), ports, names and ships keep their size, and names are
 // placed again each frame so they fade in and out instead of jumping.
 //
-// Knows nothing about game rules: like the SVG map (map.ts) it is handed positions, routes and
-// highlights by the view, through the same methods.
+// Knows nothing about game rules: it is handed positions, routes and highlights by the view.
 
 import earcut from 'earcut';
 import { geoCircle, geoDistance, geoEqualEarth, geoGraticule10, geoInterpolate, geoPath, geoStream, type GeoProjection, type GeoPermissibleObjects } from 'd3-geo';
@@ -444,7 +443,7 @@ export class GlMapView {
   private pal!: Palette;
   private sail: boolean;
 
-  // View: k is the zoom, (tx, ty) the offset in unzoomed map units on screen (as in the SVG map).
+  // View: k is the zoom, (tx, ty) the offset in unzoomed map units on screen, as the zoom code has always used it).
   private k = 1;
   private tx = 0;
   private ty = 0;
@@ -633,6 +632,10 @@ export class GlMapView {
     } catch (err) {
       this.failed = true;
       console.error('WebGL map failed to start', err);
+      const note = document.createElement('p');
+      note.className = 'map-failed';
+      note.textContent = 'This browser can’t draw the map (WebGL is switched off or not available).';
+      this.stack.appendChild(note);
       return;
     }
     this.app = app;
@@ -951,7 +954,7 @@ export class GlMapView {
 
   // ------------------------------------------------------------ input and zoom
 
-  /** Map point under a pointer, in unzoomed screen units (as the SVG map's zoom code uses). */
+  /** Map point under a pointer, in unzoomed screen units, before zoom. */
   private toUnits(clientX: number, clientY: number): [number, number] {
     const r = this.stack.getBoundingClientRect();
     return [((clientX - r.left) / r.width) * W, ((clientY - r.top) / r.height) * H];
@@ -1322,8 +1325,10 @@ export class GlMapView {
         if (p.marker?.strike) { haloC = pal.bad; haloA = 0.3; }
         if (p.marker?.boom) { haloC = pal.good; haloA = 0.25; }
         if (haloA) g.circle(0, 0, 9 * ui).fill({ color: hexOf(haloC), alpha: haloA });
+        // A stop on the way: an amber ring.
+        if (role === 'via') g.circle(0, 0, 9 * ui).stroke({ width: 2.5 * ui, color: hexOf(pal.accent2) });
         if (p.night) g.circle(0, 0, 7 * ui).fill({ color: 0xffd27a, alpha: 0.35 });
-        const dot = role === 'here' ? pal.good : role === 'dest' ? pal.accent : role === 'cargo' ? pal.accent2 : pal.text;
+        const dot = role === 'here' ? pal.good : role === 'dest' ? pal.accent : role === 'cargo' || role === 'via' ? pal.accent2 : pal.text;
         g.circle(0, 0, 4.5 * ui).fill(hexOf(dot)).stroke({ width: 1.5 * ui, color: hexOf(pal.bg) });
         g.circle(0, 0, 1.8 * ui).fill(p.night ? 0xffe39b : hexOf(pal.bg));
       }
@@ -1826,16 +1831,4 @@ function edt(rgba: Uint8ClampedArray, w: number, h: number): Float32Array {
     for (let x = 0; x < w; x++) grid[y * w + x] = Math.sqrt(d[x]);
   }
   return grid;
-}
-
-/** WebGL can be used (and the player hasn't asked for the old map with ?map=svg). */
-export function webglMapAvailable(): boolean {
-  try {
-    if (new URLSearchParams(location.search).get('map') === 'svg') return false;
-    if (localStorage.getItem('deadweight.map') === 'svg') return false;
-    const c = document.createElement('canvas');
-    return !!(c.getContext('webgl2') ?? c.getContext('webgl'));
-  } catch {
-    return false;
-  }
 }
