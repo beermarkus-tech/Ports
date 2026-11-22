@@ -2,7 +2,7 @@
 // so they work offline). Off until the first tap, as browsers require; the
 // mute setting is remembered on the device.
 
-import { Music } from './music';
+import { Music, type Piece } from './music';
 
 export type SoundName = 'horn' | 'sails' | 'bell' | 'coins' | 'thunder' | 'clank' | 'fanfare' | 'click';
 
@@ -33,8 +33,10 @@ class SoundBoard {
     else this.music.stop();
   }
 
-  setMusicWanted(on: boolean): void {
+  /** Whether the game has music, and which piece (the Age of Sail: one per merchant house). */
+  setMusicWanted(on: boolean, piece?: Piece): void {
     this.musicWanted = on;
+    if (piece) this.music.setPiece(piece);
     this.syncMusic();
   }
 

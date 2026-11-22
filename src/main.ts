@@ -29,6 +29,8 @@ import { barChart, lineChart, miniBars, type ChartPoint } from './ui/charts';
 import { captainSlots } from './sim/captains';
 import { areaName, areaPorts, region, regionOf, regions } from './sim/regions';
 import { sound } from './ui/sound';
+import { SARABANDE } from './ui/music';
+import { NANYANG } from './ui/music-nanyang';
 import { BUILD, consumeUpdatedFrom, initServiceWorker, isNewer, justUpdated, latestBuild, reloadApp } from './ui/update';
 
 type Tab = 'contracts' | 'voyage' | 'ship' | 'market' | 'fleet' | 'log';
@@ -44,7 +46,7 @@ function applyEra(era: 'modern' | 'sail', house?: 'dutch' | 'chinese'): void {
   setEraFormat(world.era.startYear, world.era.currency);
   document.documentElement.classList.toggle('era-sail', era === 'sail');
   // The Age of Sail has its own music (it starts with the first tap, as browsers require).
-  sound.setMusicWanted(era === 'sail');
+  sound.setMusicWanted(era === 'sail', house === 'chinese' ? NANYANG : SARABANDE);
 }
 
 /** Words that differ between the eras. */

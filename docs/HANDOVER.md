@@ -1,7 +1,7 @@
 # Deadweight: handover and progress log
 
 The single document to read before continuing work, in any chat or account.
-Last updated at **build 50** (22 Nov 2026). Keep this file current: add to the
+Last updated at **build 51** (22 Nov 2026). Keep this file current: add to the
 build log and move items in "Next" as work lands.
 
 ## 1. What this is
@@ -82,7 +82,9 @@ src/ui/
   map.ts         types shared by the map and main.ts (LonLat, PortMarker, ShipMarker, WeatherCell)
   port-scene.ts / port-scene-sail.ts  harbour views (modern / 1650)
   goods-icons.ts drawn icons for all 55 goods (engraved 1650, line-style modern)
-  art.ts ship art; music.ts 1650 sarabande (Web Audio); sound.ts effects
+  art.ts ship art (incl. junks); music.ts the music engine (Web Audio, all synthesised: lute,
+  recorder, viol, pipa, zheng, xiao, wooden fish, gong) and the Dutch sarabande;
+  music-nanyang.ts the Chinese house's piece; sound.ts effects (picks the piece per house)
   docking-game.ts, minimap.ts, charts.ts (books), format.ts, update.ts, style.css
 tests/     vitest suites (sim, economy, ships, orders, captains, docking, slots,
            sail, fog, trade, jettison, onway)
@@ -120,7 +122,11 @@ Age of Sail (1650): two merchant houses, picked when a game starts (each its own
   (Fujian junk 100 t, ocean junk 320 t, large ocean junk 550 t, great junk 900 t), built at
   Amoy and Ayutthaya; only junks on its markets. Junks point higher into the wind (half the
   loss beating to windward) and spring leaks 40% less often (watertight compartments).
-  Dejima is called Nagasaki. Hokkien ship and captain names. Own fog names ("The Western
+  Dejima is called Nagasaki. Hokkien ship and captain names. Its own music (build 51): an
+  original piece in the pentatonic zhi mode on D (D E G A B), southern (Fujian) ensemble style:
+  intro (gong, zheng sweep), the 16-bar tune on pipa with tremolo over the zheng's fifths, then
+  on xiao (slides, grace notes) with the pipa in heterophony an octave below and the wooden fish;
+  34 bars, ~2 min, looping; levels matched to the sarabande (RMS ~0.016 rendered offline). Own fog names ("The Western
   Ocean", "The Sea of the Franks"…). Freight pays factor 1.2 instead of 2 (short legs in rich
   seas): the bot ends 10 legs a little below the Dutch, earning a little more per day.
 - New ports for both houses: Patani and Macassar (port id `macassar`: a sea-lane waypoint is
@@ -263,7 +269,7 @@ Check `vite-plugin-pwa` precache size limits after adding it.
 - Harbour life in the modern port view (cranes, bunker barge, horn, tugs).
 - Rivals (at the very end).
 - Possibly: rescale victual cask prices (currently ƒ150–270 a cask; costs balance).
-- A second 1650 music piece (courante or a Dutch song tune) to alternate.
+- A second Dutch 1650 music piece (courante or a Dutch song tune) to alternate with the sarabande.
 
 ## 9. Build log
 
@@ -297,3 +303,4 @@ Check `vite-plugin-pwa` precache size limits after adding it.
   (https://claude.ai/artifact/VSjBRS64dw8J6dW5BiNLxE). These are private to the owner's
   account; the decisions they led to are recorded above.
 | 50 | The Chinese house: pick a house for a 1650 game; Amoy, junks (art for side view, harbour and map), taels, Chinese charts and fog names, Patani and Macassar added; market cards in 1650 no longer show $ |
+| 51 | Music for the Chinese house: an original pentatonic piece for pipa, zheng, xiao, wooden fish and gong (the Dutch house keeps the sarabande) |
