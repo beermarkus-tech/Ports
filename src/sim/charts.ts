@@ -68,6 +68,24 @@ export function chartKnownWaters(world: World, g: GameState, ids: string[]): voi
   if (add.length) g.charted = [...g.charted, ...add];
 }
 
+/**
+ * Sea-lane waypoints added to the world after a game began: chart those in the waters the house
+ * knew from the start, and those whose every neighbouring point is charted already (a new point
+ * between two the house knows).
+ */
+export function chartNewWaypoints(world: World, g: GameState): void {
+  if (!world.era.charts || !g.charted) return;
+  const charted = new Set(g.charted);
+  const known = new Set(nodesIn(world, world.era.charts.known));
+  const add: string[] = [];
+  for (const id of Object.keys(world.points)) {
+    if (charted.has(id) || world.ports[id]) continue;
+    const near = world.edges.filter((e) => e.a === id || e.b === id).map((e) => (e.a === id ? e.b : e.a));
+    if (known.has(id) || (near.length && near.every((n) => charted.has(n)))) add.push(id);
+  }
+  if (add.length) g.charted = [...g.charted, ...add];
+}
+
 /** Is this port or waypoint charted? Everything is, in a world without fog. */
 export function isCharted(g: GameState, id: string): boolean {
   return !g.charted || g.charted.includes(id);

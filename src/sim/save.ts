@@ -5,7 +5,7 @@ import { randRange } from './rng';
 import { netWorth, regenerateMarket } from './ships';
 import type { GameState, ShipState } from './types';
 import { getWorld, worldFor } from './world';
-import { chartKnownWaters, ensureCharts } from './charts';
+import { chartKnownWaters, chartNewWaypoints, ensureCharts } from './charts';
 import { ensureTrade } from './trade';
 
 // Several games ("slots"), each in its own key, with an index of them for the start
@@ -178,6 +178,7 @@ export function migrate(raw: unknown): GameState | null {
   // The Age of Sail's fog arrived after its first games: they start with the Dutch charts of 1650.
   const gw = worldFor((g as GameState).era ?? 'modern', (g as GameState).house);
   ensureCharts(g as GameState, gw);
+  chartNewWaypoints(gw, g as GameState);
   // New ports first: the trade news samples every port's prices.
   addNewPorts(g as GameState);
   ensureTrade(gw, g as GameState);

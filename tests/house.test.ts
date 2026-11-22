@@ -88,3 +88,20 @@ describe('every good has a market', () => {
     expect(bestKnownMarkets(w, back, 'tin').some((b) => b.port === 'amoy')).toBe(true);
   });
 });
+
+describe('sea lanes', () => {
+  afterEach(() => setEra('modern'));
+
+  it('routes in the China seas go the short way, and old saves learn the new waypoints', () => {
+    setEra('sail', 'chinese');
+    const w = getWorld();
+    expect(w.route('amoy', 'zeelandia')!.nm).toBeLessThan(250);
+    expect(w.route('amoy', 'dejima')!.path).toContain('goto');
+    expect(w.route('amoy', 'manila')!.nm).toBeLessThan(900);
+    const g = newGame(31);
+    const old = JSON.parse(JSON.stringify(g));
+    old.charted = old.charted.filter((id: string) => !['amoy_off', 'pescadores', 'goto', 'pearl_mouth'].includes(id));
+    const back = migrate(old)!;
+    for (const id of ['amoy_off', 'pescadores', 'goto', 'pearl_mouth']) expect(isCharted(back, id), id).toBe(true);
+  });
+});

@@ -1,7 +1,7 @@
 # Deadweight: handover and progress log
 
 The single document to read before continuing work, in any chat or account.
-Last updated at **build 54** (22 Nov 2026). Keep this file current: add to the
+Last updated at **build 55** (22 Nov 2026). Keep this file current: add to the
 build log and move items in "Next" as work lands.
 
 ## 1. What this is
@@ -42,7 +42,7 @@ as an installable offline PWA (Vite + TypeScript, no framework).
 ```
 npm install
 npm run dev          # local dev server
-npm test             # vitest, 109 tests, all must pass
+npm test             # vitest, 110 tests, all must pass
 npm run build        # tsc + vite build into dist/
 npx vite preview --port 4173 --strictPort   # serve dist/ (base is './', open http://localhost:4173/)
 ERA=sail [HOUSE=chinese] npx tsx scripts/balance.ts 10 100 greedy   # balance bots (also: casual)
@@ -134,6 +134,17 @@ Age of Sail (1650): two merchant houses, picked when a game starts (each its own
   Canton, Amoy, Surat, Goa, Lisbon, Amsterdam; gold at Surat, Goa, Madras, Amsterdam; saltpetre
   and nutmeg at Amoy (and nutmeg at Canton); cinnamon at Batavia. Old saves' price news is
   back-filled for goods a port newly deals in (ensureTrade).
+- 1650 sea lanes (build 55, scripts/sail-lanes.ts): the China seas by hand (Pearl River mouth,
+  off Shantou and Amoy, the Pescadores, the Luzon Strait, west Luzon, Manila Bay, east of Hainan,
+  off Hoi An, Cape Varella, the Goto islands for Nagasaki); offshore coast points for India
+  (Konkan, Goa, Calicut, Madras, east Ceylon), Malacca–Singapore, the Mozambique Channel (Algoa,
+  Natal, channel S/N, Cape Delgado, Comoros), Brazil (Sergipe, Alagoas), New Spain (Manzanillo),
+  south of Sicily (Malta). Ports join the network in up to four directions plus neighbouring
+  ports within 420 nm, or by hand (PORT_LINKS). Checks: `npx tsx scripts/route-check.ts`
+  (routes that double back: 153 of 946 before, 3 after) and `npx tsx scripts/lane-land-check.ts`
+  (lanes over land on the detailed coast; slow, ~5 min). Known leftovers, inherited from the
+  modern lanes: Chile and California coasts, the Red Sea, short clips round Singapore, the Sunda
+  Strait, SW Ceylon, Tsushima. Old saves chart new waypoints in known waters (chartNewWaypoints).
 - New ports for both houses: Patani and Macassar (port id `macassar`: a sea-lane waypoint is
   already called `makassar`). Old Dutch saves gain them, charted.
 
@@ -323,3 +334,4 @@ Check `vite-plugin-pwa` precache size limits after adding it.
 | 52 | Every 1650 good sells somewhere (tin, ivory, gold had no buyer); more Asian buyers for the Chinese house (ivory, tin, saltpetre, nutmeg, cinnamon) |
 | 53 | Ships, routes and lanes meet the pushed-apart dots of crowded ports (Batavia/Bantam) at every zoom; names stay nearest their own dot |
 | 54 | Names of crowded ports: never placed nearer another port's dot (Amoy, Canton, Amsterdam); where no spot works, a leader line joins name and dot. Ship and dot positions checked for every port, all worlds and zooms |
+| 55 | Better 1650 sea routes: the China seas by hand (Amoy–Zeelandia 487→146 nm, Nagasaki via Goto), coast-following lanes in India, East Africa, Brazil, Mexico; routes that double back 153→3 of 946 |

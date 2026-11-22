@@ -8,9 +8,11 @@ describe('calls on the way', () => {
   it('measures how much longer a call makes the voyage', () => {
     setEra('sail');
     const g = newGame(1);
-    // Lisbon lies almost exactly on the way from Amsterdam to Batavia; Danzig doesn't.
+    // Lisbon lies almost exactly on the way from Amsterdam to Batavia; Danzig doesn't (well over 500 nm out of the way).
     expect(detour(g, 'amsterdam', 'lisbon', 'batavia')!.share).toBeLessThan(0.01);
-    expect(detour(g, 'amsterdam', 'danzig', 'batavia')!.share).toBeGreaterThan(ONWAY.maxDetour);
+    const danzig = detour(g, 'amsterdam', 'danzig', 'batavia')!;
+    expect(danzig.extraNm).toBeGreaterThan(ONWAY.maxDetourNm);
+    expect(onTheWay(danzig)).toBe(false);
     // 15%, but never more than 500 nm: Bergen (+978 nm, 8.5%) is off course on the long Batavia run.
     const bergen = detour(g, 'amsterdam', 'bergen', 'batavia')!;
     expect(bergen.share).toBeLessThan(ONWAY.maxDetour);
