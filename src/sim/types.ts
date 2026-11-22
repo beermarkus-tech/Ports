@@ -48,6 +48,8 @@ export interface ShipTypeDef {
   cargoClasses: CargoClass[];
   /** Drawing style; sailing ships say 'sail' (others follow their cargo classes). */
   family?: 'sail';
+  /** Junks: battened sails (point higher into the wind) and watertight compartments (fewer leaks). */
+  rig?: 'junk';
 }
 
 export interface Contract {
@@ -293,6 +295,8 @@ export interface GameState {
   version: 4;
   /** Which era the game is set in (missing = modern). */
   era?: 'modern' | 'sail';
+  /** Age of Sail: the merchant house (missing = Dutch). */
+  house?: 'dutch' | 'chinese';
   /** Age of Sail: sea-lane nodes (ports and waypoints) this house has charted. Undefined: no fog. */
   charted?: string[];
   /** The company's name, as on the start screen. */

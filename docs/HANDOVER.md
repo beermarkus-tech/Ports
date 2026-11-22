@@ -1,7 +1,7 @@
 # Deadweight: handover and progress log
 
 The single document to read before continuing work, in any chat or account.
-Last updated at **build 49** (22 Nov 2026). Keep this file current: add to the
+Last updated at **build 50** (22 Nov 2026). Keep this file current: add to the
 build log and move items in "Next" as work lands.
 
 ## 1. What this is
@@ -42,10 +42,10 @@ as an installable offline PWA (Vite + TypeScript, no framework).
 ```
 npm install
 npm run dev          # local dev server
-npm test             # vitest, 104 tests, all must pass
+npm test             # vitest, 108 tests, all must pass
 npm run build        # tsc + vite build into dist/
 npx vite preview --port 4173 --strictPort   # serve dist/ (base is './', open http://localhost:4173/)
-ERA=sail npx tsx scripts/balance.ts 10 100 greedy   # balance bots (also: casual)
+ERA=sail [HOUSE=chinese] npx tsx scripts/balance.ts 10 100 greedy   # balance bots (also: casual)
 ```
 
 - Browser checks use Playwright (Chromium is preinstalled in the cloud container:
@@ -62,8 +62,11 @@ ERA=sail npx tsx scripts/balance.ts 10 100 greedy   # balance bots (also: casual
 
 ```
 src/sim/   pure, deterministic simulation (seeded mulberry32 RNG in the state; actions clone)
-  era.ts        EraConfig: start, currency, calendar, words, rules, fog (charts), trade flag
-  world.ts      World per era (worldFor/setEra/getWorld); Dijkstra routes, one search fills
+  era.ts        EraConfig: start, currency, calendar, words, rules, fog (charts), trade flag;
+                merchant houses of 1650 (HouseConfig: yards, ship list, port names, ship and
+                captain names) and CHINESE_HOUSE; eraConfig(era, house)
+  world.ts      World per era and house (worldFor(era, house)/setEra(era, house)/getWorld);
+                one 1650 data set, each house its own World (yards, port names); Dijkstra routes, one search fills
                 routes to all ports; fog-aware (uncharted lanes cost 1.6x)
   game.ts       actions and the clock (advance), voyages, arrivals, books, captains/orders,
                 calls on the way (callsOnTheWay, detour, onTheWay, setPlannedDest, ONWAY)
@@ -107,7 +110,23 @@ Modern and shared:
   coastline from 3x (world-atlas land-50m, lazy-loaded).
 - Drawn goods icons everywhere goods are listed; cargo class shown as a coloured mark.
 
-Age of Sail (1650, the Dutch):
+Age of Sail (1650): two merchant houses, picked when a game starts (each its own save).
+- **Dutch house** (all 1650 games from before build 50 are Dutch): Amsterdam, jacht, guilders.
+- **Chinese house** (build 50): a Hokkien house of Amoy (Koxinga's stronghold in 1650). Starts
+  with the Kim Ho, a small Fujian junk, and Tls 150,000 (silver taels, written "Tls"). Knows the
+  China seas, Japan and the Nanyang (to the Strait of Malacca); India, Africa, Europe and the
+  Americas are uncharted. Charts for sale: a Gujarati rutter of the western seas (Malacca), a
+  Company chart of the Cape route (Batavia), plus the three Spanish/Portuguese ones. Four junks
+  (Fujian junk 100 t, ocean junk 320 t, large ocean junk 550 t, great junk 900 t), built at
+  Amoy and Ayutthaya; only junks on its markets. Junks point higher into the wind (half the
+  loss beating to windward) and spring leaks 40% less often (watertight compartments).
+  Dejima is called Nagasaki. Hokkien ship and captain names. Own fog names ("The Western
+  Ocean", "The Sea of the Franks"…). Freight pays factor 1.2 instead of 2 (short legs in rich
+  seas): the bot ends 10 legs a little below the Dutch, earning a little more per day.
+- New ports for both houses: Patani and Macassar (port id `macassar`: a sea-lane waypoint is
+  already called `makassar`). Old Dutch saves gain them, charted.
+
+The Dutch details:
 - 42 ports, 26 goods, 6 ships (jacht, fluyt, large fluyt, pinas, East Indiaman,
   retourschip), no canals, wind and monsoon set speed, victuals in casks, careening,
   plague quarantines, guilders.
@@ -232,8 +251,12 @@ Check `vite-plugin-pwa` precache size limits after adding it.
 
 ## 8. Other ideas and backlog (agreed, not built)
 
-- Age of Sail: crew (hiring hands, scurvy, desertion), more nations (a Chinese merchant
-  house next, then English, Portuguese, Spanish), time moving on (Cape colony 1652,
+- Age of Sail: crew (hiring hands, scurvy, desertion), more houses (agreed with the owner: the
+  English would feel like the Dutch; Spanish and Portuguese only differ if they start outside
+  Europe, e.g. Spanish at Manila/Acapulco (a Pacific game), Portuguese at Macau/Goa; decide after
+  the owner has played the Chinese house), smuggling into closed ports (later), sailing under
+  another flag (later), Chinese-house events with time (Koxinga takes Zeelandia 1662, the Qing
+  sea ban 1661–1683), time moving on (Cape colony 1652,
   Canton 1757, Cook 1770, clippers and steam), wars and privateers, a warping mini game.
 - Decision events (storms: go round or push through; distress calls; pirates; strikes).
 - Goals: a career with milestones and unlocks.
@@ -273,3 +296,4 @@ Check `vite-plugin-pwa` precache size limits after adding it.
   (https://claude.ai/artifact/L62SyJugjfc5nfkDvTr3RZ), stops on the way mock-up
   (https://claude.ai/artifact/VSjBRS64dw8J6dW5BiNLxE). These are private to the owner's
   account; the decisions they led to are recorded above.
+| 50 | The Chinese house: pick a house for a 1650 game; Amoy, junks (art for side view, harbour and map), taels, Chinese charts and fog names, Patani and Macassar added; market cards in 1650 no longer show $ |

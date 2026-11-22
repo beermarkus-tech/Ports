@@ -602,8 +602,10 @@ export class GlMapView {
       this.portById[p.id] = view;
     }
 
-    for (const [lon, lat, text, size] of [[-150, 5, 'Mare Incognitum', 22], [-120, -30, 'Mare del Sur', 18], [-140, 40, 'Here be dragons', 15],
-      [50, -8, 'Zanguebar', 14], [140, -58, 'Terra Australis Incognita', 16], [175, 20, 'Mare Pacificum', 16]] as const) {
+    // Names on the unknown water: the house's own, or those a Dutch chartmaker would write.
+    const fogNames = world.era.charts?.names ?? [[-150, 5, 'Mare Incognitum', 22], [-120, -30, 'Mare del Sur', 18], [-140, 40, 'Here be dragons', 15],
+      [50, -8, 'Zanguebar', 14], [140, -58, 'Terra Australis Incognita', 16], [175, 20, 'Mare Pacificum', 16]];
+    for (const [lon, lat, text, size] of fogNames) {
       this.fogTexts.push({ lon, lat, text, size, obj: null, hidden: true });
     }
 

@@ -2,6 +2,7 @@
 // a home region. Hiring, firing and assigning them are actions in game.ts.
 
 import { regions } from './regions';
+import { getWorld } from './world';
 import { pickWeighted, rand, randInt, randRange } from './rng';
 import type { Captain, GameState } from './types';
 
@@ -29,9 +30,13 @@ const LAST = ['Andersen', 'Barros', 'Chen', 'Dubois', 'Eze', 'Fischer', 'Garcia'
   'Kowalski', 'Ferreira', 'Singh', 'Olsen'];
 
 export function newCaptain(g: GameState, avoid: string[] = []): Captain {
+  // A merchant house hires captains of its own people.
+  const own = getWorld().era.house?.captainNames;
+  const first = own?.given ?? FIRST, last = own?.family ?? LAST;
   let name = '';
   for (let i = 0; i < 20; i++) {
-    name = `${FIRST[randInt(g, 0, FIRST.length - 1)]} ${LAST[randInt(g, 0, LAST.length - 1)]}`;
+    const a = first[randInt(g, 0, first.length - 1)], b = last[randInt(g, 0, last.length - 1)];
+    name = own?.familyFirst ? `${b} ${a}` : `${a} ${b}`;
     if (!avoid.includes(name)) break;
   }
   const skill = pickWeighted(g, [1, 2, 3] as const, (k) => CAPTAIN_TUNING.skillWeights[k]);

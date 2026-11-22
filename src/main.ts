@@ -17,7 +17,7 @@ import {
   stateValue,
 } from './sim/ships';
 import type { Captain, Contract, GameState, PremiumKind, ShipOffer, ShipState, ShipTypeDef, VoyageReport } from './sim/types';
-import { currentEra, getWorld, setEra } from './sim/world';
+import { currentEra, currentHouse, getWorld, setEra } from './sim/world';
 import { compactMoney, currency, days, esc, gameDate, money, setEraFormat, startYear, tons } from './ui/format';
 import { mapIconPath, shipFamily, shipSideView } from './ui/art';
 import { CLASS_LABEL, goodIcon } from './ui/goods-icons';
@@ -38,8 +38,8 @@ type PauseReason = 'user' | 'arrival' | 'decision';
 let world = getWorld();
 
 /** Set the engine, the formats and the look for a game's era. */
-function applyEra(era: 'modern' | 'sail'): void {
-  setEra(era);
+function applyEra(era: 'modern' | 'sail', house?: 'dutch' | 'chinese'): void {
+  setEra(era, house);
   world = getWorld();
   setEraFormat(world.era.startYear, world.era.currency);
   document.documentElement.classList.toggle('era-sail', era === 'sail');
@@ -146,7 +146,7 @@ class App {
 
   constructor(opts: { showStart: boolean } = { showStart: false }) {
     const loaded = loadGame();
-    applyEra(loaded?.era ?? 'modern');
+    applyEra(loaded?.era ?? 'modern', loaded?.house);
     this.g = loaded ?? newGame();
     saveGame(this.g);
     this.activeId = (this.g.fleet.find((s) => isReady(this.g, s)) ?? this.g.fleet[0]).id;
@@ -611,17 +611,18 @@ class App {
       }
       case 'slot-new': {
         const era = data.era === 'sail' ? 'sail' : 'modern';
+        const house = era === 'sail' ? (data.house === 'chinese' ? 'chinese' : 'dutch') : undefined;
         const input = document.getElementById('new-name') as HTMLInputElement | null;
         const name = input?.value.trim() || 'My shipping company';
         saveGame(this.g);
-        const before = currentEra();
-        setEra(era);
+        const before = currentEra(), beforeHouse = currentHouse();
+        setEra(era, house);
         const g = newGame();
         g.era = era;
         g.company = name;
         createSlot(g, name);
-        setEra(before);
-        if (era !== before) { reloadForEra(); return; }
+        setEra(before, beforeHouse);
+        if (era !== before || house !== beforeHouse) { reloadForEra(); return; }
         this.loadInto(g);
         this.toast(`${name} is founded. Good luck!`, 'good');
         return;
@@ -630,6 +631,7 @@ class App {
         if (!this.g.gameOver && !confirm('Start this company over? Its current game will be lost.')) return;
         clearSave();
         this.g = { ...newGame(), era: this.g.era ?? 'modern', company: this.g.company };
+        if (this.g.era === 'sail') this.g.house = currentHouse();
         this.activeId = this.g.fleet[0].id;
         this.dest = null;
         this.marketPort = null;
@@ -1672,7 +1674,7 @@ class App {
           </div>
         </details>
         ${q.blocked ? `<p class="o-warn bad">${esc(q.blocked)}</p>` : ''}
-        ${tight ? `<p class="o-warn">You'd keep ${money(afterCash)}, but a full tank and a month's upkeep for this ship cost about ${money(running)}.</p>` : ''}
+        ${tight ? `<p class="o-warn">You'd keep ${money(afterCash)}, but ${isSail() ? 'a full stock of victuals' : 'a full tank'} and a month's upkeep for this ship cost about ${money(running)}.</p>` : ''}
         <button class="btn ${tight ? '' : 'primary'} wide" data-action="buy-ship" data-port="${portId}" data-id="${offer.id}" ${q.blocked ? 'disabled' : ''}>Buy the ${esc(offer.name)}</button>
       </li>`;
   }
@@ -1948,7 +1950,7 @@ class App {
     saveGame(this.g);
     const current = activeSlot();
     const slots = listSlots();
-    const era = (x: SlotInfo) => (x.era === 'sail' ? 'Age of Sail · from 1650' : 'Modern · from 2000');
+    const era = (x: SlotInfo) => (x.era === 'sail' ? `Age of Sail · ${x.house === 'chinese' ? 'Chinese' : 'Dutch'} house · from 1650` : 'Modern · from 2000');
     const ago = (t: number) => {
       const d = Math.floor((Date.now() - t) / 86_400_000);
       return d <= 0 ? 'played today' : d === 1 ? 'played yesterday' : `played ${new Date(t).toLocaleDateString()}`;
@@ -1977,8 +1979,10 @@ class App {
       <div class="era-cards">
         <button class="era-card modern" data-action="slot-new" data-era="modern">
           <strong>Modern · from 2000</strong><span>Steel, diesel and containers: start with an old coaster and $150,000.</span><em>Start</em></button>
-        <button class="era-card sail" data-action="slot-new" data-era="sail">
-          <strong>Age of Sail · from 1650</strong><span>Fluyts, monsoons and spice: found a merchant house in Amsterdam with a little jacht and ƒ150,000.</span><em>Start</em></button>
+        <button class="era-card sail" data-action="slot-new" data-era="sail" data-house="dutch">
+          <strong>Age of Sail · Dutch house · from 1650</strong><span>Fluyts, monsoons and spice: found a merchant house in Amsterdam with a little jacht and ƒ150,000. You know the way round the Cape to the Indies.</span><em>Start</em></button>
+        <button class="era-card sail chinese" data-action="slot-new" data-era="sail" data-house="chinese">
+          <strong>Age of Sail · Chinese house · from 1650</strong><span>Junks, silk and silver: found a trading house in Amoy with a small Fujian junk and Tls 150,000. You know the China seas, Japan and the Nanyang; India and Europe are blank.</span><em>Start</em></button>
       </div>
       <button class="btn ghost wide" data-action="close-games">Close</button>`;
     $('#modal').hidden = false;
@@ -1995,7 +1999,7 @@ class App {
     const g = loadSlot(id);
     if (!g) { this.toast('That game could not be read.', 'bad'); return; }
     setActiveSlot(id);
-    if ((g.era ?? 'modern') !== currentEra()) { reloadForEra(); return; }
+    if ((g.era ?? 'modern') !== currentEra() || (g.era === 'sail' ? g.house ?? 'dutch' : undefined) !== currentHouse()) { reloadForEra(); return; }
     this.loadInto(g);
     this.toast(`Opened ${listSlots().find((x) => x.id === id)?.name ?? 'the game'}.`, 'good');
   }
@@ -2204,9 +2208,9 @@ function statBoxes(s: ShipSpec, base?: ShipSpec): string {
     { label: 'Hold', key: 'cap', val: kTons(s.cap), higherIsBetter: true, diff: (d) => `${sign(d)}${kTons(d)}` },
     { label: 'Speed', key: 'speed', val: `${s.speed.toFixed(1)} kn`, higherIsBetter: true, diff: (d) => `${sign(d)}${Math.abs(d).toFixed(1)} kn` },
     { label: 'Burn', key: 'burn', val: `${s.burn.toFixed(s.burn < 10 ? 1 : 0)} ${isSail() ? 'casks' : 't'}/day`, higherIsBetter: false,
-      diff: (d) => `${sign(d)}${Math.abs(d).toFixed(Math.abs(d) < 10 ? 1 : 0)} t` },
-    { label: 'Upkeep', key: 'upkeep', val: `$${(s.upkeep / 1000).toFixed(1)}k/d`, higherIsBetter: false,
-      diff: (d) => `${sign(d)}$${(Math.abs(d) / 1000).toFixed(1)}k` },
+      diff: (d) => `${sign(d)}${Math.abs(d).toFixed(Math.abs(d) < 10 ? 1 : 0)} ${isSail() ? 'casks' : 't'}` },
+    { label: 'Upkeep', key: 'upkeep', val: `${currency()}${(s.upkeep / 1000).toFixed(1)}k/d`, higherIsBetter: false,
+      diff: (d) => `${sign(d)}${currency()}${(Math.abs(d) / 1000).toFixed(1)}k` },
     { label: 'Range', key: 'range', val: `${(s.range / 1000).toFixed(1)}k nm`, higherIsBetter: true,
       diff: (d) => `${sign(d)}${(Math.abs(d) / 1000).toFixed(1)}k nm` },
   ];

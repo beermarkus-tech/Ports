@@ -721,6 +721,7 @@ button.era-card:hover { border-color: var(--accent); }
 .era-card em { font-style: normal; font-weight: 700; font-size: 13px; color: var(--accent); }
 .era-card.sail { background: #efe3c4; color: #2b1d0e; border-color: #c9b68a; font-family: "EB Garamond", Georgia, serif; }
 .era-card.sail span { color: #5a4630; font-size: 14.5px; }
+.era-card.sail.chinese { border-left: 4px solid #a8382b; }
 .era-card.sail em { color: #7b2d26; }
 
 /* ---------- Age of Sail: a chart drawn on parchment ---------- */
@@ -792,6 +793,14 @@ button.era-card:hover { border-color: var(--accent); }
 .ship-art .spar { stroke: #5d3f22; stroke-width: 0.9; stroke-linecap: round; }
 .ship-art .rigging { stroke: #5d3f22; stroke-width: 0.35; opacity: 0.7; }
 .ship-art .pennant { fill: #d9822b; }
+/* Junks (the Chinese house): dark lacquered hull, red paint, matting sails with battens. */
+.ship-art .hull.junk { fill: #4a3324; }
+.ship-art .junk-red { fill: #a8382b; }
+.ship-art .junk-sail { fill: #b8673a; stroke: #6a3418; stroke-width: 0.4; }
+.ship-art .batten { stroke: #5a2c14; stroke-width: 0.45; opacity: 0.85; }
+.ship-art .junk-flag { fill: #c8322a; }
+.ship-art .eye { fill: #f4ead2; }
+.ship-art .pupil { fill: #1d140c; }
 .ship-art.sail .mast { stroke: #5d3f22; stroke-width: 1.2; }
 
 /* ---------- fog of war ---------- */

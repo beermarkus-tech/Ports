@@ -60,6 +60,14 @@ export function ensureCharts(g: GameState, world: World): void {
   for (const p of Object.values(g.ports)) p.board = p.board.filter((c) => g.charted!.includes(c.dest) && c.tons > 0);
 }
 
+/** Chart these ports or waypoints if they lie in the waters the house knew from the start. */
+export function chartKnownWaters(world: World, g: GameState, ids: string[]): void {
+  if (!world.era.charts || !g.charted) return;
+  const known = new Set(nodesIn(world, world.era.charts.known));
+  const add = ids.filter((id) => known.has(id) && !g.charted!.includes(id));
+  if (add.length) g.charted = [...g.charted, ...add];
+}
+
 /** Is this port or waypoint charted? Everything is, in a world without fog. */
 export function isCharted(g: GameState, id: string): boolean {
   return !g.charted || g.charted.includes(id);

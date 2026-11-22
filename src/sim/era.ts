@@ -5,6 +5,25 @@ import type { Box, ChartOffer } from './charts';
 
 export type EraId = 'modern' | 'sail';
 
+/** The merchant houses of the Age of Sail: each is its own game, picked at the start. */
+export type House = 'dutch' | 'chinese';
+
+/** What a merchant house brings to the 1650 world: its own yards, ships, names and words. */
+export interface HouseConfig {
+  id: House;
+  /** "Dutch house", for the start screen and the saved games. */
+  name: string;
+  /** Ship types its shipyards build and its brokers deal in. */
+  ships: string[];
+  /** Ports with a shipyard of this house (instead of the world data's). */
+  shipyards?: string[];
+  /** Ports this house calls by another name. */
+  portNames?: Record<string, string>;
+  /** Names for new ships, and for captains (family name first where `familyFirst`). */
+  shipNames?: string[];
+  captainNames?: { given: string[]; family: string[]; familyFirst?: boolean };
+}
+
 export interface EraConfig {
   id: EraId;
   name: string;
@@ -35,8 +54,15 @@ export interface EraConfig {
   harvestGoods: string[];
   /** You can buy and sell goods on your own account, with prices known by slow news. */
   trade?: boolean;
+  /** Age of Sail: the merchant house the game is played as. */
+  house?: HouseConfig;
   /** Fog of war: the waters known at the start, and charts for sale (none: no fog). */
-  charts?: { known: Box[]; offers: ChartOffer[] };
+  charts?: {
+    known: Box[];
+    offers: ChartOffer[];
+    /** Names written on the unknown water (lon, lat, text, size); the map has Dutch ones by default. */
+    names?: [number, number, string, number][];
+  };
   /** Words for things that differ between the eras. */
   terms: {
     fuel: string;
@@ -68,6 +94,7 @@ export const ERAS: Record<EraId, EraConfig> = {
     referenceSpeedKn: 4, payFactor: 2, smallLot: 80,
     harvestGoods: ['pepper', 'nutmeg', 'sugar', 'grain', 'tea', 'silk', 'rice', 'coffee'],
     trade: true,
+    house: { id: 'dutch', name: 'Dutch house', ships: ['jacht', 'fluyt', 'largefluyt', 'pinas', 'indiaman', 'retourschip'] },
     charts: {
       // What the Dutch knew around 1650: the Cape route to the Indies, the China seas and Japan,
       // the Atlantic coasts, and the way round Cape Horn (Le Maire, 1616). East Africa is Portuguese
@@ -100,3 +127,64 @@ export const ERAS: Record<EraId, EraConfig> = {
     },
   },
 };
+
+/** Charts on sale that any house can buy (when they would show it something new). */
+const SAIL_OFFERS = ERAS.sail.charts!.offers;
+
+/**
+ * The Chinese house: a Hokkien trading house of Amoy, in 1650 the stronghold of Zheng Chenggong
+ * (Koxinga) while the Qing take the south. It knows the China seas, Japan and the Nanyang (the
+ * South Sea trade to Siam, Malaya, Java and the Philippines); India and everything beyond are blank.
+ */
+export const CHINESE_HOUSE: EraConfig = {
+  ...ERAS.sail,
+  currency: 'Tls ',
+  start: { port: 'amoy', shipType: 'smalljunk', shipName: 'Kim Ho', cash: 150_000, fuel: 220, condition: 80, age: 12,
+    intro: 'You take command of the Kim Ho, a weathered little Fujian junk, at Amoy. The Nanyang awaits.' },
+  smallLot: 100,
+  // Short legs in rich seas: freight pays less per league than on the Dutch long hauls.
+  payFactor: 1.2,
+  house: {
+    id: 'chinese',
+    name: 'Chinese house',
+    ships: ['smalljunk', 'oceanjunk', 'nanyangjunk', 'greatjunk'],
+    // Fujian built the junks; Siam built them for Chinese merchants too.
+    shipyards: ['amoy', 'ayutthaya'],
+    // Chinese merchants traded in Nagasaki itself (the Dutch were kept on Dejima).
+    portNames: { dejima: 'Nagasaki' },
+    shipNames: ['Kim Hin', 'Hong Seng', 'Kim Soon', 'Tek Hoa', 'Ban Hin', 'Hock Seng', 'Eng Hong', 'Chin Bee', 'Guan Seng', 'Hong Guan',
+      'Soon Lee', 'Kim Eng', 'Tai Hong', 'Bun Hin', 'Lim Seng', 'Ho Seng', 'Teck Guan', 'Sin Hong', 'Swee Hin', 'Ban Seng', 'Chop Hin', 'Hong Hock'],
+    captainNames: {
+      family: ['Lim', 'Tan', 'Ong', 'Ng', 'Teo', 'Chua', 'Koh', 'Lee', 'Gan', 'Yeo', 'Khoo', 'Cheng', 'Tay', 'Sim', 'Low', 'Ang', 'Goh', 'Quek'],
+      given: ['Boon Hock', 'Chin Huat', 'Eng Soon', 'Guan Teck', 'Hock Lai', 'Kim Swee', 'Lam Seng', 'Ah Bee', 'Tiong Hin', 'Bak Seng',
+        'Kok Leong', 'Seng Kee', 'Hong Bin', 'Cheng Lock', 'Swee Lian', 'Ah Kow', 'Teck Seng', 'Poh Lin'],
+      familyFirst: true,
+    },
+  },
+  charts: {
+    known: [
+      [104, 0, 146, 42],                                    // the China coast, Formosa, the Philippines, Japan and Korea
+      [97, -2, 110, 17],                                    // the Gulf of Siam and the Malay coast
+      [103, -11, 136, 2],                                   // Java, Borneo, Celebes and the Spice Islands
+      [94, 0, 104, 8],                                      // the Strait of Malacca
+    ],
+    offers: [
+      { id: 'bengal', port: 'malacca', name: 'A Gujarati pilot\'s rutter of the western seas',
+        blurb: 'A Muslim pilot from Surat will copy his rutter: the monsoon crossing to Ceylon, Coromandel, Malabar and on to Surat.',
+        price: 80_000, boxes: [[60, 0, 100, 26]] },
+      { id: 'caperoute', port: 'batavia', name: 'A Company chart of the Cape route',
+        blurb: 'A Dutch mate deep in debt sells a copy of the Company\'s chart: the roaring forties, the Cape and the long way to Holland.',
+        price: 250_000, boxes: [[18, -44, 108, -28], [10, -38, 33, -15], [-20, -6, 12, 30], [-12, 34, 42, 66], [8, 53, 32, 66], [-40, -40, 22, 50]] },
+      ...SAIL_OFFERS,
+    ],
+    names: [
+      [-128, 4, 'The Great Eastern Ocean', 18], [-120, -30, 'Beyond all charts', 17], [-140, 40, 'Here be dragons', 15],
+      [80, -20, 'The Western Ocean', 18], [140, -58, 'The Southern Waste', 16], [-32, 17, 'The Sea of the Franks', 15],
+    ],
+  },
+};
+
+/** The rules and data of a game: its era, and in the Age of Sail its house. */
+export function eraConfig(era: EraId, house?: House): EraConfig {
+  return era === 'sail' && house === 'chinese' ? CHINESE_HOUSE : ERAS[era];
+}

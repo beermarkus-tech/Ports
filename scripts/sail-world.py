@@ -107,6 +107,12 @@ PORTS = [
     ('banda', 'Banda', 'Spice Islands', -4.52, 129.9, 230, 1800,
      [('nutmeg', 4), ('cloves', 2)],
      [('rice', 1.4), ('textiles', 1.3)], {}),
+    ('patani', 'Patani', 'Malay Peninsula', 6.87, 101.25, 190, 1800,
+     [('pepper', 2), ('gold', 1)],
+     [('silk', 1.2), ('porcelain', 1.2), ('textiles', 1.2), ('copper', 1.1)], {'label': 'left'}),
+    ('macassar', 'Macassar', 'Celebes', -5.13, 119.41, 200, 1800,
+     [('cloves', 2), ('rice', 2)],
+     [('textiles', 1.3), ('silver', 1.2), ('porcelain', 1.2), ('silk', 1.1)], {'label': 'left'}),
     ('ayutthaya', 'Ayutthaya', 'Siam', 14.35, 100.57, 180, 1800,
      [('rice', 2), ('tin', 1), ('furs', 1)],
      [('textiles', 1.2), ('silver', 1.2), ('copper', 1.1)], {'label': 'left'}),
@@ -181,13 +187,22 @@ SHIPS = [
     ('retourschip', 'Retourschip', "The Company's great homeward-bound ship: holds full of spice, a small town of crew.", 1100, 6.5, 18, 3780, 6000, 2.0, 6000, 9_800_000),
 ]
 
+# Junks, for the Chinese house: battened sails that point higher into the wind than square sails,
+# and a hold divided by watertight bulkheads (they spring leaks less often).
+JUNKS = [
+    ('smalljunk', 'Fujian junk', 'A small coasting junk from Fujian: two masts of battened sails, a hold in watertight compartments. Takes small lots anywhere.', 100, 6.5, 1.6, 320, 700, 0.55, 1400, 650_000),
+    ('oceanjunk', 'Ocean junk', 'The trading junk of the Nanyang: three masts, a deep hold, and merchants aboard who each rent a compartment.', 320, 6.5, 2.4, 560, 1150, 0.85, 2100, 1_750_000),
+    ('nanyangjunk', 'Large ocean junk', 'A bigger ocean junk for the long runs to Batavia, Siam and Manila.', 550, 6.2, 4, 1000, 1900, 1.1, 2900, 3_000_000),
+    ('greatjunk', 'Great junk', 'The largest of the trading junks: a floating market of several hundred merchants and crew.', 900, 6, 11, 2600, 4600, 1.7, 4600, 7_000_000),
+]
+
 REGIONS = [
     ('northsea', 'North Sea & Baltic', ['amsterdam', 'london', 'danzig', 'bergen']),
     ('iberia', 'Iberia & the Mediterranean', ['lisbon', 'cadiz', 'venice']),
     ('guinea', 'Guinea Coast & the Cape', ['elmina', 'cape']),
     ('arabia', 'East Africa & Arabia', ['mozambique', 'zanzibar', 'mocha']),
     ('india', 'Persia & India', ['bandarabbas', 'surat', 'goa', 'calicut', 'galle', 'madras']),
-    ('indies', 'The East Indies', ['malacca', 'bantam', 'batavia', 'banda', 'ayutthaya']),
+    ('indies', 'The East Indies', ['malacca', 'patani', 'bantam', 'batavia', 'macassar', 'banda', 'ayutthaya']),
     ('china', 'China Seas & Japan', ['hoian', 'manila', 'macau', 'canton', 'amoy', 'zeelandia', 'dejima']),
     ('caribbean', 'The Caribbean', ['havana', 'cartagena', 'veracruz', 'portobelo', 'barbados']),
     ('northamerica', 'North America', ['jamestown', 'newamsterdam', 'boston']),
@@ -214,6 +229,9 @@ assert sorted(m for _, _, ms in REGIONS for m in ms) == sorted(pids), 'every por
 ships = [{'id': i, 'name': n, 'description': d, 'capacity': c, 'speedKn': s, 'fuelPerDay': f, 'bunkerCapacity': b, 'dailyCost': dc,
           'sizeFactor': sf, 'repairCostPerPoint': rc, 'newPrice': np, 'cargoClasses': ['bulk', 'general'], 'family': 'sail'}
          for i, n, d, c, s, f, b, dc, sf, rc, np in SHIPS]
+ships += [{'id': i, 'name': n, 'description': d, 'capacity': c, 'speedKn': s, 'fuelPerDay': f, 'bunkerCapacity': b, 'dailyCost': dc,
+           'sizeFactor': sf, 'repairCostPerPoint': rc, 'newPrice': np, 'cargoClasses': ['bulk', 'general'], 'family': 'sail', 'rig': 'junk'}
+          for i, n, d, c, s, f, b, dc, sf, rc, np in JUNKS]
 regions = [{'id': i, 'name': n, 'ports': m} for i, n, m in REGIONS]
 
 (out / 'goods.json').write_text(json.dumps(goods, indent=1, ensure_ascii=False) + '\n')

@@ -12,7 +12,7 @@ import sailPorts from '../data/sail/ports.json';
 import sailRegions from '../data/sail/regions.json';
 import sailShips from '../data/sail/ships.json';
 import sailLanes from '../data/sail/sealanes.json';
-import { ERAS, type EraConfig, type EraId } from './era';
+import { ERAS, eraConfig, type EraConfig, type EraId, type House } from './era';
 import type { Region } from './regions';
 import type { GoodDef, PortDef, ShipTypeDef } from './types';
 
@@ -154,27 +154,45 @@ export class World {
   }
 }
 
-const worlds: Partial<Record<EraId, World>> = {};
+const worlds: Record<string, World> = {};
 
-/** The world of an era (built once). */
-export function worldFor(era: EraId): World {
-  return (worlds[era] ??= era === 'sail'
-    ? new World(sailGoods as GoodDef[], sailPorts as PortDef[], sailShips as ShipTypeDef[], sailLanes as never, ERAS.sail, sailRegions as Region[])
-    : new World());
+/**
+ * The world of an era (built once), and in the Age of Sail of a merchant house: the same seas
+ * and ports for every house, but its own shipyards and names for some ports.
+ */
+export function worldFor(era: EraId, house?: House): World {
+  const key = era === 'sail' ? `sail:${house ?? 'dutch'}` : era;
+  if (worlds[key]) return worlds[key];
+  if (era !== 'sail') return (worlds[key] = new World());
+  const cfg = eraConfig('sail', house);
+  const h = cfg.house;
+  const ports = (sailPorts as PortDef[]).map((p) => ({
+    ...p,
+    name: h?.portNames?.[p.id] ?? p.name,
+    shipyard: h?.shipyards ? h.shipyards.includes(p.id) : p.shipyard,
+  }));
+  return (worlds[key] = new World(sailGoods as GoodDef[], ports, sailShips as ShipTypeDef[], sailLanes as never, cfg, sailRegions as Region[]));
 }
 
 let current: EraId = 'modern';
+let currentH: House | undefined;
 
-/** Make an era's world the current one (the game being played decides it). */
-export function setEra(era: EraId): void {
+/** Make an era's (and house's) world the current one (the game being played decides it). */
+export function setEra(era: EraId, house?: House): void {
   current = era;
+  currentH = era === 'sail' ? house ?? 'dutch' : undefined;
 }
 
 export function currentEra(): EraId {
   return current;
 }
 
+/** The merchant house of the game being played (Age of Sail only). */
+export function currentHouse(): House | undefined {
+  return currentH;
+}
+
 /** The current world: the one of the game being played. */
 export function getWorld(): World {
-  return worldFor(current);
+  return worldFor(current, currentH);
 }

@@ -16,13 +16,13 @@ const TOWN: Record<string, Town> = {
   bahia: 'colonial', recife: 'colonial', barbados: 'colonial', manila: 'colonial', goa: 'colonial', macau: 'colonial',
   jamestown: 'northamerica', boston: 'northamerica',
   elmina: 'tropic', mozambique: 'tropic', zanzibar: 'tropic', calicut: 'tropic', galle: 'tropic', madras: 'tropic', surat: 'tropic',
-  malacca: 'tropic', bantam: 'tropic', batavia: 'tropic', banda: 'tropic', ayutthaya: 'tropic',
+  malacca: 'tropic', patani: 'tropic', macassar: 'tropic', bantam: 'tropic', batavia: 'tropic', banda: 'tropic', ayutthaya: 'tropic',
   mocha: 'desert', bandarabbas: 'desert',
   hoian: 'eastasia', canton: 'eastasia', amoy: 'eastasia', dejima: 'eastasia',
 };
 
 /** Length, depth amidships, light and laden draft, mainmast height above the deck: metres. */
-interface Dims { L: number; D: number; d0: number; d1: number; H: number; masts: number; guns: number }
+interface Dims { L: number; D: number; d0: number; d1: number; H: number; masts: number; guns: number; junk?: boolean }
 const DIMS: Record<string, Dims> = {
   jacht: { L: 20, D: 4, d0: 1, d1: 2.3, H: 19, masts: 2, guns: 0 },
   fluyt: { L: 32, D: 6, d0: 1.4, d1: 3.5, H: 30, masts: 3, guns: 0 },
@@ -30,6 +30,10 @@ const DIMS: Record<string, Dims> = {
   pinas: { L: 36, D: 7.4, d0: 1.6, d1: 4, H: 35, masts: 3, guns: 7 },
   indiaman: { L: 45, D: 9.4, d0: 2, d1: 5.1, H: 41, masts: 3, guns: 10 },
   retourschip: { L: 50, D: 10.4, d0: 2.2, d1: 5.8, H: 46, masts: 3, guns: 12 },
+  smalljunk: { L: 20, D: 4.2, d0: 1, d1: 2.3, H: 15, masts: 2, guns: 0, junk: true },
+  oceanjunk: { L: 28, D: 5.6, d0: 1.3, d1: 3.2, H: 22, masts: 3, guns: 0, junk: true },
+  nanyangjunk: { L: 34, D: 6.6, d0: 1.5, d1: 3.8, H: 27, masts: 3, guns: 0, junk: true },
+  greatjunk: { L: 44, D: 8.4, d0: 1.9, d1: 4.8, H: 34, masts: 3, guns: 0, junk: true },
 };
 function dimsFor(s: SceneShip): Dims {
   return DIMS[s.typeId] ?? { L: 30, D: 6, d0: 1.4, d1: 3.4, H: 30, masts: 3, guns: 0 };
@@ -397,8 +401,9 @@ function fires(c: CanvasRenderingContext2D, d: Dims, x0: number, keelY: number, 
 
 // ---------------------------------------------------------------- the ship
 
-/** The hull's outline: a high stern, a low waist, a rising bow and a beakhead. */
+/** The hull's outline: a high stern, a low waist, a rising bow and a beakhead (a junk: see junkHullPath). */
 function hullPath(d: Dims, x0: number, keelY: number, m: number): Path2D {
+  if (d.junk) return junkHullPath(d, x0, keelY, m);
   const L = d.L * m, D = d.D * m;
   const deck = keelY - D, castle = D * 0.55;
   const X = (f: number) => x0 + f * L;
@@ -417,6 +422,7 @@ function hullPath(d: Dims, x0: number, keelY: number, m: number): Path2D {
 
 function drawShip(c: CanvasRenderingContext2D, s: SceneShip, d: Dims, x0: number, keelY: number, m: number, t: TimeOfDay,
   o: { faded: boolean; cutaway: boolean }): void {
+  if (d.junk) { drawJunk(c, s, d, x0, keelY, m, t, o); return; }
   const L = d.L * m, D = d.D * m, deck = keelY - D;
   const X = (f: number) => x0 + f * L;
   const night = t === 'night';
@@ -500,6 +506,98 @@ function drawShip(c: CanvasRenderingContext2D, s: SceneShip, d: Dims, x0: number
   c.beginPath(); c.moveTo(X(0.02), deck - D * 0.55); c.lineTo(X(0.02) - 0.3 * fw, deck - D * 0.55 - 1.5 * fw); c.stroke();
   flag(c, X(0.02) - 0.3 * fw - fw, deck - D * 0.55 - 1.5 * fw, fw, t);
   if (o.faded) c.globalAlpha = 1;
+  c.restore();
+}
+
+// ---------------------------------------------------------------- junks
+
+/** A junk's outline: a high, overhanging stern, a deep sheer and a flat transom bow leaning forward. */
+function junkHullPath(d: Dims, x0: number, keelY: number, m: number): Path2D {
+  const L = d.L * m, D = d.D * m;
+  const deck = keelY - D, stern = D * 0.75, bow = D * 0.4;
+  const X = (f: number) => x0 + f * L;
+  const p = new Path2D();
+  p.moveTo(X(-0.02), deck - stern);                                       // the top of the stern, overhanging
+  p.lineTo(X(0.12), deck - stern * 0.85);
+  p.quadraticCurveTo(X(0.5), deck + D * 0.08, X(0.92), deck - bow);        // the sheer, down and up again
+  p.lineTo(X(1.01), deck - bow * 1.15);                                    // the bow's flat transom, raked forward
+  p.lineTo(X(0.95), deck + D * 0.35);
+  p.quadraticCurveTo(X(0.9), keelY, X(0.76), keelY);
+  p.lineTo(X(0.12), keelY);
+  p.quadraticCurveTo(X(0.04), keelY - D * 0.2, X(0.03), deck + D * 0.05);  // the stern's tuck
+  p.closePath();
+  return p;
+}
+
+/**
+ * A junk at the quay: her battened sails lowered and folded on their booms like a blind, the great
+ * rudder hung from the stern, red paint, the eye on her bow, and a red banner at the stern.
+ */
+function drawJunk(c: CanvasRenderingContext2D, s: SceneShip, d: Dims, x0: number, keelY: number, m: number, t: TimeOfDay,
+  o: { faded: boolean; cutaway: boolean }): void {
+  const L = d.L * m, D = d.D * m, deck = keelY - D;
+  const X = (f: number) => x0 + f * L;
+  const night = t === 'night';
+  const wear = Math.max(0, Math.min(1, (70 - s.condition) / 50));
+  const ink = night ? '#1a140e' : '#2b1d0e';
+  const red = night ? '#4e1e18' : shade('#a8382b', -0.15 * wear);
+  c.save();
+  if (o.faded) c.globalAlpha = 0.55;
+  const masts = d.masts === 2
+    ? [{ f: 0.48, h: 1, rake: 0 }, { f: 0.8, h: 0.74, rake: 0.05 }]
+    : [{ f: 0.15, h: 0.55, rake: -0.02 }, { f: 0.5, h: 1, rake: 0 }, { f: 0.8, h: 0.72, rake: 0.05 }];
+  for (const mast of masts) {
+    const mx = X(mast.f), H = d.H * mast.h * m, tx = mx + mast.rake * L, baseY = deck + D * 0.2;
+    c.strokeStyle = ink; c.lineWidth = Math.max(1, 0.55 * m * (mast.h + 0.2));
+    c.beginPath(); c.moveTo(mx, baseY); c.lineTo(tx, deck - H); c.stroke();
+    // The lowered sail: its battens stacked on the boom, mostly abaft the mast.
+    const w = d.L * (d.masts === 2 ? 0.33 : 0.27) * mast.h * m;
+    const bx0 = mx - w * 0.68, bx1 = mx + w * 0.28, by = deck - D * 0.35 - 0.6 * m;
+    const stack = Math.max(1.2 * m, H * 0.12);
+    c.fillStyle = night ? '#4a3024' : shade('#b8673a', -0.12 * wear);
+    c.beginPath(); c.roundRect(bx0, by - stack, bx1 - bx0, stack, 0.4 * m); c.fill();
+    c.strokeStyle = night ? 'rgba(20,10,6,0.7)' : 'rgba(90,44,20,0.85)'; c.lineWidth = Math.max(0.6, 0.18 * m);
+    const slats = Math.max(3, Math.round(stack / (0.35 * m)));
+    for (let k = 1; k < slats; k++) {
+      const yy = by - (k / slats) * stack;
+      c.beginPath(); c.moveTo(bx0, yy); c.lineTo(bx1, yy); c.stroke();
+    }
+    // The yard, lowered onto the stack, and the halyard up to the masthead.
+    c.strokeStyle = ink; c.lineWidth = Math.max(1, 0.3 * m);
+    c.beginPath(); c.moveTo(bx1 - 0.05 * w, by - stack - 0.2 * m); c.lineTo(bx0 + 0.05 * w, by - stack - 0.9 * m); c.stroke();
+    c.strokeStyle = night ? 'rgba(40,32,24,0.7)' : 'rgba(43,29,14,0.55)'; c.lineWidth = 0.8;
+    c.beginPath(); c.moveTo(tx, deck - H); c.lineTo(mx - w * 0.2, by - stack); c.stroke();
+    // A long red pennant at the masthead.
+    c.fillStyle = red; c.beginPath(); c.moveTo(tx, deck - H); c.lineTo(tx - 5 * m, deck - H + 0.4 * m); c.lineTo(tx, deck - H + 0.9 * m); c.fill();
+  }
+  // The rudder, hung below the stern.
+  c.fillStyle = night ? '#2a1e14' : '#3a2a1c';
+  c.beginPath(); c.moveTo(X(-0.01), deck - D * 0.1); c.lineTo(X(0.05), deck); c.lineTo(X(0.06), keelY + D * 0.25); c.lineTo(X(-0.03), keelY + D * 0.25); c.closePath(); c.fill();
+  // The hull: dark oiled wood above, lime-white below the waterline, a red band along the rail.
+  const hull = junkHullPath(d, x0, keelY, m);
+  c.fillStyle = night ? '#2e2016' : shade('#4a3324', -0.1 * wear); c.fill(hull);
+  c.save(); c.clip(hull);
+  c.fillStyle = night ? '#4a463c' : shade('#e2dccb', -0.25 * wear);
+  c.fillRect(x0 - 2 * m, keelY - D * 0.42, L + 6 * m, D);
+  c.strokeStyle = red; c.lineWidth = D * 0.16;
+  c.beginPath(); c.moveTo(X(-0.02), deck - D * 0.62); c.lineTo(X(0.12), deck - D * 0.5);
+  c.quadraticCurveTo(X(0.5), deck + D * 0.2, X(1.0), deck - D * 0.32); c.stroke();
+  if (wear > 0.05) { c.fillStyle = `rgba(70,90,50,${0.35 * wear})`; c.fillRect(x0, keelY - D * 0.42, L, D * 0.12); }
+  c.restore();
+  // The painted stern (red, with a gold roundel) and the eye on the bow.
+  c.fillStyle = red; c.beginPath(); c.moveTo(X(-0.02), deck - D * 0.75); c.lineTo(X(0.02), deck - D * 0.72); c.lineTo(X(0.035), deck); c.lineTo(X(0.0), deck); c.closePath(); c.fill();
+  c.fillStyle = night ? '#6a5a2a' : '#d9a441'; c.beginPath(); c.arc(X(0.005), deck - D * 0.42, Math.max(0.5, D * 0.08), 0, Math.PI * 2); c.fill();
+  const ex = X(0.93), ey = deck - D * 0.05, er = Math.max(0.6, D * 0.08);
+  c.fillStyle = night ? '#8a8270' : '#f4ead2'; c.beginPath(); c.ellipse(ex, ey, er * 1.3, er, 0, 0, Math.PI * 2); c.fill();
+  c.fillStyle = '#1d140c'; c.beginPath(); c.arc(ex + er * 0.3, ey, er * 0.55, 0, Math.PI * 2); c.fill();
+  // A lantern at the stern, and the red banner on its staff.
+  c.fillStyle = night ? '#f5c86a' : '#e9dcc0'; c.fillRect(X(0.04), deck - D * 0.85 - 1.2 * m, 0.7 * m, 0.9 * m);
+  const fw = Math.max(1.6, d.L / 9) * m;
+  c.strokeStyle = ink; c.lineWidth = Math.max(1, 0.25 * m);
+  const sx = X(-0.01), sy = deck - D * 0.75;
+  c.beginPath(); c.moveTo(sx, sy); c.lineTo(sx, sy - 1.8 * fw); c.stroke();
+  c.fillStyle = night ? shade('#c8322a', -0.6) : '#c8322a';
+  c.beginPath(); c.moveTo(sx, sy - 1.8 * fw); c.lineTo(sx - fw, sy - 1.8 * fw); c.lineTo(sx - fw * 1.25, sy - 1.45 * fw); c.lineTo(sx - fw, sy - 1.1 * fw); c.lineTo(sx, sy - 1.1 * fw); c.closePath(); c.fill();
   c.restore();
 }
 

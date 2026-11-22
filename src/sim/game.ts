@@ -16,9 +16,9 @@ import { CONTRACT_TUNING } from './contracts';
 import { applyChart, CHART_TUNING, chartOffers, chartPath, ensureCharts, isCharted, unchartedShare } from './charts';
 
 /** Speed factor on a route: the wind (Age of Sail), and slower going in uncharted water. */
-function seaFactor(world: World, g: GameState, path: string[], day: number): number {
+function seaFactor(world: World, g: GameState, path: string[], day: number, type?: ShipTypeDef): number {
   const dark = unchartedShare(world, g, path);
-  return routeWind(world, path, day) * (1 - (1 - CHART_TUNING.unchartedSpeed) * dark);
+  return routeWind(world, path, day, type?.rig) * (1 - (1 - CHART_TUNING.unchartedSpeed) * dark);
 }
 import { ECONOMY, economyDay, newOilMarket, recordDelivery, routeFor, strikeAt } from './economy';
 import { rand, randNormal, randRange } from './rng';
@@ -47,6 +47,8 @@ export const RULES = {
   wearPerDay: 0.3,
   stormChancePerDay: 0.02,
   breakdownBase: 0.001,
+  /** Junks spring leaks this much less often (watertight compartments). */
+  junkLeakFactor: 0.6,
   breakdownPerMissingPoint: 0.0003,
   emergencyFuelMarkup: 2.5,
   /** Jettisoned charter cargo: the shipper claims this share of the pay as compensation. */
@@ -368,6 +370,7 @@ export function newGame(seed: number = Date.now() % 2 ** 31, world: World = getW
     rng: seed | 0,
     day: 0,
     era: world.era.id,
+    ...(world.era.house ? { house: world.era.house.id } : {}),
     cash: world.era.start.cash,
     loan: 0,
     fleet: [],
@@ -808,7 +811,7 @@ function legCost(g: GameState, ship: ShipState, from: string, to: string, world:
   const route = routeFor(world, g, from, to);
   if (!route) return null;
   const type = typeOf(ship, world);
-  const days = route.nm / (effectiveSpeed(type, ship) * seaFactor(world, g, route.path, g.day) * 24);
+  const days = route.nm / (effectiveSpeed(type, ship) * seaFactor(world, g, route.path, g.day, type) * 24);
   const fuel = Math.ceil(days * type.fuelPerDay * consumptionFactor(ship));
   const canal = route.canals.reduce((s, c) => s + Math.round(world.canals[c].fee * type.sizeFactor), 0);
   const strikeDays = strikeAt(g, to) ? ECONOMY.strike.extraDays : 0;
@@ -1146,7 +1149,7 @@ export function planVoyage(g: GameState, shipId: number, dest: string, world: Wo
   const strike = strikeAt(g, dest) !== undefined;
   const strikeDays = strike ? ECONOMY.strike.extraDays : 0;
   // Sailing ships go as fast as the season's winds along the route allow.
-  const seaDays = route.nm / (effectiveSpeed(type, ship) * seaFactor(world, g, route.path, g.day) * 24);
+  const seaDays = route.nm / (effectiveSpeed(type, ship) * seaFactor(world, g, route.path, g.day, type) * 24);
   const fuelNeeded = Math.ceil(seaDays * type.fuelPerDay * consumptionFactor(ship));
   const arrive = g.day + seaDays;
   const deliveries = ship.cargo
@@ -1180,14 +1183,16 @@ export function planVoyage(g: GameState, shipId: number, dest: string, world: Wo
   };
 }
 
-function breakdownChance(ship: Pick<ShipState, 'condition' | 'age'>): number {
-  return (RULES.breakdownBase + RULES.breakdownPerMissingPoint * (100 - ship.condition)) * breakdownAgeFactor(ship);
+function breakdownChance(ship: Pick<ShipState, 'condition' | 'age'>, type?: ShipTypeDef): number {
+  // A junk's hold is divided by watertight bulkheads: a leak floods one compartment, not the ship.
+  const rig = type?.rig === 'junk' ? RULES.junkLeakFactor : 1;
+  return (RULES.breakdownBase + RULES.breakdownPerMissingPoint * (100 - ship.condition)) * breakdownAgeFactor(ship) * rig;
 }
 
 /** Work out a voyage's course up front: storms, breakdowns, fuel, wear and timing. */
 function plotVoyage(world: World, g: GameState, ship: ShipState, dest: string, route: Route, canalFees: number): ActiveVoyage {
   const type = typeOf(ship, world);
-  const speed = effectiveSpeed(type, ship) * seaFactor(world, g, route.path, g.day);
+  const speed = effectiveSpeed(type, ship) * seaFactor(world, g, route.path, g.day, type);
   // Uncharted water: shoals, reefs and squalls nobody warned you about.
   const risk = 1 + (CHART_TUNING.unchartedRisk - 1) * unchartedShare(world, g, route.path);
   const departDay = g.day;
@@ -1203,7 +1208,7 @@ function plotVoyage(world: World, g: GameState, ship: ShipState, dest: string, r
 
   while (remaining > 0.01) {
     const storm = rand(g) < RULES.stormChancePerDay * risk;
-    if (rand(g) < breakdownChance({ condition, age: ship.age })) {
+    if (rand(g) < breakdownChance({ condition, age: ship.age }, type)) {
       const delay = Math.round(randRange(g, 0.5, 2) * 10) / 10;
       const cost = Math.round(randRange(g, 4000, 12000) * type.sizeFactor / 100) * 100;
       event('breakdown', world.era.wind ? `Sprung a leak. Hove to for ${delay} days while the carpenter worked the pumps and patched her.` : `Engine breakdown. Drifted ${delay} days while the crew made repairs.`, delay, cost);
@@ -1495,7 +1500,7 @@ export function buyShip(state: GameState, portId: string, offerId: number, world
   g.loan = q.loanAfter;
   book(g, world, 'shipsBought', offer.price);
   const taken = g.fleet.map((s) => s.name);
-  const name = taken.includes(offer.name) ? shipName(g, taken) : offer.name;
+  const name = taken.includes(offer.name) ? shipName(g, taken, world) : offer.name;
   g.fleet.push({
     id: g.nextId++, name, typeId: offer.typeId, location: portId,
     fuel: Math.round(q.type.bunkerCapacity * RULES.newShipFuel), condition: offer.condition, age: offer.age, cargo: [],

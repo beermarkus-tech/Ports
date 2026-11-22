@@ -52,8 +52,10 @@
   "name": "The East Indies",
   "ports": [
    "malacca",
+   "patani",
    "bantam",
    "batavia",
+   "macassar",
    "banda",
    "ayutthaya"
   ]
