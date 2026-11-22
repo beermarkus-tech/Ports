@@ -1,7 +1,7 @@
 # Deadweight: handover and progress log
 
 The single document to read before continuing work, in any chat or account.
-Last updated at **build 52** (22 Nov 2026). Keep this file current: add to the
+Last updated at **build 53** (22 Nov 2026). Keep this file current: add to the
 build log and move items in "Next" as work lands.
 
 ## 1. What this is
@@ -205,10 +205,15 @@ real-map look, hard to keep fog/night/art). Canvas raster tiles were rejected
   and notes (Pixi Text), ships (from the icon's SVG path), pulses, flash texts, fog names.
   Sizes: names `ui = clamp(s0, 0.8, 1.15)`, dots/ships `dot = clamp(s0, 0.62, 1.15)` where s0 is
   CSS px per map unit. (The old map scaled everything by s0, so names were ~4 px on a phone.)
+- Crowded ports (Batavia/Bantam, Canton/Macau…): dots closer than MIN_GAP (12 units) are pushed
+  apart at the world view; the push fades out as the zoom separates them (`nudgeShare`). Ships,
+  routes, lanes, wakes and effects bend to the pushed dot within NUDGE_REACH (14 units) (line
+  shader attribute `aNudge`, `disp()` for points), so a ship arrives exactly on its dot (build 53).
 - Names: greedy placement in screen space whenever the view changes: here, destination, stops,
   cargo ports, strike/boom first, then the rest; each takes its current spot, the data's
   spot, then the other spots, the first that's clear of placed names, other dots, the map edge
-  and the buttons over the map (zoom, Port view). Note line dropped before the name is. No room:
+  the buttons over the map (zoom, Port view) and ships in port, and nearer its own dot than any
+  other (build 53). Note line dropped before the name is. No room:
   hidden (important ports always show). Names fade out/in over 150 ms, also when moving spot.
 - Input: wheel, pinch, drag with inertia, double-tap / double-click, + − World (eased).
   Taps are hit-tested in JS (ships first, then dots, then names). Hover highlights (desktop).
@@ -310,3 +315,4 @@ Check `vite-plugin-pwa` precache size limits after adding it.
 | 50 | The Chinese house: pick a house for a 1650 game; Amoy, junks (art for side view, harbour and map), taels, Chinese charts and fog names, Patani and Macassar added; market cards in 1650 no longer show $ |
 | 51 | Music for the Chinese house: an original pentatonic piece for pipa, zheng, xiao, wooden fish and gong (the Dutch house keeps the sarabande) |
 | 52 | Every 1650 good sells somewhere (tin, ivory, gold had no buyer); more Asian buyers for the Chinese house (ivory, tin, saltpetre, nutmeg, cinnamon) |
+| 53 | Ships, routes and lanes meet the pushed-apart dots of crowded ports (Batavia/Bantam) at every zoom; names stay nearest their own dot |

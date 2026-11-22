@@ -19,6 +19,10 @@ import type { LonLat, PortMarker, ShipMarker, WeatherCell } from './map';
 const W = 1000;
 const H = 470;
 const MAX_ZOOM = 12;
+/** Ports closer than this (map units, at the whole-world view) have their dots pushed apart. */
+const MIN_GAP = 12;
+/** Within this distance of a pushed dot (map units), ships, routes and lanes bend towards it. */
+const NUDGE_REACH = 14;
 /** Size of the textures that cover the whole map (shallows, fog). */
 const TEX_W = 2048;
 const TEX_H = Math.round((TEX_W * H) / W);
@@ -144,8 +148,8 @@ function triangulate(polys: number[][][], outerSign: number): { pos: Float32Arra
  * Line geometry for the line shader: two vertices per point, pushed apart on screen by the shader.
  * Points share mitred normals, so translucent lines don't darken at their joints.
  */
-function lineGeometry(lines: { pts: number[]; closed?: boolean }[]): Geometry {
-  const pos: number[] = [], nrm: number[] = [], side: number[] = [], dist: number[] = [], idx: number[] = [];
+function lineGeometry(lines: { pts: number[]; closed?: boolean }[], nudge?: Nudger): Geometry {
+  const pos: number[] = [], nrm: number[] = [], side: number[] = [], dist: number[] = [], idx: number[] = [], ndg: number[] = [];
   for (const { pts: raw, closed } of lines) {
     // Drop repeated points.
     const p: number[] = [];
@@ -190,6 +194,8 @@ function lineGeometry(lines: { pts: number[]; closed?: boolean }[]): Geometry {
         }
       } else if (hasPrev) { nx = n0x; ny = n0y; } else { nx = n1x; ny = n1y; }
       pos.push(x, y, x, y);
+      const [ux, uy, d0] = nudge?.(x, y) ?? [0, 0, 1];
+      ndg.push(ux, uy, d0, ux, uy, d0);
       nrm.push(nx, ny, nx, ny);
       side.push(-1, 1);
       dist.push(d, d);
@@ -205,9 +211,18 @@ function lineGeometry(lines: { pts: number[]; closed?: boolean }[]): Geometry {
       aNormal: { buffer: new Float32Array(nrm), format: 'float32x2' },
       aSide: { buffer: new Float32Array(side), format: 'float32' },
       aDist: { buffer: new Float32Array(dist), format: 'float32' },
+      aNudge: { buffer: new Float32Array(ndg.length ? ndg : [0, 0, 1]), format: 'float32x3' },
     },
     indexBuffer: new Uint32Array(idx.length ? idx : [0, 0, 0]),
   });
+}
+
+/** How far a point is pushed towards a nearby pushed port dot (map units, at the world view), and the ports' true gap. */
+type Nudger = (x: number, y: number) => [number, number, number];
+
+/** How much of the push remains at zoom k: all of it at the world view, none once the true gap is MIN_GAP on screen. */
+function nudgeShare(d0: number, k: number): number {
+  return Math.max(0, Math.min(1, (MIN_GAP - d0 * k) / (MIN_GAP - d0)));
 }
 
 function fillGeometry(t: { pos: Float32Array; idx: Uint32Array }): Geometry {
@@ -238,14 +253,18 @@ in vec2 aPosition;
 in vec2 aNormal;
 in float aSide;
 in float aDist;
+in vec3 aNudge;
 uniform float uPxPerUnit;
+uniform float uK;
 uniform float uWidth;
 out float vSide;
 out float vDist;
 ${MVP}
 void main() {
   float hw = uWidth * 0.5 + 1.0;
-  gl_Position = toClip(aPosition + aNormal * aSide * hw / uPxPerUnit);
+  // Near ports whose dots are pushed apart, lines bend to the dot (less as the zoom separates them).
+  float share = clamp((${MIN_GAP.toFixed(1)} - aNudge.z * uK) / (${MIN_GAP.toFixed(1)} - aNudge.z), 0.0, 1.0);
+  gl_Position = toClip(aPosition + aNudge.xy * share + aNormal * aSide * hw / uPxPerUnit);
   vSide = aSide * hw;
   vDist = aDist * uPxPerUnit;
 }`;
@@ -397,7 +416,7 @@ const overlaps = (a: Box, b: Box) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] &
 interface PortView {
   id: string;
   name: string;
-  /** Position in map units (dots a few units apart are nudged apart). */
+  /** True position in map units (dots a few units apart are pushed apart on screen: see disp()). */
   x: number;
   y: number;
   dataSpot: LabelKey;
@@ -529,6 +548,25 @@ export class GlMapView {
   private glide: { k0: number; k1: number; mx: number; my: number; x: number; y: number; t0: number; dur: number } | null = null;
   private suppressTap = false;
   private a11y: HTMLDivElement;
+  private nudges: { x: number; y: number; nx: number; ny: number; d0: number }[] = [];
+  /** The push towards a pushed port dot for a point near it (for line geometry). */
+  private nudger: Nudger = (x, y) => {
+    let best: [number, number, number] = [0, 0, 1], bestD = NUDGE_REACH;
+    for (const n of this.nudges) {
+      const d = Math.hypot(x - n.x, y - n.y);
+      if (d >= bestD) continue;
+      const u = 1 - d / NUDGE_REACH, w = u * u * (3 - 2 * u);
+      best = [n.nx * w, n.ny * w, n.d0]; bestD = d;
+    }
+    return best;
+  };
+  /** Where a point of the map (map units) is drawn at the current zoom, after the push near crowded ports. */
+  private disp(x: number, y: number): [number, number] {
+    const [nx, ny, d0] = this.nudger(x, y);
+    const f = nx || ny ? nudgeShare(d0, this.k) : 0;
+    return [x + nx * f, y + ny * f];
+  }
+  private portXY(p: { x: number; y: number }): [number, number] { return this.disp(p.x, p.y); }
   private tools: HTMLDivElement | null = null;
 
   constructor(
@@ -566,7 +604,8 @@ export class GlMapView {
     // nudge such dots apart on the chart, a few map units at most.
     const at: Record<string, [number, number]> = {};
     for (const p of world.portList) at[p.id] = this.projection([p.lon, p.lat])! as [number, number];
-    const MIN_GAP = 12;
+    const truePos: Record<string, [number, number]> = {};
+    for (const p of world.portList) truePos[p.id] = [...at[p.id]] as [number, number];
     for (let pass = 0; pass < 6; pass++) {
       for (let i = 0; i < world.portList.length; i++) for (let j = i + 1; j < world.portList.length; j++) {
         const a = at[world.portList[i].id], b = at[world.portList[j].id];
@@ -578,6 +617,15 @@ export class GlMapView {
         a[0] -= (dx / d) * push; a[1] -= (dy / d) * push;
         b[0] += (dx / d) * push; b[1] += (dy / d) * push;
       }
+    }
+    // Remember each push (and the true gap it closes), to apply it at any zoom.
+    for (const p of world.portList) {
+      const [tx, ty] = truePos[p.id];
+      const nx = at[p.id][0] - tx, ny = at[p.id][1] - ty;
+      if (Math.hypot(nx, ny) < 0.01) continue;
+      let d0 = Infinity;
+      for (const q of world.portList) if (q !== p) d0 = Math.min(d0, Math.hypot(truePos[q.id][0] - tx, truePos[q.id][1] - ty));
+      this.nudges.push({ x: tx, y: ty, nx, ny, d0: Math.min(d0, MIN_GAP * 0.9) });
     }
     for (const p of world.portList) {
       // Keyboard and screen readers: an invisible button over every port (the map itself is one canvas).
@@ -591,7 +639,7 @@ export class GlMapView {
       this.a11y.appendChild(button);
       const tag = new Container();
       const view: PortView = {
-        id: p.id, name: p.name, x: at[p.id][0], y: at[p.id][1], dataSpot: (p.label ?? 'right') as LabelKey,
+        id: p.id, name: p.name, x: truePos[p.id][0], y: truePos[p.id][1], dataSpot: (p.label ?? 'right') as LabelKey,
         g: new Graphics(), label: new Text({ text: p.name }), note: new Text({ text: '' }), tag,
         marker: null, rumour: false, night: false, styleKey: '', spot: (p.label ?? 'right') as LabelKey,
         wantSpot: (p.label ?? 'right') as LabelKey, showNote: true, wantNote: true, visible: false, alpha: 0, button,
@@ -1079,7 +1127,7 @@ export class GlMapView {
     }
     if (best.ship !== undefined) return best;
     for (const p of this.ports) {
-      const [px, py] = this.screenOf(p.x, p.y);
+      const [px, py] = this.screenOf(...this.portXY(p));
       const d = Math.hypot(px - x, py - y);
       if (d < 14 * this.dot + 4 && d < best.d) best = { d, port: p.id };
     }
@@ -1223,7 +1271,7 @@ export class GlMapView {
     // Ports and names keep their size on screen.
     const ui = this.ui;
     for (const p of this.ports) {
-      const [x, y] = this.screenOf(p.x, p.y);
+      const [x, y] = this.screenOf(...this.portXY(p));
       p.g.position.set(x, y);
       this.styleSpot(p);
     }
@@ -1237,7 +1285,7 @@ export class GlMapView {
       p.alpha = target > p.alpha ? Math.min(target, p.alpha + step) : Math.max(target, p.alpha - step);
       p.tag.alpha = p.alpha;
       p.tag.visible = p.alpha > 0.001;
-      const [x, y] = this.screenOf(p.x, p.y);
+      const [x, y] = this.screenOf(...this.portXY(p));
       p.tag.position.set(x, y);
       // The keyboard button sits on the dot.
       p.button.style.transform = `translate(${(x - 14).toFixed(1)}px, ${(y - 14).toFixed(1)}px)`;
@@ -1255,7 +1303,7 @@ export class GlMapView {
       const m = s.marker;
       const xy = this.projection(m.at);
       if (!xy) continue;
-      const [x, y] = this.screenOf(xy[0], xy[1]);
+      const [x, y] = this.screenOf(...this.disp(xy[0], xy[1]));
       const [dx, dy] = m.offset ?? [0, 0];
       s.root.position.set(x + dx * this.dot, y + dy * this.dot);
       s.root.rotation = (m.angle * Math.PI) / 180;
@@ -1280,7 +1328,7 @@ export class GlMapView {
     this.effects = this.effects.filter((e) => {
       const u = (now - e.t0) / e.dur;
       if (u >= 1) { e.obj.destroy({ children: true }); return false; }
-      const [x, y] = this.screenOf(e.at[0], e.at[1]);
+      const [x, y] = this.screenOf(...this.disp(e.at[0], e.at[1]));
       if (e.kind === 'pulse') {
         const g = e.obj as Graphics;
         const r = (6 + 36 * (1 - (1 - u) ** 2)) * ui;
@@ -1366,7 +1414,7 @@ export class GlMapView {
       const r = p.marker?.role;
       return r === 'here' ? 0 : r === 'dest' ? 1 : r === 'via' ? 2 : r === 'cargo' ? 3 : p.marker?.strike || p.marker?.boom ? 4 : 5;
     };
-    const vis = this.ports.map((p) => ({ p, xy: this.screenOf(p.x, p.y) }));
+    const vis = this.ports.map((p) => ({ p, xy: this.screenOf(...this.portXY(p)) }));
     const onScreen = vis.filter(({ xy: [x, y] }) => x > -40 && y > -40 && x < this.cssW + 40 && y < this.cssH + 40);
     const dr = 7 * this.dot;
     const dots: Box[] = onScreen.map(({ xy: [x, y] }) => [x - dr, y - dr, x + dr, y + dr]);
@@ -1392,11 +1440,24 @@ export class GlMapView {
       if (note && p.note.text) add(p.note, spot.fy);
       return out;
     };
+    // Ships lying in port are in the way too (a name beside a ship reads as that port's).
+    for (const v of this.shipViews.values()) {
+      if (v.marker.state === 'sea') continue;
+      const r = Math.max(8, v.marker.icon.length * 0.55) * this.dot;
+      placed.push([v.root.x - r, v.root.y - r, v.root.x + r, v.root.y + r]);
+    }
+    // Distance from a point to a box.
+    const gap = (b: Box, x: number, y: number) => Math.hypot(Math.max(b[0] - x, 0, x - b[2]), Math.max(b[1] - y, 0, y - b[3]));
     const fits = (bs: Box[], self: number) => {
       for (const b of bs) {
         if (b[0] < 2 || b[1] < 2 || b[2] > this.cssW - 2 || b[3] > this.cssH - 2) return false;
         for (const q of placed) if (overlaps(b, q)) return false;
         for (let i = 0; i < dots.length; i++) if (i !== self && overlaps(b, dots[i])) return false;
+      }
+      // The name must sit nearer its own dot than any other, or it reads as the other port's.
+      const [ox, oy] = onScreen[self].xy, own = gap(bs[0], ox, oy);
+      for (let i = 0; i < onScreen.length; i++) {
+        if (i !== self && gap(bs[0], onScreen[i].xy[0], onScreen[i].xy[1]) < own + 3) return false;
       }
       return true;
     };
@@ -1562,9 +1623,9 @@ export class GlMapView {
   private rebuildLanes(): void {
     if (!this.lanes) return;
     const show = this.laneData.filter((l) => !l.uncharted);
-    this.lanes.geometry = lineGeometry(show.filter((l) => !l.canal).map((l) => ({ pts: l.pts })));
-    this.canals!.geometry = lineGeometry(show.filter((l) => l.canal && !l.closed).map((l) => ({ pts: l.pts })));
-    this.closedLanes!.geometry = lineGeometry(show.filter((l) => l.closed).map((l) => ({ pts: l.pts })));
+    this.lanes.geometry = lineGeometry(show.filter((l) => !l.canal).map((l) => ({ pts: l.pts })), this.nudger);
+    this.canals!.geometry = lineGeometry(show.filter((l) => l.canal && !l.closed).map((l) => ({ pts: l.pts })), this.nudger);
+    this.closedLanes!.geometry = lineGeometry(show.filter((l) => l.closed).map((l) => ({ pts: l.pts })), this.nudger);
     this.dirty = true;
   }
 
@@ -1714,9 +1775,9 @@ export class GlMapView {
   private applyRoutes(): void {
     const lines = (rs: string[][]) => rs.flatMap((r) => project(this.projection, this.line(r)).lines.map((pts) => ({ pts })));
     const bold = lines(this.routes.primary);
-    this.routeSecondary!.geometry = lineGeometry(lines(this.routes.secondary));
-    this.routeGlow!.geometry = lineGeometry(bold);
-    this.routePrimary!.geometry = lineGeometry(bold);
+    this.routeSecondary!.geometry = lineGeometry(lines(this.routes.secondary), this.nudger);
+    this.routeGlow!.geometry = lineGeometry(bold, this.nudger);
+    this.routePrimary!.geometry = lineGeometry(bold, this.nudger);
     this.dirty = true;
   }
 
@@ -1795,7 +1856,7 @@ export class GlMapView {
     }
     // The selected ship on top.
     for (const v of this.shipViews.values()) if (v.marker.selected) this.shipLayer.addChild(v.root);
-    this.wakes!.geometry = lineGeometry(wakeLines);
+    this.wakes!.geometry = lineGeometry(wakeLines, this.nudger);
     this.dirty = true;
   }
 }
