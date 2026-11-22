@@ -293,6 +293,14 @@ Check `vite-plugin-pwa` precache size limits after adding it.
   Canton 1757, Cook 1770, clippers and steam), wars and privateers, a warping mini game.
 - Decision events (storms: go round or push through; distress calls; pirates; strikes).
 - Goals: a career with milestones and unlocks.
+- **The second loop (discussed Nov 2026, not decided):** ideas page "After the Big Fleet"
+  (https://claude.ai/artifact/5FTKiw5m84rwXHRWTmcncJ). Owner: trading posts that only raise income
+  are not wanted ("just numbers"); workshops/production chains interest them (they like factory
+  and base-building games) but need thinking through; own shipyard: later, late game. New ideas
+  on the page: found a settlement, commissions and wonders, cabinet of curiosities, family house
+  over generations, influence and politics, underwriting, chart workshop. Recommendation there:
+  settlement → workshops fed by the fleet → commissions → shipyard. Next: owner picks a direction,
+  then a detailed proposal with mock-ups (no programming before that).
 - Harbour life in the modern port view (cranes, bunker barge, horn, tugs).
 - Rivals (at the very end).
 - Possibly: rescale victual cask prices (currently ƒ150–270 a cask; costs balance).
