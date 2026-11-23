@@ -1,7 +1,7 @@
 # Deadweight: handover and progress log
 
 The single document to read before continuing work, in any chat or account.
-Last updated at **build 58** (22 Nov 2026). Keep this file current: add to the
+Last updated at **build 59** (22 Nov 2026). Keep this file current: add to the
 build log and move items in "Next" as work lands.
 
 ## 1. What this is
@@ -240,6 +240,11 @@ real-map look, hard to keep fog/night/art). Canvas raster tiles were rejected
 - Input: wheel, pinch, drag with inertia, double-tap / double-click, + − World (eased).
   Taps are hit-tested in JS (ships first, then dots, then names). Hover highlights (desktop).
   Invisible `.map-port-btn` buttons over the dots for keyboard and screen readers.
+- GPU portability (build 59, after lines ran to the map's corner on the owner's Android phone):
+  never set `mesh.geometry` to a geometry of another size; `swapMesh` builds a new Mesh in the
+  old one's place (LineLayer/FillLayer `geometry` setters do this). Vertex attributes are packed
+  as vec2/vec4 (aSideDist, aNudge), no float or vec3 attributes. SwiftShader in this container
+  does not show such driver bugs: when the owner reports a phone-only glitch, ask for a screenshot.
 - `window.__map` is the live view, for Playwright checks. Two checks worth re-running after map
   changes (build 54): every port's ship-in-port position equals its dot at 1x/2x/4x/8x in all
   three worlds; and every visible name (without a leader line) is nearer its own dot than any
@@ -360,3 +365,4 @@ Check `vite-plugin-pwa` precache size limits after adding it.
 | 55 | Better 1650 sea routes: the China seas by hand (Amoy–Zeelandia 487→146 nm, Nagasaki via Goto), coast-following lanes in India, East Africa, Brazil, Mexico; routes that double back 153→3 of 946 |
 | 56–57 | Handover: ideas for a second loop, the settlement and guide proposal |
 | 58 | The guide: chapters of next steps in the header and a dialog (step A of the settlement plan) |
+| 59 | Fix: on some phones lines from uncharted ports ran to the map's top-left corner (stale GPU buffers after swapping line data); lines are now rebuilt whole, and vertex data packed in pairs and fours |

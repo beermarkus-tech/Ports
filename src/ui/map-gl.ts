@@ -149,7 +149,7 @@ function triangulate(polys: number[][][], outerSign: number): { pos: Float32Arra
  * Points share mitred normals, so translucent lines don't darken at their joints.
  */
 function lineGeometry(lines: { pts: number[]; closed?: boolean }[], nudge?: Nudger): Geometry {
-  const pos: number[] = [], nrm: number[] = [], side: number[] = [], dist: number[] = [], idx: number[] = [], ndg: number[] = [];
+  const pos: number[] = [], nrm: number[] = [], side: number[] = [], idx: number[] = [], ndg: number[] = [];
   for (const { pts: raw, closed } of lines) {
     // Drop repeated points.
     const p: number[] = [];
@@ -195,10 +195,11 @@ function lineGeometry(lines: { pts: number[]; closed?: boolean }[], nudge?: Nudg
       } else if (hasPrev) { nx = n0x; ny = n0y; } else { nx = n1x; ny = n1y; }
       pos.push(x, y, x, y);
       const [ux, uy, d0] = nudge?.(x, y) ?? [0, 0, 1];
-      ndg.push(ux, uy, d0, ux, uy, d0);
+      // Four floats a vertex (not three): Apple's graphics layer mishandles three-float vertex attributes.
+      ndg.push(ux, uy, d0, 0, ux, uy, d0, 0);
       nrm.push(nx, ny, nx, ny);
-      side.push(-1, 1);
-      dist.push(d, d);
+      // Side (-1 or 1) and distance along the line, packed in pairs (single-float attributes trouble some drivers).
+      side.push(-1, d, 1, d);
       if (s > 0) {
         const a = base + (s - 1) * 2;
         idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
@@ -207,11 +208,10 @@ function lineGeometry(lines: { pts: number[]; closed?: boolean }[], nudge?: Nudg
   }
   return new Geometry({
     attributes: {
-      aPosition: { buffer: new Float32Array(pos), format: 'float32x2' },
-      aNormal: { buffer: new Float32Array(nrm), format: 'float32x2' },
-      aSide: { buffer: new Float32Array(side), format: 'float32' },
-      aDist: { buffer: new Float32Array(dist), format: 'float32' },
-      aNudge: { buffer: new Float32Array(ndg.length ? ndg : [0, 0, 1]), format: 'float32x3' },
+      aPosition: { buffer: new Float32Array(pos.length ? pos : [0, 0]), format: 'float32x2' },
+      aNormal: { buffer: new Float32Array(nrm.length ? nrm : [0, 0]), format: 'float32x2' },
+      aSideDist: { buffer: new Float32Array(side.length ? side : [0, 0]), format: 'float32x2' },
+      aNudge: { buffer: new Float32Array(ndg.length ? ndg : [0, 0, 1, 0]), format: 'float32x4' },
     },
     indexBuffer: new Uint32Array(idx.length ? idx : [0, 0, 0]),
   });
@@ -251,9 +251,8 @@ vec4 toClip(vec2 p) {
 const LINE_VERT = `
 in vec2 aPosition;
 in vec2 aNormal;
-in float aSide;
-in float aDist;
-in vec3 aNudge;
+in vec2 aSideDist;
+in vec4 aNudge;
 uniform float uPxPerUnit;
 uniform float uK;
 uniform float uWidth;
@@ -263,10 +262,11 @@ ${MVP}
 void main() {
   float hw = uWidth * 0.5 + 1.0;
   // Near ports whose dots are pushed apart, lines bend to the dot (less as the zoom separates them).
-  float share = clamp((${MIN_GAP.toFixed(1)} - aNudge.z * uK) / (${MIN_GAP.toFixed(1)} - aNudge.z), 0.0, 1.0);
-  gl_Position = toClip(aPosition + aNudge.xy * share + aNormal * aSide * hw / uPxPerUnit);
-  vSide = aSide * hw;
-  vDist = aDist * uPxPerUnit;
+  // (aNudge.z is the ports' true gap, under MIN_GAP; the max() keeps the division safe whatever a driver reads.)
+  float share = clamp((${MIN_GAP.toFixed(1)} - aNudge.z * uK) / max(0.5, ${MIN_GAP.toFixed(1)} - aNudge.z), 0.0, 1.0);
+  gl_Position = toClip(aPosition + aNudge.xy * share + aNormal * aSideDist.x * hw / uPxPerUnit);
+  vSide = aSideDist.x * hw;
+  vDist = aSideDist.y * uPxPerUnit;
 }`;
 
 const LINE_FRAG = `
@@ -338,8 +338,28 @@ function program(name: string, vertex: string, fragment: string): GlProgram {
 
 interface LineStyle { width: number; color: RGBA; alpha: number; dash?: [number, number] }
 
+/**
+ * Replace a mesh's geometry by building a new mesh in its place (same shader, same place among its
+ * siblings, same visibility and alpha). Setting `mesh.geometry` to a geometry of another size left
+ * some phones' GPUs drawing with the old buffers: lanes of uncharted ports, run off to a corner.
+ */
+function swapMesh(old: Mesh<Geometry, Shader>, g: Geometry): Mesh<Geometry, Shader> {
+  const m = new Mesh({ geometry: g, shader: old.shader! });
+  m.visible = old.visible;
+  m.alpha = old.alpha;
+  const parent = old.parent;
+  if (parent) {
+    parent.addChildAt(m, parent.getChildIndex(old));
+    parent.removeChild(old);
+  }
+  const oldGeometry = old.geometry;
+  old.destroy();
+  oldGeometry.destroy();
+  return m;
+}
+
 class LineLayer {
-  readonly mesh: Mesh<Geometry, Shader>;
+  mesh: Mesh<Geometry, Shader>;
   readonly u: UniformGroup;
   constructor(view: UniformGroup, prog: GlProgram, geometry: Geometry, style: LineStyle) {
     this.u = new UniformGroup({
@@ -358,16 +378,13 @@ class LineLayer {
     (this.u.uniforms.uDash as Float32Array).set(s.dash ?? [0, 0]);
     this.u.update();
   }
-  set geometry(g: Geometry) {
-    const old = this.mesh.geometry;
-    this.mesh.geometry = g;
-    old.destroy();
-  }
+  /** New line data: a new mesh in the old one's place (see swapMesh). */
+  set geometry(g: Geometry) { this.mesh = swapMesh(this.mesh, g); }
   set shift(px: number) { this.u.uniforms.uDashShift = px; this.u.update(); }
 }
 
 class FillLayer {
-  readonly mesh: Mesh<Geometry, Shader>;
+  mesh: Mesh<Geometry, Shader>;
   readonly u: UniformGroup;
   constructor(prog: GlProgram, geometry: Geometry, top: RGBA, bottom: RGBA, y0: number, y1: number) {
     this.u = new UniformGroup({
@@ -384,11 +401,7 @@ class FillLayer {
     (this.u.uniforms.uY as Float32Array).set([y0, y1 === y0 ? y0 + 1 : y1]);
     this.u.update();
   }
-  set geometry(g: Geometry) {
-    const old = this.mesh.geometry;
-    this.mesh.geometry = g;
-    old.destroy();
-  }
+  set geometry(g: Geometry) { this.mesh = swapMesh(this.mesh, g); }
 }
 
 // ------------------------------------------------------------------ labels
