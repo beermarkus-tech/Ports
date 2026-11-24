@@ -15,6 +15,7 @@ import landTopo from 'world-atlas/land-110m.json';
 import type { World } from '../sim/world';
 import { currency } from './format';
 import type { LonLat, PortMarker, ShipMarker, WeatherCell } from './map';
+import { GlobeLines, GlobeScene, globeInvert, globePoint, lineGeometry3, toVec, type GlobeView } from './map-globe';
 
 const W = 1000;
 const H = 470;
@@ -440,6 +441,9 @@ interface PortView {
   /** True position in map units (dots a few units apart are pushed apart on screen: see disp()). */
   x: number;
   y: number;
+  /** Where it is on the Earth (for the globe). */
+  lon: number;
+  lat: number;
   dataSpot: LabelKey;
   g: Graphics;
   label: Text;
@@ -474,7 +478,7 @@ interface ShipView {
 
 interface CloudView { sprite: Container; inner: Sprite; bolt: Graphics | null; cell: WeatherCell }
 
-interface Effect { t0: number; dur: number; at: [number, number]; obj: Container; kind: 'pulse' | 'flash'; color: number }
+interface Effect { t0: number; dur: number; at: LonLat; obj: Container; kind: 'pulse' | 'flash'; color: number }
 
 // ------------------------------------------------------------------ the map
 
@@ -574,6 +578,26 @@ export class GlMapView {
   private glide: { k0: number; k1: number; mx: number; my: number; x: number; y: number; t0: number; dur: number } | null = null;
   private suppressTap = false;
   private a11y: HTMLDivElement;
+  // The globe (optional 3D view): its scene, lines, view and gestures.
+  private globeMode = false;
+  private gv: GlobeView = { lon: 60, lat: 20, zoom: 1 };
+  private globe: GlobeScene | null = null;
+  private gCoastCoarse: GlobeLines | null = null;
+  private gCoastDetail: GlobeLines | null = null;
+  private gGrat: GlobeLines | null = null;
+  private gLanes: GlobeLines | null = null;
+  private gCanals: GlobeLines | null = null;
+  private gClosed: GlobeLines | null = null;
+  private gRouteSec: GlobeLines | null = null;
+  private gRouteGlow: GlobeLines | null = null;
+  private gRoutePrim: GlobeLines | null = null;
+  private gWakes: GlobeLines | null = null;
+  private landMaskTex: Texture | null = null;
+  private glide3: { from: GlobeView; to: GlobeView; t0: number; dur: number } | null = null;
+  private spin: { vx: number; vy: number } | null = null;
+  /** Clouds on the globe: the same sprites, moved here (screen pixels) while the globe shows. */
+  private globeClouds = new Container();
+  private globeBtn: HTMLButtonElement | null = null;
   private nudges: { x: number; y: number; nx: number; ny: number; d0: number }[] = [];
   /** The push towards a pushed port dot for a point near it (for line geometry). */
   private nudger: Nudger = (x, y) => {
@@ -665,7 +689,7 @@ export class GlMapView {
       this.a11y.appendChild(button);
       const tag = new Container();
       const view: PortView = {
-        id: p.id, name: p.name, x: truePos[p.id][0], y: truePos[p.id][1], dataSpot: (p.label ?? 'right') as LabelKey,
+        id: p.id, name: p.name, x: truePos[p.id][0], y: truePos[p.id][1], lon: p.lon, lat: p.lat, dataSpot: (p.label ?? 'right') as LabelKey,
         g: new Graphics(), label: new Text({ text: p.name }), note: new Text({ text: '' }), tag,
         marker: null, rumour: false, night: false, styleKey: '', spot: (p.label ?? 'right') as LabelKey,
         wantSpot: (p.label ?? 'right') as LabelKey, showNote: true, wantNote: true, leader: false, wantLeader: false, leaderG: new Graphics(), leaderKey: '', visible: false, alpha: 0, button,
@@ -804,6 +828,7 @@ export class GlMapView {
     // Screen-sized things on top: fog names, ports, names, ships, effects.
     this.overlay.addChild(this.fogTextLayer, this.portLayer, this.tagLayer, this.shipLayer, this.effectLayer);
     for (const p of this.ports) { this.portLayer.addChild(p.g); this.tagLayer.addChild(p.tag); }
+    this.buildGlobe();
     this.ready = true;
     this.restyleTexts();
     this.applyColors();
@@ -814,6 +839,87 @@ export class GlMapView {
     if (this.sun) this.setSun(this.sun);
     this.updateWeather(this.cells);
     this.updateShips(this.shipMarkers);
+  }
+
+  /** The globe's scene: the sphere and its lines, behind the overlay; shown when the globe is chosen. */
+  private buildGlobe(): void {
+    try {
+      this.landMaskTex = this.makeLandMask(this.coarseLand);
+      this.globe = new GlobeScene(W, H, { dist: this.distTex!, waves: this.wavesTex!, land: this.landMaskTex, fog: Texture.WHITE });
+    } catch (err) {
+      console.error('The globe could not be built', err);
+      this.globe = null;
+      return;
+    }
+    const g = this.globe, prog = g.lineProg, empty = () => lineGeometry3([]);
+    const topo = landTopo as unknown as Topology;
+    this.gGrat = new GlobeLines(g.u, prog, lineGeometry3((geoGraticule10().coordinates as number[][][]).map((l) => ({ pts: l.flat() }))), this.graticuleStyle());
+    this.gCoastCoarse = new GlobeLines(g.u, prog, lineGeometry3(coastLines(feature(topo, topo.objects.land))), this.coastStyle());
+    this.gLanes = new GlobeLines(g.u, prog, empty(), this.laneStyle('lane'));
+    this.gCanals = new GlobeLines(g.u, prog, empty(), this.laneStyle('canal'));
+    this.gClosed = new GlobeLines(g.u, prog, empty(), this.laneStyle('closed'));
+    const pal = this.pal;
+    this.gRouteSec = new GlobeLines(g.u, prog, empty(), { width: 1.4, color: pal.text, alpha: 0.45, dash: [3, 4] });
+    this.gRouteGlow = new GlobeLines(g.u, prog, empty(), { width: 7, color: pal.accent, alpha: 0.18 });
+    this.gRoutePrim = new GlobeLines(g.u, prog, empty(), { width: 2.2, color: pal.accent, alpha: 1, dash: [6, 5] });
+    this.gWakes = new GlobeLines(g.u, prog, empty(), { width: 1.6, color: probe('#e8f4ff'), alpha: 0.45, dash: [2, 3] });
+    g.root.addChild(this.gGrat.mesh, this.gCoastCoarse.mesh, this.gLanes.mesh, this.gCanals.mesh, this.gClosed.mesh,
+      this.gRouteSec.mesh, this.gRouteGlow.mesh, this.gRoutePrim.mesh, this.gWakes.mesh);
+    g.root.visible = false;
+    this.app!.stage.addChildAt(g.root, this.app!.stage.getChildIndex(this.overlay));
+    this.app!.stage.addChildAt(this.globeClouds, this.app!.stage.getChildIndex(this.overlay));
+    if (this.globeBtn) this.globeBtn.hidden = false;
+    let saved: string | null = null;
+    try { saved = localStorage.getItem('deadweight.mapMode'); } catch { /* private mode */ }
+    if (saved === 'globe') queueMicrotask(() => this.setGlobe(true));
+  }
+
+  /** Where there is land, at twice the shallows' resolution (the globe draws land from it). */
+  private makeLandMask(land: Shapes): Texture {
+    const w = TEX_W * 2, h = TEX_H * 2;
+    const cv = document.createElement('canvas');
+    cv.width = w; cv.height = h;
+    const c = cv.getContext('2d')!;
+    c.setTransform(w / W, 0, 0, h / H, 0, 0);
+    c.fillStyle = '#fff';
+    const p = new Path2D();
+    for (const ring of land.polygons.flat()) {
+      p.moveTo(ring[0], ring[1]);
+      for (let i = 2; i < ring.length; i += 2) p.lineTo(ring[i], ring[i + 1]);
+      p.closePath();
+    }
+    c.fill(p);
+    return Texture.from(cv);
+  }
+
+  /** The globe's colours and fixed numbers, from the palette and the flat map's sea. */
+  private applyGlobeColors(): void {
+    if (!this.globe) return;
+    const pal = this.pal;
+    const [[, ly0], [, ly1]] = this.landBox;
+    const grad = this.seaU.uniforms.uGrad as Float32Array;
+    const t = this.projection.translate();
+    this.globe.setSphere({
+      uProj: [this.projection.scale(), t[0], t[1], 0],
+      uSea1: pal.ocean1, uSea2: pal.ocean2, uGrad: [...grad],
+      uLandHi: pal.landHi, uLand: pal.land, uLandY: [ly0, ly1, 0, 0],
+      uShallow: [pal.shallow[0], pal.shallow[1], pal.shallow[2], 1],
+      uWave: [pal.text[0], pal.text[1], pal.text[2], 0.09],
+      uNight: [pal.night[0], pal.night[1], pal.night[2], pal.nightAlpha],
+      uRim: [pal.line[0], pal.line[1], pal.line[2], 1],
+      uGlow: [pal.shallow[0], pal.shallow[1], pal.shallow[2], 0.55],
+      uFogOn: [this.charted ? 1 : 0, 0, 0, 0],
+      uSun: this.sunVec(),
+    });
+    this.gGrat?.style(this.graticuleStyle());
+    this.gCoastCoarse?.style(this.coastStyle());
+    this.gCoastDetail?.style(this.coastStyle());
+    this.gLanes?.style(this.laneStyle('lane'));
+    this.gCanals?.style(this.laneStyle('canal'));
+    this.gClosed?.style(this.laneStyle('closed'));
+    this.gRouteSec?.style({ width: 1.4, color: pal.text, alpha: 0.45, dash: [3, 4] });
+    this.gRouteGlow?.style({ width: 7, color: pal.accent, alpha: 0.18 });
+    this.gRoutePrim?.style({ width: 2.2, color: pal.accent, alpha: 1, dash: [6, 5] });
   }
 
   private graticuleStyle(): LineStyle {
@@ -928,11 +1034,22 @@ export class GlMapView {
       const i = this.worldLayer.getChildIndex(this.coastCoarse!.mesh) + 1;
       this.worldLayer.addChildAt(this.landDetail.mesh, i);
       this.worldLayer.addChildAt(this.coastDetail.mesh, i + 1);
+      // The globe's detailed coast and land.
+      if (this.globe && this.gCoastCoarse) {
+        this.gCoastDetail = new GlobeLines(this.globe.u, this.globe.lineProg, lineGeometry3(coastLines(feature(topo, topo.objects.land))), this.coastStyle());
+        this.gCoastDetail.mesh.alpha = 0;
+        this.globe.root.addChildAt(this.gCoastDetail.mesh, this.globe.root.getChildIndex(this.gCoastCoarse.mesh) + 1);
+        const oldMask = this.landMaskTex;
+        this.landMaskTex = this.makeLandMask(land);
+        this.globe.setTexture('land', this.landMaskTex);
+        oldMask?.destroy(true);
+      }
       // The shallows follow the detailed coast too.
       setTimeout(() => {
         const old = this.distTex;
         this.distTex = this.makeDistTexture(land);
         this.sea!.shader!.resources.uDist = this.distTex.source;
+        this.globe?.setTexture('dist', this.distTex);
         old?.destroy(true);
         this.dirty = true;
       }, 50);
@@ -962,6 +1079,7 @@ export class GlMapView {
     this.routeSecondary?.style({ width: 1.4, color: pal.text, alpha: 0.45, dash: [3, 4] });
     this.routeGlow?.style({ width: 7, color: pal.accent, alpha: 0.18 });
     this.routePrimary?.style({ width: 2.2, color: pal.accent, alpha: 1, dash: [6, 5] });
+    this.applyGlobeColors();
   }
 
   private restyle(): void {
@@ -1040,9 +1158,17 @@ export class GlMapView {
     const tools = document.createElement('div');
     tools.className = 'map-zoom';
     this.tools = tools;
-    tools.innerHTML = `<button type="button" data-z="in" aria-label="Zoom in">+</button><button type="button" data-z="out" aria-label="Zoom out">−</button><button type="button" data-z="world" aria-label="Whole world">World</button>`;
+    tools.innerHTML = `<button type="button" data-z="in" aria-label="Zoom in">+</button><button type="button" data-z="out" aria-label="Zoom out">−</button><button type="button" data-z="world" aria-label="Whole world">World</button><button type="button" data-z="globe" aria-label="Show the globe" hidden>Globe</button>`;
+    this.globeBtn = tools.querySelector<HTMLButtonElement>('[data-z="globe"]');
     tools.addEventListener('click', (ev) => {
       const z = (ev.target as HTMLElement).closest<HTMLElement>('[data-z]')?.dataset.z;
+      if (z === 'globe') { this.setGlobe(!this.globeMode); return; }
+      if (this.globeMode) {
+        if (z === 'in') this.glideGlobe({ ...this.gv, zoom: this.gv.zoom * 2 });
+        else if (z === 'out') this.glideGlobe({ ...this.gv, zoom: this.gv.zoom / 2 });
+        else if (z === 'world') this.glideGlobe({ ...this.gv, zoom: 1 });
+        return;
+      }
       if (z === 'in') this.glideZoom(W / 2, H / 2, 2);
       else if (z === 'out') this.glideZoom(W / 2, H / 2, 0.5);
       else if (z === 'world') this.glideZoom(0, 0, 1 / this.k);
@@ -1054,9 +1180,11 @@ export class GlMapView {
     cv.style.touchAction = 'none';
     cv.addEventListener('wheel', (ev) => {
       ev.preventDefault();
-      this.glide = null; this.inertia = null;
+      this.glide = null; this.inertia = null; this.glide3 = null; this.spin = null;
+      const factor = Math.exp(-ev.deltaY * (ev.deltaMode === 1 ? 0.05 : 0.0018));
+      if (this.globeMode) { this.zoomGlobe(factor); return; }
       const [x, y] = this.toUnits(ev.clientX, ev.clientY);
-      this.zoomAt(x, y, Math.exp(-ev.deltaY * (ev.deltaMode === 1 ? 0.05 : 0.0018)));
+      this.zoomAt(x, y, factor);
     }, { passive: false });
     cv.addEventListener('gesturestart', (ev) => ev.preventDefault()); // Safari: no page zoom over the map
     const pts = new Map<number, { x: number; y: number }>();
@@ -1067,7 +1195,7 @@ export class GlMapView {
     cv.addEventListener('pointerdown', (ev) => {
       cv.setPointerCapture?.(ev.pointerId);
       pts.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
-      this.glide = null; this.inertia = null;
+      this.glide = null; this.inertia = null; this.glide3 = null; this.spin = null;
       if (pts.size === 1) { moved = 0; track = [{ t: ev.timeStamp, x: ev.clientX, y: ev.clientY }]; }
       if (pts.size === 2) pinch = null;
     });
@@ -1081,7 +1209,8 @@ export class GlMapView {
       const u = W / this.cssW; // unzoomed units per CSS pixel
       if (pts.size === 1) {
         moved += Math.hypot(now.x - prev.x, now.y - prev.y);
-        if (moved > 6 && this.k > 1) this.panBy((now.x - prev.x) * u, (now.y - prev.y) * u);
+        if (moved > 6 && this.globeMode) this.rotateBy(now.x - prev.x, now.y - prev.y);
+        else if (moved > 6 && this.k > 1) this.panBy((now.x - prev.x) * u, (now.y - prev.y) * u);
         track.push({ t: ev.timeStamp, x: now.x, y: now.y });
         if (track.length > 8) track.shift();
       } else if (pts.size === 2) {
@@ -1089,7 +1218,10 @@ export class GlMapView {
         pts.set(ev.pointerId, now);
         const [a, b] = [...pts.values()];
         const d = Math.hypot(a.x - b.x, a.y - b.y), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-        if (pinch) {
+        if (pinch && this.globeMode) {
+          this.rotateBy(mx - pinch.mx, my - pinch.my);
+          this.zoomGlobe(d / pinch.d);
+        } else if (pinch) {
           this.panBy((mx - pinch.mx) * u, (my - pinch.my) * u);
           const [x, y] = this.toUnits(mx, my);
           this.zoomAt(x, y, d / pinch.d);
@@ -1111,7 +1243,9 @@ export class GlMapView {
         // Let the map coast on after a flick.
         const last = track[track.length - 1];
         const first = track.find((p) => last && last.t - p.t < 90);
-        if (last && first && last.t > first.t && ev.timeStamp - last.t < 60 && this.k > 1) {
+        if (last && first && last.t > first.t && ev.timeStamp - last.t < 60 && this.globeMode) {
+          this.spin = { vx: (last.x - first.x) / (last.t - first.t), vy: (last.y - first.y) / (last.t - first.t) };
+        } else if (last && first && last.t > first.t && ev.timeStamp - last.t < 60 && this.k > 1) {
           const u = W / this.cssW;
           this.inertia = { vx: ((last.x - first.x) / (last.t - first.t)) * u, vy: ((last.y - first.y) / (last.t - first.t)) * u, t: performance.now() };
         }
@@ -1120,6 +1254,7 @@ export class GlMapView {
       if (ev.type === 'pointercancel') return;
       // A tap: double-tap zooms in (touch), otherwise pick a ship or a port.
       if (ev.pointerType !== 'mouse' && ev.timeStamp - lastTap.t < 320 && Math.hypot(ev.clientX - lastTap.x, ev.clientY - lastTap.y) < 30) {
+        if (this.globeMode) { this.globeZoomAt(ev.clientX, ev.clientY, 2); lastTap = { t: 0, x: 0, y: 0 }; return; }
         const [x, y] = this.toUnits(ev.clientX, ev.clientY);
         this.glideZoom(x, y, 2);
         lastTap = { t: 0, x: 0, y: 0 };
@@ -1132,6 +1267,7 @@ export class GlMapView {
     cv.addEventListener('pointercancel', up);
     cv.addEventListener('pointerleave', (ev) => { if (ev.pointerType === 'mouse' && !pts.size) this.setHover(null); });
     cv.addEventListener('dblclick', (ev) => {
+      if (this.globeMode) { this.globeZoomAt(ev.clientX, ev.clientY, 2); return; }
       const [x, y] = this.toUnits(ev.clientX, ev.clientY);
       this.glideZoom(x, y, 2);
     });
@@ -1140,6 +1276,101 @@ export class GlMapView {
   /** Screen position (CSS pixels in the map box) of a point in map units. */
   private screenOf(x: number, y: number): [number, number] {
     return [(x * this.k + this.tx) * this.s0, (y * this.k + this.ty) * this.s0];
+  }
+
+  /** Where the globe sits in the map box, and its radius on screen. */
+  private globeFrame(): { cx: number; cy: number; r: number } {
+    return { cx: this.cssW / 2, cy: this.cssH / 2, r: Math.min(this.cssH, this.cssW) * 0.45 * this.gv.zoom };
+  }
+
+  /** Screen position of a point of the Earth in the current view, and whether it can be seen. */
+  private lonlatScreen(at: LonLat): [number, number, boolean] {
+    if (this.globeMode) {
+      const { cx, cy, r } = this.globeFrame();
+      const q = globePoint(this.gv, at[0], at[1], cx, cy, r);
+      return [q.x, q.y, q.z > 0.03];
+    }
+    const xy = this.projection(at);
+    if (!xy) return [-999, -999, false];
+    const [x, y] = this.screenOf(...this.disp(xy[0], xy[1]));
+    return [x, y, true];
+  }
+
+  /** How squarely a point faces us on the globe (1 in the middle, 0 at the rim); 1 on the flat map. */
+  private facing(at: LonLat): number {
+    if (!this.globeMode) return 1;
+    const { cx, cy, r } = this.globeFrame();
+    return globePoint(this.gv, at[0], at[1], cx, cy, r).z;
+  }
+
+  /** Screen position of a port's dot (pushed apart from close neighbours on the flat map). */
+  private portScreen(p: PortView): [number, number, boolean] {
+    if (this.globeMode) return this.lonlatScreen([p.lon, p.lat]);
+    const [x, y] = this.screenOf(...this.portXY(p));
+    return [x, y, true];
+  }
+
+  /** The sun as a unit vector for the globe's night (w: 1 when there's a sun to show). */
+  private sunVec(): number[] {
+    return this.sun ? [...toVec(this.sun[0], this.sun[1]), 1] : [0, 0, 1, 0];
+  }
+
+  // ------------------------------------------------------------ the globe
+
+  /** Switch between the flat map and the globe, looking at the same place. */
+  setGlobe(on: boolean): void {
+    if (on === this.globeMode || !this.globe) return;
+    this.glide = null; this.inertia = null; this.glide3 = null; this.spin = null;
+    if (on) {
+      // Face the middle of what the flat map shows, at about the same zoom; from the whole world,
+      // face the selected ship (or home).
+      const sel = this.shipMarkers.find((m) => m.selected)?.at ?? this.portPosition(this.world.era.start.port);
+      const mid = this.k > 1.05 ? this.projection.invert?.([(W / 2 - this.tx) / this.k, (H / 2 - this.ty) / this.k]) : sel;
+      if (mid) this.gv = { lon: mid[0], lat: Math.max(-60, Math.min(60, mid[1] * 0.8)), zoom: this.k };
+    } else {
+      const xy = this.projection([this.gv.lon, this.gv.lat]);
+      this.k = Math.max(1, Math.min(MAX_ZOOM, this.gv.zoom));
+      if (xy) { this.tx = W / 2 - xy[0] * this.k; this.ty = H / 2 - xy[1] * this.k; }
+    }
+    this.globeMode = on;
+    // The clouds go with the view: on the globe they're placed on screen each frame.
+    for (const c of this.clouds.values()) (on ? this.globeClouds : this.weatherLayer).addChild(c.sprite);
+    if (!on) this.updateWeather(this.cells);
+    try { localStorage.setItem('deadweight.mapMode', on ? 'globe' : 'map'); } catch { /* private mode */ }
+    if (this.globeBtn) { this.globeBtn.textContent = on ? 'Map' : 'Globe'; this.globeBtn.setAttribute('aria-label', on ? 'Show the flat map' : 'Show the globe'); }
+    this.clampView();
+  }
+
+  /** Turn the globe by a drag of (dx, dy) screen pixels. */
+  private rotateBy(dx: number, dy: number): void {
+    const { r } = this.globeFrame();
+    const deg = 180 / Math.PI;
+    this.gv.lon = ((this.gv.lon - (dx / r) * deg + 540) % 360) - 180;
+    this.gv.lat = Math.max(-80, Math.min(80, this.gv.lat + (dy / r) * deg));
+    this.dirty = true;
+    this.labelsDirty = true;
+  }
+
+  private zoomGlobe(factor: number): void {
+    this.gv.zoom = Math.max(1, Math.min(MAX_ZOOM, this.gv.zoom * factor));
+    this.dirty = true;
+    this.labelsDirty = true;
+  }
+
+  /** Glide the globe to face a point (lon, lat) at a zoom. */
+  private glideGlobe(to: GlobeView): void {
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    this.spin = null;
+    this.glide3 = { from: { ...this.gv }, to: { ...to, zoom: Math.max(1, Math.min(MAX_ZOOM, to.zoom)) }, t0: performance.now(), dur: reduce ? 1 : 420 };
+    this.dirty = true;
+  }
+
+  /** A double tap or double click on the globe: turn that point to the middle and zoom in. */
+  private globeZoomAt(clientX: number, clientY: number, factor: number): void {
+    const b = this.stack.getBoundingClientRect();
+    const { cx, cy, r } = this.globeFrame();
+    const at = globeInvert(this.gv, clientX - b.left, clientY - b.top, cx, cy, r);
+    this.glideGlobe(at ? { lon: at[0], lat: Math.max(-80, Math.min(80, at[1])), zoom: this.gv.zoom * factor } : { ...this.gv, zoom: this.gv.zoom * factor });
   }
 
   private hit(clientX: number, clientY: number): { ship?: number; port?: string } {
@@ -1153,7 +1384,8 @@ export class GlMapView {
     }
     if (best.ship !== undefined) return best;
     for (const p of this.ports) {
-      const [px, py] = this.screenOf(...this.portXY(p));
+      const [px, py, vis] = this.portScreen(p);
+      if (!vis) continue;
       const d = Math.hypot(px - x, py - y);
       if (d < 14 * this.dot + 4 && d < best.d) best = { d, port: p.id };
     }
@@ -1177,7 +1409,7 @@ export class GlMapView {
   private hoverAt(clientX: number, clientY: number): void {
     const h = this.hit(clientX, clientY);
     const cv = this.app?.canvas as HTMLCanvasElement | undefined;
-    if (cv) cv.style.cursor = h.ship !== undefined || h.port ? 'pointer' : this.k > 1.01 ? 'grab' : '';
+    if (cv) cv.style.cursor = h.ship !== undefined || h.port ? 'pointer' : this.k > 1.01 || this.globeMode ? 'grab' : '';
     this.setHover(h.port ?? null);
   }
 
@@ -1226,7 +1458,8 @@ export class GlMapView {
 
   /** Back to the whole world. */
   resetZoom(): void {
-    this.glide = null; this.inertia = null;
+    this.glide = null; this.inertia = null; this.glide3 = null; this.spin = null;
+    this.gv.zoom = 1;
     this.k = 1; this.tx = 0; this.ty = 0;
     this.clampView();
   }
@@ -1253,9 +1486,25 @@ export class GlMapView {
       f.vx *= decay; f.vy *= decay;
       if (Math.hypot(f.vx, f.vy) < 0.004) this.inertia = null;
     }
+    if (this.glide3) {
+      const g = this.glide3;
+      const u = Math.min(1, (now - g.t0) / g.dur);
+      const e = 1 - (1 - u) ** 3;
+      const dLon = ((g.to.lon - g.from.lon + 540) % 360) - 180;
+      this.gv = { lon: ((g.from.lon + dLon * e + 540) % 360) - 180, lat: g.from.lat + (g.to.lat - g.from.lat) * e, zoom: g.from.zoom * (g.to.zoom / g.from.zoom) ** e };
+      this.dirty = true; this.labelsDirty = true;
+      if (u >= 1) this.glide3 = null;
+    }
+    if (this.spin) {
+      // The globe keeps turning a little after a flick.
+      this.rotateBy(this.spin.vx * dt, this.spin.vy * dt);
+      const decay = Math.exp(-dt / 320);
+      this.spin.vx *= decay; this.spin.vy *= decay;
+      if (Math.hypot(this.spin.vx, this.spin.vy) < 0.01) this.spin = null;
+    }
     // Cross-fade to the detailed coastline from about 2.2x.
     if (this.landDetail) {
-      const want = Math.max(0, Math.min(1, (this.k - 2.0) / 0.8));
+      const want = Math.max(0, Math.min(1, ((this.globeMode ? this.gv.zoom : this.k) - 2.0) / 0.8));
       if (Math.abs(want - this.detailMix) > 0.001) {
         this.detailMix += Math.sign(want - this.detailMix) * Math.min(Math.abs(want - this.detailMix), dt / 250);
         this.dirty = true;
@@ -1272,6 +1521,20 @@ export class GlMapView {
 
   private draw(now: number, dt: number): void {
     const k = this.k, s0 = this.s0;
+    // The globe or the flat map: the same overlay (ports, names, ships) on top of either.
+    this.worldLayer.visible = !this.globeMode;
+    if (this.globe) {
+      this.globe.root.visible = this.globeMode;
+      if (this.globeMode) {
+        const { cx, cy, r } = this.globeFrame();
+        this.globe.setView(this.gv, cx, cy, r);
+        this.globe.setSphere({ uSun: this.sunVec() });
+        const gm = this.gCoastDetail ? this.detailMix : 0;
+        if (this.gCoastCoarse) this.gCoastCoarse.mesh.alpha = 1 - gm;
+        if (this.gCoastDetail) { this.gCoastDetail.mesh.alpha = gm; this.gCoastDetail.mesh.visible = gm > 0; }
+        if (this.gRoutePrim && this.routes.primary.length) this.gRoutePrim.shift = -((now / 1000) * 11) % 11;
+      }
+    }
     const pxPerUnit = s0 * k;
     this.worldLayer.scale.set(pxPerUnit);
     this.worldLayer.position.set(this.tx * s0, this.ty * s0);
@@ -1297,8 +1560,9 @@ export class GlMapView {
     // Ports and names keep their size on screen.
     const ui = this.ui;
     for (const p of this.ports) {
-      const [x, y] = this.screenOf(...this.portXY(p));
+      const [x, y, vis] = this.portScreen(p);
       p.g.position.set(x, y);
+      p.g.visible = vis;
       this.styleSpot(p);
     }
     if (this.labelsDirty) { this.labelsDirty = false; this.placeLabels(); }
@@ -1311,28 +1575,33 @@ export class GlMapView {
       p.alpha = target > p.alpha ? Math.min(target, p.alpha + step) : Math.max(target, p.alpha - step);
       p.tag.alpha = p.alpha;
       p.tag.visible = p.alpha > 0.001;
-      const [x, y] = this.screenOf(...this.portXY(p));
+      const [x, y, vis] = this.portScreen(p);
       p.tag.position.set(x, y);
       // The keyboard button sits on the dot.
       p.button.style.transform = `translate(${(x - 14).toFixed(1)}px, ${(y - 14).toFixed(1)}px)`;
-      p.button.hidden = x < -20 || y < -20 || x > this.cssW + 20 || y > this.cssH + 20;
+      p.button.hidden = !vis || x < -20 || y < -20 || x > this.cssW + 20 || y > this.cssH + 20;
     }
     for (const f of this.fogTexts) {
       if (!f.obj) continue;
-      const xy = this.projection([f.lon, f.lat]);
-      f.obj.visible = !!this.charted && !f.hidden && !!xy;
-      if (xy) f.obj.position.set(...this.screenOf(xy[0], xy[1]));
+      const [x, y, vis] = this.lonlatScreen([f.lon, f.lat]);
+      f.obj.visible = !!this.charted && !f.hidden && vis && this.facing([f.lon, f.lat]) > 0.45;
+      f.obj.position.set(x, y);
     }
 
     // Ships keep their size; ships fanned out in port keep their spacing on screen.
     for (const s of this.shipViews.values()) {
       const m = s.marker;
-      const xy = this.projection(m.at);
-      if (!xy) continue;
-      const [x, y] = this.screenOf(...this.disp(xy[0], xy[1]));
+      const [x, y, vis] = this.lonlatScreen(m.at);
+      s.root.visible = vis;
       const [dx, dy] = m.offset ?? [0, 0];
       s.root.position.set(x + dx * this.dot, y + dy * this.dot);
-      s.root.rotation = (m.angle * Math.PI) / 180;
+      let angle = (m.angle * Math.PI) / 180;
+      if (this.globeMode && m.wake && m.wake.length > 1) {
+        // On the globe the heading is what the screen shows: from the wake to the ship.
+        const [bx, by] = this.lonlatScreen(m.wake[1]);
+        if (Math.hypot(x - bx, y - by) > 0.5) angle = Math.atan2(y - by, x - bx);
+      }
+      s.root.rotation = angle;
       if (m.state === 'ready') {
         // Halo pulse (1.8 s).
         const ph = (Math.sin((now / 1800) * Math.PI * 2) + 1) / 2;
@@ -1340,6 +1609,18 @@ export class GlMapView {
       } else s.halo.alpha = 1;
     }
 
+    // On the globe, clouds sit where they are on the Earth, sized like the map's, flattened towards the rim.
+    if (this.globeMode) {
+      const { r } = this.globeFrame();
+      const pxPerUnit = r / this.projection.scale();
+      for (const c of this.clouds.values()) {
+        const [x, y, vis] = this.lonlatScreen(c.cell.at);
+        const f = this.facing(c.cell.at);
+        c.sprite.visible = vis && f > 0.05;
+        c.sprite.position.set(x, y);
+        c.sprite.scale.set(c.cell.scale * pxPerUnit, c.cell.scale * pxPerUnit * Math.max(0.2, f));
+      }
+    }
     // Storms turn and flash.
     for (const c of this.clouds.values()) {
       if (c.cell.kind !== 'storm') continue;
@@ -1354,7 +1635,8 @@ export class GlMapView {
     this.effects = this.effects.filter((e) => {
       const u = (now - e.t0) / e.dur;
       if (u >= 1) { e.obj.destroy({ children: true }); return false; }
-      const [x, y] = this.screenOf(...this.disp(e.at[0], e.at[1]));
+      const [x, y, vis] = this.lonlatScreen(e.at);
+      e.obj.visible = vis;
       if (e.kind === 'pulse') {
         const g = e.obj as Graphics;
         const r = (6 + 36 * (1 - (1 - u) ** 2)) * ui;
@@ -1421,7 +1703,7 @@ export class GlMapView {
     p.note.visible = p.showNote && !!p.note.text;
     // The leader line: from just outside the dot to the nearest point of the name.
     // Start outside a ship lying in this port, so the line isn't hidden under it.
-    const [px, py] = this.screenOf(...this.portXY(p));
+    const [px, py] = this.portScreen(p);
     let shipR = 0;
     for (const v of this.shipViews.values()) {
       if (v.marker.state !== 'sea' && Math.hypot(v.root.x - px, v.root.y - py) < 3) shipR = Math.max(shipR, Math.max(8, v.marker.icon.length * 0.55) * this.dot);
@@ -1467,8 +1749,9 @@ export class GlMapView {
       const r = p.marker?.role;
       return r === 'here' ? 0 : r === 'dest' ? 1 : r === 'via' ? 2 : r === 'cargo' ? 3 : p.marker?.strike || p.marker?.boom ? 4 : 5;
     };
-    const vis = this.ports.map((p) => ({ p, xy: this.screenOf(...this.portXY(p)) }));
-    const onScreen = vis.filter(({ xy: [x, y] }) => x > -40 && y > -40 && x < this.cssW + 40 && y < this.cssH + 40);
+    // On the globe, names near the rim are left out (squeezed there); turn the globe to read them.
+    const vis = this.ports.map((p) => { const [x, y, front] = this.portScreen(p); return { p, xy: [x, y] as [number, number], front: front && this.facing([p.lon, p.lat]) > 0.2 }; });
+    const onScreen = vis.filter(({ xy: [x, y], front }) => front && x > -40 && y > -40 && x < this.cssW + 40 && y < this.cssH + 40);
     const dr = 7 * this.dot;
     const dots: Box[] = onScreen.map(({ xy: [x, y] }) => [x - dr, y - dr, x + dr, y + dr]);
     const order = [...onScreen].sort((a, b) => rank(a.p) - rank(b.p) || (b.p.visible ? 1 : 0) - (a.p.visible ? 1 : 0) || this.ports.indexOf(a.p) - this.ports.indexOf(b.p));
@@ -1623,6 +1906,7 @@ export class GlMapView {
       });
     }
     this.fogSprite!.visible = !!known;
+    this.globe?.setSphere({ uFogOn: [known ? 1 : 0, 0, 0, 0] });
     if (known) this.renderFog(known);
     this.dirty = true;
   }
@@ -1674,6 +1958,7 @@ export class GlMapView {
       cv.getContext('2d')?.drawImage(img, 0, 0, TEX_W, TEX_H);
       const old = this.fogSprite!.texture;
       this.fogSprite!.texture = Texture.from(cv);
+      this.globe?.setTexture('fog', this.fogSprite!.texture);
       this.fogSprite!.width = W; this.fogSprite!.height = H;
       if (old !== Texture.EMPTY) old.destroy(true);
       this.dirty = true;
@@ -1701,6 +1986,15 @@ export class GlMapView {
     this.lanes.geometry = lineGeometry(show.filter((l) => !l.canal).map((l) => ({ pts: l.pts })), this.nudger);
     this.canals!.geometry = lineGeometry(show.filter((l) => l.canal && !l.closed).map((l) => ({ pts: l.pts })), this.nudger);
     this.closedLanes!.geometry = lineGeometry(show.filter((l) => l.closed).map((l) => ({ pts: l.pts })), this.nudger);
+    if (this.gLanes) {
+      const ends = (l: { a: string; b: string }) => {
+        const a = this.world.points[l.a], b = this.world.points[l.b];
+        return { pts: [a.lon, a.lat, b.lon, b.lat] };
+      };
+      this.gLanes.geometry = lineGeometry3(show.filter((l) => !l.canal).map(ends));
+      this.gCanals!.geometry = lineGeometry3(show.filter((l) => l.canal && !l.closed).map(ends));
+      this.gClosed!.geometry = lineGeometry3(show.filter((l) => l.closed).map(ends));
+    }
     this.dirty = true;
   }
 
@@ -1751,15 +2045,17 @@ export class GlMapView {
           bolt.visible = false;
           sprite.addChild(bolt);
         }
-        this.weatherLayer.addChild(sprite);
+        (this.globeMode ? this.globeClouds : this.weatherLayer).addChild(sprite);
         v = { sprite, inner, bolt, cell: c };
         this.clouds.set(c.id, v);
       }
       v.cell = c;
       const xy = this.projection(c.at);
       if (!xy) continue;
-      v.sprite.position.set(xy[0], xy[1]);
-      v.sprite.scale.set(c.scale);
+      if (!this.globeMode) {
+        v.sprite.position.set(xy[0], xy[1]);
+        v.sprite.scale.set(c.scale);
+      }
       v.sprite.alpha = c.opacity;
     }
     for (const [id, v] of this.clouds) {
@@ -1810,7 +2106,7 @@ export class GlMapView {
     if (!xy || !this.ready) return;
     const g = new Graphics();
     this.effectLayer.addChild(g);
-    this.effects.push({ t0: performance.now(), dur: 1500, at: [xy[0], xy[1]], obj: g, kind: 'pulse', color: hexOf(kind === 'good' ? this.pal.good : this.pal.accent) });
+    this.effects.push({ t0: performance.now(), dur: 1500, at, obj: g, kind: 'pulse', color: hexOf(kind === 'good' ? this.pal.good : this.pal.accent) });
     this.dirty = true;
   }
 
@@ -1830,7 +2126,7 @@ export class GlMapView {
     t.anchor.set(0.5, 1);
     t.alpha = 0;
     this.effectLayer.addChild(t);
-    this.effects.push({ t0: performance.now(), dur: 2200, at: [xy[0], xy[1]], obj: t, kind: 'flash', color: 0 });
+    this.effects.push({ t0: performance.now(), dur: 2200, at, obj: t, kind: 'flash', color: 0 });
     this.dirty = true;
   }
 
@@ -1853,6 +2149,13 @@ export class GlMapView {
     this.routeSecondary!.geometry = lineGeometry(lines(this.routes.secondary), this.nudger);
     this.routeGlow!.geometry = lineGeometry(bold, this.nudger);
     this.routePrimary!.geometry = lineGeometry(bold, this.nudger);
+    if (this.gRouteSec) {
+      const ll = (rs: string[][]) => rs.map((r) => ({ pts: r.flatMap((id) => [this.world.points[id].lon, this.world.points[id].lat]) }));
+      const b3 = ll(this.routes.primary);
+      this.gRouteSec.geometry = lineGeometry3(ll(this.routes.secondary));
+      this.gRouteGlow!.geometry = lineGeometry3(b3);
+      this.gRoutePrim!.geometry = lineGeometry3(b3);
+    }
     this.dirty = true;
   }
 
@@ -1932,8 +2235,35 @@ export class GlMapView {
     // The selected ship on top.
     for (const v of this.shipViews.values()) if (v.marker.selected) this.shipLayer.addChild(v.root);
     this.wakes!.geometry = lineGeometry(wakeLines, this.nudger);
+    if (this.gWakes) this.gWakes.geometry = lineGeometry3(markers.filter((m) => m.wake && m.wake.length > 1).map((m) => ({ pts: m.wake!.flat() })));
     this.dirty = true;
   }
+}
+
+/**
+ * The land's coastlines as lon/lat polylines for the globe. The data cuts land at the date line and
+ * runs edges along it (and along the poles): those are not coast, so the lines break there.
+ */
+function coastLines(geo: GeoJSON.Feature | GeoJSON.FeatureCollection): { pts: number[] }[] {
+  const rings: number[][][] = [];
+  const walk = (g: GeoJSON.Geometry) => {
+    if (g.type === 'Polygon') rings.push(...(g.coordinates as number[][][]));
+    else if (g.type === 'MultiPolygon') for (const p of g.coordinates as number[][][][]) rings.push(...p);
+    else if (g.type === 'GeometryCollection') g.geometries.forEach(walk);
+  };
+  if (geo.type === 'FeatureCollection') geo.features.forEach((f) => f.geometry && walk(f.geometry));
+  else if (geo.geometry) walk(geo.geometry);
+  const out: { pts: number[] }[] = [];
+  const cut = (a: number[], b: number[]) => (Math.abs(a[0]) > 179.99 && Math.abs(b[0]) > 179.99) || (Math.abs(a[1]) > 89.99 && Math.abs(b[1]) > 89.99) || Math.abs(a[0] - b[0]) > 180;
+  for (const ring of rings) {
+    let cur: number[] = [];
+    for (let i = 0; i < ring.length; i++) {
+      if (i && cut(ring[i - 1], ring[i])) { if (cur.length >= 4) out.push({ pts: cur }); cur = []; }
+      cur.push(ring[i][0], ring[i][1]);
+    }
+    if (cur.length >= 4) out.push({ pts: cur });
+  }
+  return out;
 }
 
 /** Euclidean distance (in pixels) from every pixel to the nearest pixel with alpha > 127. */
