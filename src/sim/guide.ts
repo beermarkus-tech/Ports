@@ -160,7 +160,11 @@ export function updateGuide(w: World, g: GameState): GuideNews {
   for (const c of guideChapters(w, g)) {
     const before = c.steps.every((s) => g.guide!.done.includes(s.id));
     for (const s of c.steps) {
-      if (s.done && !g.guide.done.includes(s.id)) { g.guide.done.push(s.id); news.steps.push(s); }
+      if (s.done && !g.guide.done.includes(s.id)) {
+        g.guide.done.push(s.id);
+        if (!first) (g.guide.when ??= {})[s.id] = g.day;
+        news.steps.push(s);
+      }
     }
     if (!before && c.steps.every((s) => g.guide!.done.includes(s.id))) news.chapters.push(c);
   }

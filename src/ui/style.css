@@ -956,3 +956,21 @@ button.era-card:hover { border-color: var(--accent); }
 .settle-news { list-style: none; padding: 0; margin: 4px 0; display: grid; gap: 4px; font-size: 13.5px; }
 .settle-news li.bad { color: var(--bad); }
 .settle-news li.good { color: var(--text); }
+
+/* Journal: the guide, achievements, record, log. */
+.journal-guide { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; display: grid; gap: 4px; justify-items: start; }
+.journal-guide h3 { margin: 0; }
+.journal-guide .hint { margin: 0 0 6px; }
+.section-h { display: flex; justify-content: space-between; align-items: baseline; margin: 16px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+.ach-count { font-size: 12px; color: var(--muted); text-transform: none; letter-spacing: 0; font-weight: 500; }
+.ach-count.good { color: var(--good); font-weight: 700; }
+.ach-chapter { border-bottom: 1px solid var(--line); }
+.ach-chapter summary { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; cursor: pointer; font-weight: 600; }
+.ach-steps { list-style: none; padding: 0; margin: 4px 0 10px; display: grid; gap: 8px; }
+.ach-steps li { display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items: start; font-size: 14px; }
+.ach-steps .ach-title { display: grid; gap: 2px; min-width: 0; }
+.ach-steps .hint { margin: 0; font-size: 12px; }
+.ach-steps .ach-when { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.ach-steps li.done .gs-tick { background: var(--good); border-color: var(--good); color: var(--surface); }
+.ach-steps li.done .ach-title { color: var(--muted); }
+.ach-worth { margin-top: 10px; }

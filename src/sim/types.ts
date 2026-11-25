@@ -326,7 +326,7 @@ export interface GameState {
   /** The house's settlement (Age of Sail), once founded. */
   settlement?: Settlement;
   /** The guide: steps done (they stay done). Missing until the game first meets the guide. */
-  guide?: { done: string[] };
+  guide?: { done: string[]; /** The day each step was done (steps done before build 62 have none). */ when?: Record<string, number> };
   /** Net-worth milestones reached, with the day each was reached. */
   milestones: { amount: number; day: number }[];
   oil: OilMarket;

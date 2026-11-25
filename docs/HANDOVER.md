@@ -108,6 +108,10 @@ Modern and shared:
   1650 only: 4 A place of our own (found, 15 settlers landed, food for 30 days, jetty,
   storehouse), 5 It feeds itself (outpost, first harvest, well, village). Chapters can have
   `when`. Steps are defined in CHAPTERS in guide.ts.
+- The Journal tab (build 62, was "Log"): the guide's current chapter with an "Open the guide"
+  button, achievements (every chapter's steps with the date each was done, from g.guide.when;
+  steps done before build 62 show "done"; net-worth milestones with dates), the record (stats)
+  and the log. The guide also still opens from the bar under the cash.
 - The settlement, step B part 1 (build 61; 1650 only; src/sim/settlement.ts):
   - The charter (hasCharter): guide steps captain + threeShips + worth5M done. Settlement tab
     (label "Charter" until founded, then the name; badge "!" when hungry).
@@ -413,3 +417,4 @@ Check `vite-plugin-pwa` precache size limits after adding it.
 | 59 | Fix: on some phones lines from uncharted ports ran to the map's top-left corner (stale GPU buffers after swapping line data); lines are now rebuilt whole, and vertex data packed in pairs and fours |
 | 60 | The globe: an optional 3D view (Globe/Map button), turned by finger, zoomed like the map; night as a real shadow, routes as arcs, fog, clouds, all on the sphere |
 | 61 | The settlement, step B part 1: the charter, three sites per house, settlers (scarce), stores, buildings, camp → outpost → village, hunger, fever, storms, rent, guide chapters 4–5, the settlement's harbour view; new good iron and tools |
+| 62 | The Journal tab (was Log): the guide, achievements with dates, your record, the log |

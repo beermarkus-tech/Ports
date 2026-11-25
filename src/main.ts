@@ -1091,7 +1091,7 @@ class App {
       ['market', 'Market'],
       ['fleet', 'Company'],
       ...(g.settlement || hasCharter(g) ? [['settlement', g.settlement ? world.ports[g.settlement.site].name : 'Charter', g.settlement?.hungry ? '!' : undefined] as [Tab, string, string?]] : []),
-      ['log', 'Log'],
+      ['log', 'Journal'],
     ];
     $('#tabs').innerHTML = tabs.map(([id, label, badge]) =>
       `<button class="tab ${this.tab === id ? 'active' : ''}" data-action="tab" data-tab="${id}" role="tab" aria-selected="${this.tab === id}">
@@ -2057,7 +2057,35 @@ class App {
   private logTab(): string {
     const g = this.g;
     const s = g.stats;
+    const chapters = guideChapters(world, g);
+    const cur = currentChapter(world, g);
+    const when = g.guide?.when ?? {};
+    const chapterBlock = (c: GuideChapter) => {
+      const done = c.steps.filter((st) => st.done).length;
+      return `<details class="ach-chapter" data-key="ach-${c.n}" ${c.n === cur?.n ? 'open' : ''}>
+        <summary><span>${c.n}. ${esc(c.title)}</span><span class="ach-count ${done === c.steps.length ? 'good' : ''}">${done === c.steps.length ? '✓' : `${done}/${c.steps.length}`}</span></summary>
+        <ul class="ach-steps">${c.steps.map((st) => `<li class="${st.done ? 'done' : ''}"><span class="gs-tick" aria-hidden="true">${st.done ? '✓' : ''}</span>
+          <span class="ach-title">${esc(st.title)}${st.done ? '' : `<span class="hint">${esc(st.hint)}</span>`}</span>
+          <span class="ach-when">${st.done ? (when[st.id] !== undefined ? gameDate(when[st.id]) : 'done') : st.progress ? `${st.progress[0].toLocaleString('en-US')} / ${st.progress[1].toLocaleString('en-US')}` : ''}</span></li>`).join('')}</ul>
+      </details>`;
+    };
+    const stepsDone = chapters.reduce((n, c) => n + c.steps.filter((st) => st.done).length, 0);
+    const stepsAll = chapters.reduce((n, c) => n + c.steps.length, 0);
+    const discovered = isSail() && g.charted ? g.charted.filter((id) => world.ports[id] && !world.isSite(id)).length : 0;
     return `
+      <div class="journal-guide">
+        <p class="lbl">The guide${cur ? ` · chapter ${cur.n} of ${chapters.length}` : ''}</p>
+        <h3>${cur ? esc(cur.title) : 'Every chapter so far is done'}</h3>
+        <p class="hint">${cur ? `${cur.steps.filter((st) => st.done).length} of ${cur.steps.length} steps done.` : 'The next chapters arrive with coming builds.'} Tap the bar under your cash for the guide at any time.</p>
+        <button class="btn small primary" data-action="guide">Open the guide</button>
+      </div>
+      <h3 class="section-h">Achievements <span class="ach-count">${stepsDone} of ${stepsAll}</span></h3>
+      ${chapters.map(chapterBlock).join('')}
+      <ul class="ach-steps ach-worth">${RULES.milestones.map((m) => {
+        const got = g.milestones.find((x) => x.amount === m);
+        return `<li class="${got ? 'done' : ''}"><span class="gs-tick" aria-hidden="true">${got ? '✓' : ''}</span><span class="ach-title">Worth ${money(m)}</span><span class="ach-when">${got ? gameDate(got.day) : ''}</span></li>`;
+      }).join('')}</ul>
+      <h3 class="section-h">Your record</h3>
       <div class="stats">
         <div><strong>${g.fleet.length}</strong><span>ships</span></div>
         <div><strong>${s.voyages}</strong><span>voyages</span></div>
@@ -2065,7 +2093,11 @@ class App {
         <div><strong>${compactMoney(s.fuelSpent)}</strong><span>fuel bought</span></div>
         <div><strong>${compactMoney(s.upkeepPaid)}</strong><span>upkeep paid</span></div>
         <div><strong>${compactMoney(s.interestPaid)}</strong><span>interest paid</span></div>
+        <div><strong>${Math.round(s.delivered).toLocaleString('en-US')} t</strong><span>cargo delivered</span></div>
+        <div><strong>${s.shipsOwned ?? g.fleet.length}</strong><span>ships owned, all told</span></div>
+        ${isSail() ? `<div><strong>${discovered}</strong><span>ports charted</span></div>` : ''}
       </div>
+      <h3 class="section-h">Log</h3>
       <ul class="log">${g.log.map((e) => `
         <li><span class="l-day">${gameDate(e.day)}</span><span class="l-text">${esc(e.text)}</span>
         ${e.amount !== undefined ? `<span class="l-amt ${e.amount >= 0 ? 'good' : 'bad'}">${money(e.amount, true)}</span>` : ''}</li>`).join('')}

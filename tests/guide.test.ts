@@ -33,6 +33,8 @@ describe('the guide', () => {
     g.books = [{ m: 0, revenue: 0, fuel: 0, fees: 0, upkeep: 0, interest: 0, repairs: 1000, incidents: 0, trade: 500, shipsBought: 0, shipsSold: 0, netWorth: 0, cash: 0, loan: 0 }];
     const news = updateGuide(w, g);
     expect(news.chapters.map((c) => c.n)).toEqual([1]);
+    expect(g.guide!.when!.fiveVoyages).toBe(g.day);        // the day each step was done, for the journal
+    expect(g.guide!.when!.firstCargo).toBe(g.day);
     expect(news.chapters[0].epilogue).toContain('Duifje');
     expect(currentChapter(w, g)!.title).toBe('A small fleet');
     expect(guideChapters(w, g)[2].title).toBe('A charter to settle');
