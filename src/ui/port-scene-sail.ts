@@ -98,7 +98,9 @@ export function drawSailScene(c: CanvasRenderingContext2D, input: SceneInput, w:
     c.translate(-cx, -yW);
   }
   const top = yW - QUAY_M * m;
-  town(c, TOWN[input.portId] ?? 'dutch', input.portId, w, top, m, t);
+  const settle = input.settlement;
+  if (settle) settlementTown(c, settle, input.portId, w, top, yW, m, t);
+  else town(c, TOWN[input.portId] ?? 'dutch', input.portId, w, top, m, t);
 
   if (careen) {
     beach(c, w, h, yW, m, t);
@@ -108,7 +110,8 @@ export function drawSailScene(c: CanvasRenderingContext2D, input: SceneInput, w:
     drawShip(c, ship, d, shipX, keelY, m, t, { faded: false, cutaway: false });
     fires(c, d, shipX, keelY, m);
   } else {
-    quay(c, w, yW, top, m, t);
+    // A settlement without its jetty: the ship lies at anchor off the shore.
+    if (!settle || settle.buildings.jetty) quay(c, w, yW, top, m, t);
     const sides = [-1, 1];
     input.neighbours.slice(0, 2).forEach((n, i) => {
       const nd = dimsFor(n);
@@ -295,6 +298,109 @@ function windmill(c: CanvasRenderingContext2D, x: number, base: number, m: numbe
   for (const a of [0.5, 0.5 + Math.PI / 2, 0.5 + Math.PI, 0.5 + 1.5 * Math.PI]) {
     c.beginPath(); c.moveTo(hx, hy); c.lineTo(hx + Math.cos(a) * 10 * m, hy + Math.sin(a) * 10 * m); c.stroke();
   }
+}
+
+/**
+ * Your settlement, as far as it has grown: forest on the hills, cleared fields, the first tents,
+ * then houses, a storehouse, a well, a sawmill with its log pile and a palisade; the house's flag.
+ */
+function settlementTown(c: CanvasRenderingContext2D, s: NonNullable<SceneInput['settlement']>, portId: string, w: number, base: number, yW: number,
+  m: number, t: TimeOfDay): void {
+  let seed = 0;
+  for (const ch of portId) seed = seed * 31 + ch.charCodeAt(0);
+  const r = rnd(seed);
+  const night = t === 'night', dusk = t === 'dusk';
+  const dim = (col: string) => (night ? shade(col, -0.72) : dusk ? shade(col, -0.35) : col);
+  const n = (id: string) => s.buildings[id] ?? 0;
+  // Hills, and forest on them where there is forest.
+  c.fillStyle = dim('#7f9a7a');
+  c.beginPath(); c.moveTo(-w, base);
+  for (let x = -w; x <= w * 2; x += 16 * m) c.lineTo(x, base - (14 + r() * 18) * m);
+  c.lineTo(w * 2, base); c.fill();
+  if (s.forest) {
+    // Trees in clumps along the slopes, a darker and a lighter green.
+    for (let i = 0; i < 70; i++) {
+      const x = r() * w, y = base - (3 + r() * 11) * m, rr = (0.7 + r() * 0.8) * m;
+      c.fillStyle = dim(i % 3 ? '#5f7f55' : '#6e8f62');
+      c.beginPath(); c.arc(x, y, rr, 0, Math.PI * 2); c.arc(x + rr * 0.9, y + rr * 0.2, rr * 0.8, 0, Math.PI * 2); c.fill();
+    }
+  }
+  // Cleared fields on the slope: rows of crop.
+  for (let i = 0; i < Math.min(8, n('fields')); i++) {
+    const x = (6 + i * 13) * m, y = base - (9 + (i % 2) * 5) * m, fw = 11 * m, fh = 4 * m;
+    c.fillStyle = dim(i % 2 ? '#b9b25a' : '#93a84f'); c.fillRect(x, y, fw, fh);
+    c.strokeStyle = dim('#6f7a3a'); c.lineWidth = Math.max(0.5, 0.15 * m);
+    for (let k = 1; k < 5; k++) { c.beginPath(); c.moveTo(x, y + (k * fh) / 5); c.lineTo(x + fw, y + (k * fh) / 5); c.stroke(); }
+  }
+  // The shore: sand and grass down to the water.
+  c.fillStyle = dim('#cdb98c'); c.fillRect(-w, base, w * 3, yW - base + 0.5 * m);
+  c.fillStyle = dim('#8fa46a'); c.fillRect(-w, base - 0.6 * m, w * 3, 0.9 * m);
+  // The palisade along the back.
+  if (n('stockade')) {
+    c.fillStyle = dim('#6b4a2b');
+    for (let x = 2 * m; x < w - 2 * m; x += 1.1 * m) c.fillRect(x, base - 4.2 * m, 0.7 * m, 4.2 * m);
+    c.fillStyle = dim('#4e3520'); c.fillRect(0, base - 3.2 * m, w, 0.4 * m);
+  }
+  const roof = s.house === 'chinese' ? '#3b3a3a' : '#9a4a33';
+  const wall = s.house === 'chinese' ? '#cbbfa6' : '#b98d5a';
+  const lit = night || dusk;
+  // A house: walls, a roof (a curved tiled one for the Chinese house, a steep gable for the Dutch).
+  const house = (x: number, hw: number, hh: number) => {
+    c.fillStyle = dim(wall); c.fillRect(x, base - hh, hw, hh);
+    c.fillStyle = lit && r() < 0.6 ? '#f5c86a' : dim('#3a2a1c'); c.fillRect(x + hw * 0.4, base - hh * 0.6, hw * 0.2, hh * 0.3);
+    c.fillStyle = dim(roof);
+    c.beginPath();
+    if (s.house === 'chinese') {
+      c.moveTo(x - hw * 0.18, base - hh); c.quadraticCurveTo(x + hw / 2, base - hh - hw * 0.5, x + hw * 1.18, base - hh);
+      c.lineTo(x + hw * 1.05, base - hh + 0.4 * m); c.lineTo(x - hw * 0.05, base - hh + 0.4 * m);
+    } else {
+      c.moveTo(x - hw * 0.08, base - hh); c.lineTo(x + hw / 2, base - hh - hw * 0.65); c.lineTo(x + hw * 1.08, base - hh);
+    }
+    c.closePath(); c.fill();
+  };
+  // Tents for the first comers, until there are houses enough.
+  const tents = n('houses') >= 3 ? 0 : Math.max(s.people > 0 ? 1 : 0, Math.min(8, Math.ceil(s.people / 6) - n('houses') * 3));
+  for (let i = 0; i < tents; i++) {
+    const x = (8 + i * 6.5) * m, tw = 4.5 * m, th = 3.2 * m;
+    c.fillStyle = dim(i % 2 ? '#e9dfc4' : '#dcd0b0');
+    c.beginPath(); c.moveTo(x, base); c.lineTo(x + tw / 2, base - th); c.lineTo(x + tw, base); c.fill();
+    c.strokeStyle = dim('#8a7a5a'); c.lineWidth = Math.max(0.5, 0.12 * m); c.stroke();
+  }
+  // Houses along the shore.
+  for (let i = 0; i < Math.min(12, n('houses')); i++) house((6 + i * 8.5) * m, 6 * m, 4 * m);
+  // The storehouse: a long shed.
+  for (let i = 0; i < Math.min(2, n('storehouse')); i++) {
+    const x = w - (34 + i * 16) * m;
+    c.fillStyle = dim('#8a6a44'); c.fillRect(x, base - 6 * m, 14 * m, 6 * m);
+    c.fillStyle = dim('#5a4028');
+    c.beginPath(); c.moveTo(x - 0.8 * m, base - 6 * m); c.lineTo(x + 7 * m, base - 9 * m); c.lineTo(x + 14.8 * m, base - 6 * m); c.fill();
+    c.fillStyle = dim('#3a2a1c'); c.fillRect(x + 5.5 * m, base - 3.6 * m, 3 * m, 3.6 * m);
+  }
+  // The well.
+  if (n('well')) {
+    const x = w * 0.46;
+    c.fillStyle = dim('#9a9488'); c.fillRect(x, base - 1.4 * m, 2.6 * m, 1.4 * m);
+    c.strokeStyle = dim('#5a4028'); c.lineWidth = Math.max(1, 0.25 * m);
+    c.beginPath(); c.moveTo(x + 0.3 * m, base - 1.4 * m); c.lineTo(x + 0.3 * m, base - 3.6 * m); c.moveTo(x + 2.3 * m, base - 1.4 * m); c.lineTo(x + 2.3 * m, base - 3.6 * m);
+    c.moveTo(x - 0.2 * m, base - 3.6 * m); c.lineTo(x + 2.8 * m, base - 3.6 * m); c.stroke();
+  }
+  // The sawmill, with its pile of logs.
+  if (n('sawmill')) {
+    const x = w - 15 * m;
+    c.fillStyle = dim('#7a5a3a'); c.fillRect(x, base - 5 * m, 9 * m, 5 * m);
+    c.fillStyle = dim('#4e3520'); c.fillRect(x - 0.5 * m, base - 5.6 * m, 10 * m, 0.8 * m);
+    c.fillStyle = dim('#9a7444');
+    for (let k = 0; k < 6; k++) { c.beginPath(); c.arc(x - 3 * m + (k % 3) * 1.1 * m, base - 0.5 * m - Math.floor(k / 3) * 1 * m, 0.55 * m, 0, Math.PI * 2); c.fill(); }
+  }
+  // The house's flag on a pole.
+  const fx = w * 0.6, fh = 12 * m;
+  c.strokeStyle = dim('#3a2a1c'); c.lineWidth = Math.max(1, 0.25 * m);
+  c.beginPath(); c.moveTo(fx, base); c.lineTo(fx, base - fh); c.stroke();
+  if (s.house === 'chinese') {
+    c.fillStyle = night ? shade('#c8322a', -0.6) : '#c8322a';
+    c.beginPath(); c.moveTo(fx, base - fh); c.lineTo(fx + 4.2 * m, base - fh); c.lineTo(fx + 3.4 * m, base - fh + 1.3 * m); c.lineTo(fx + 4.2 * m, base - fh + 2.6 * m); c.lineTo(fx, base - fh + 2.6 * m); c.fill();
+  } else flag(c, fx, base - fh, 4.2 * m, t);
+  if (s.people >= 1) people(c, [w * 0.42 / m, w * 0.45 / m, w * 0.55 / m], base, m, t);
 }
 
 /** The Dutch prince's flag (orange, white, blue), `wid` wide, its hoist at (x, y). */

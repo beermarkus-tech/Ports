@@ -6,7 +6,7 @@ import {
   ActionError, LAID_UP, RULES, acceptContract, advance, atSea, borrow, buyFuel, buyShip, canCarry, cargoTons, clearOrders,
   assignCaptain, buyChart, callsOnTheWay, detour, onTheWay, setPlannedDest, type CallOnTheWay, buyGoods, sellGoods, captainOf, fireCaptain, hireCaptain, monthOf, monthProfit, onOrders, resumeOrders,
   dailyUpkeep, daysUntilNextShip, fuelPrice, getShip, inDryDock, isReady, isWaiting, needsDecision, newGame,
-  dockByHand, planVoyage, portFee, repair, repairQuote, repayLoan, sail, saleQuote, sellShip,
+  dockByHand, planVoyage, foundSettlement, hasCharter, recruitSettlers, startBuilding, unloadAtSettlement, portFee, repair, repairQuote, repayLoan, sail, saleQuote, sellShip,
   shipsNeedingDecision, takeReport, typeOf, unloadContract, jettisonClaim, jettisonContract, jettisonGoods, voyageProgress, waitInPort, type VoyagePlan,
 } from './sim/game';
 import {
@@ -19,6 +19,7 @@ import {
 import type { Captain, Contract, GameState, PremiumKind, ShipOffer, ShipState, ShipTypeDef, VoyageReport } from './sim/types';
 import { currentEra, currentHouse, getWorld, setEra } from './sim/world';
 import { currentChapter, guideChapters, updateGuide, type GuideChapter } from './sim/guide';
+import { BUILDINGS, SETTLEMENT_TUNING, SITES, STAGE_NAMES, buildDays, cannotBuild, count as bcount, eats, foodDays, grows, housing, nextStageNeeds, siteOf, storeRoom, stored, willing } from './sim/settlement';
 import { compactMoney, currency, days, esc, gameDate, money, setEraFormat, startYear, tons } from './ui/format';
 import { mapIconPath, shipFamily, shipSideView } from './ui/art';
 import { CLASS_LABEL, goodIcon } from './ui/goods-icons';
@@ -34,7 +35,7 @@ import { SARABANDE } from './ui/music';
 import { NANYANG } from './ui/music-nanyang';
 import { BUILD, consumeUpdatedFrom, initServiceWorker, isNewer, justUpdated, latestBuild, reloadApp } from './ui/update';
 
-type Tab = 'contracts' | 'voyage' | 'ship' | 'market' | 'fleet' | 'log';
+type Tab = 'contracts' | 'voyage' | 'ship' | 'market' | 'fleet' | 'settlement' | 'log';
 /** Why the clock is stopped: the player paused it, or a ship (or an arrival report) needs the player. */
 type PauseReason = 'user' | 'arrival' | 'decision';
 
@@ -539,6 +540,18 @@ class App {
       case 'sell-goods':
         this.act((g) => sellGoods(g, this.activeId, data.good!));
         break;
+      case 'found':
+        if (this.act((g) => foundSettlement(g, data.id!))) { this.toast(`The charter is signed: ${world.ports[data.id!].name} is yours to settle.`, 'good'); sound.play('coins'); }
+        break;
+      case 'recruit':
+        if (this.act((g) => recruitSettlers(g, ship.id, Number(data.n)))) this.toast(`${data.n} settlers aboard the ${ship.name}.`, 'good');
+        break;
+      case 'unload-settlement':
+        this.act((g) => unloadAtSettlement(g, ship.id));
+        break;
+      case 'build':
+        if (this.act((g) => startBuilding(g, data.id!))) this.toast('Work begins.', 'good');
+        break;
       case 'buy-chart':
         if (this.act((g) => buyChart(g, data.id!))) this.toast('The chart is yours: new waters open on the map.', 'good');
         break;
@@ -741,6 +754,10 @@ class App {
         neighbours: this.g.fleet.filter((s) => s.id !== ship.id && !atSea(s) && !inDryDock(this.g, s) && s.location === ship.location)
           .map((s) => this.sceneShip(s)),
         dockDays: docked ? ship.busyUntil! - this.g.day : undefined,
+        settlement: this.g.settlement?.site === port.id ? {
+          people: this.g.settlement.people, buildings: this.g.settlement.buildings,
+          house: world.era.house?.id === 'chinese' ? 'chinese' : 'dutch', forest: SITES[port.id].forest > 0,
+        } : undefined,
       });
       if (!this.portScene.visible || !this.miniShown) { this.miniShown = true; this.renderRoutes(); }
       this.portBtn.hidden = true;
@@ -831,6 +848,7 @@ class App {
     const worth = netWorth(g, world);
     // The guide: the chapter being played and how far along it is (tap for the steps).
     this.announceGuide();
+    this.announceSettlement();
     const ch = currentChapter(world, g);
     const done = ch ? ch.steps.filter((x) => x.done).length : 1, total = ch ? ch.steps.length : 1;
     $('#goal-bar').style.width = `${(done / total) * 100}%`;
@@ -838,6 +856,19 @@ class App {
       ? `Overdraft · limit ${compactMoney(RULES.overdraftLimit)} · 18%/yr`
       : ch ? `${ch.n}. ${ch.title} · ${done}/${total}` : `Worth ${compactMoney(worth)}`;
     $('.goal').title = `The guide: your next steps. Net worth ${compactMoney(worth)} (cash + fleet value − loan).`;
+  }
+
+  private seenNews = '';
+  /** News from the settlement since last time, as messages (two at most at once). */
+  private announceSettlement(): void {
+    const news = this.g.settlement?.news ?? [];
+    const key = news.length ? `${news[0].day}|${news[0].text}` : '';
+    if (!this.seenNews) { this.seenNews = key || '-'; return; }
+    if (key === this.seenNews || !key) return;
+    const fresh: typeof news = [];
+    for (const n of news) { if (`${n.day}|${n.text}` === this.seenNews) break; fresh.push(n); }
+    this.seenNews = key;
+    for (const n of fresh.slice(0, 2).reverse()) this.toast(n.text, n.kind === 'bad' ? 'bad' : 'good');
   }
 
   /** Steps and chapters of the guide finished since last time: a message, and the chapter's end in a dialog. */
@@ -992,7 +1023,7 @@ class App {
     const viaPorts = new Set(this.calls().map((c) => c.port));
     const events = activeEvents(g);
     const here = ship.voyage ? null : ship.location;
-    const markers: PortMarker[] = world.portList.map((p) => ({
+    const markers: PortMarker[] = [...world.portList, ...(g.settlement ? [world.ports[g.settlement.site]] : [])].map((p) => ({
       id: p.id,
       name: p.name,
       fuelPrice: fuelPrice(g, p.id),
@@ -1059,6 +1090,7 @@ class App {
       ['ship', 'Ship'],
       ['market', 'Market'],
       ['fleet', 'Company'],
+      ...(g.settlement || hasCharter(g) ? [['settlement', g.settlement ? world.ports[g.settlement.site].name : 'Charter', g.settlement?.hungry ? '!' : undefined] as [Tab, string, string?]] : []),
       ['log', 'Log'],
     ];
     $('#tabs').innerHTML = tabs.map(([id, label, badge]) =>
@@ -1070,7 +1102,7 @@ class App {
     const open = new Set([...body.querySelectorAll<HTMLDetailsElement>('details[open][data-key]')].map((d) => d.dataset.key));
     body.innerHTML = {
       contracts: () => this.contractsTab(), voyage: () => this.voyageTab(), ship: () => this.shipTab(),
-      market: () => this.marketTab(), fleet: () => this.fleetTab(), log: () => this.logTab(),
+      market: () => this.marketTab(), fleet: () => this.fleetTab(), settlement: () => this.settlementTab(), log: () => this.logTab(),
     }[this.tab]();
     body.querySelectorAll<HTMLDetailsElement>('details[data-key]').forEach((d) => { if (open.has(d.dataset.key)) d.open = true; });
     if (this.renderedTab !== this.tab || this.renderedShip !== ship.id) {
@@ -1082,6 +1114,86 @@ class App {
     }
     this.renderPorts();
     this.renderRoutes();
+  }
+
+  /** The settlement: choose a site under the charter; then its people, stores, buildings and news. */
+  private settlementTab(): string {
+    const g = this.g;
+    const ship = this.ship();
+    const s = g.settlement;
+    if (!s) {
+      const cards = world.siteList.map((p) => {
+        const site = SITES[p.id];
+        const can = g.cash >= site.charter;
+        return `<div class="site-card">
+          <div class="port-head"><div><h3 class="site-name">${esc(p.name)}</h3><span class="sub">${esc(p.country)} · ${Math.round(routeFor(world, g, world.era.start.port, p.id)?.nm ?? 0).toLocaleString('en-US')} nm from ${esc(world.ports[world.era.start.port].name)}</span></div></div>
+          <p>${esc(site.blurb)}</p>
+          <div class="chips">${site.plus.map((x) => `<span class="chip plus">${esc(x)}</span>`).join('')}${site.minus.map((x) => `<span class="chip minus">${esc(x)}</span>`).join('')}</div>
+          <p class="sub">Charter ${money(site.charter)} · rent ${money(Math.round(site.charter * SETTLEMENT_TUNING.rent))} a year · up to ${site.fields} field${site.fields === 1 ? '' : 's'}${site.forest ? ' · forest for a sawmill' : ''}</p>
+          <button class="btn primary wide" data-action="found" data-id="${p.id}" ${can ? '' : 'disabled'}>Found the settlement at ${esc(p.name)}</button>
+        </div>`;
+      }).join('');
+      return `<h2>A settlement of your own</h2>
+        <p class="hint">The charter lets your house found one settlement, at one of these three sites, leased from the local ruler. Settlers come by your ships from ${esc(world.ports[world.era.start.port].name)}; they need food every day, and timber and iron and tools to build. With care it grows from a camp to an outpost and a village.</p>
+        <div class="site-cards">${cards}</div>`;
+    }
+    const site = siteOf(s);
+    const name = world.ports[s.site].name;
+    const days = foodDays(s, g.day);
+    const daysText = s.people < 1 ? 'nobody there yet' : days === Infinity ? 'fed by its fields' : `${Math.floor(days)} days`;
+    const need = nextStageNeeds(s, g.day);
+    const tons = (n: number) => `${(Math.round(n * 10) / 10).toLocaleString('en-US')} t`;
+    const store = ['rice', 'grain', 'timber', 'tools'].filter((k) => (s.stores[k] ?? 0) > 0.05 || k === 'timber' || k === 'tools' || k === site.crop)
+      .map((k) => `<div class="kv"><span>${esc(world.goods[k].name)}</span><strong>${tons(s.stores[k] ?? 0)}</strong></div>`).join('');
+    const making = [grows(s, g.day) ? `${tons(grows(s, g.day))} of ${site.crop} a day from the fields` : '', bcount(s, 'sawmill') ? `${tons(site.forest)} of timber a day from the sawmill` : ''].filter(Boolean);
+    const project = s.project ? (() => {
+      const b = BUILDINGS.find((x) => x.id === s.project!.id)!;
+      const left = Math.max(0, (b.work - s.project!.done) / Math.max(1, s.people * SETTLEMENT_TUNING.workShare));
+      return `<div class="building-now"><span class="lbl">Building now</span><strong>${esc(b.name)}</strong>
+        <div class="gs-bar"><i style="width:${Math.min(100, (s.project!.done / b.work) * 100).toFixed(0)}%"></i></div><span class="sub">about ${Math.ceil(left)} days left</span></div>`;
+    })() : '';
+    const builds = BUILDINGS.filter((b) => b.max(site) > 0).map((b) => {
+      const why = cannotBuild(g, s, b.id);
+      const have = bcount(s, b.id);
+      const locked = STAGE_NAMES[b.stage] !== STAGE_NAMES[s.stage] && ['camp', 'outpost', 'village'].indexOf(b.stage) > ['camp', 'outpost', 'village'].indexOf(s.stage);
+      return `<li class="${locked ? 'locked' : ''}"><div class="b-main"><strong>${esc(b.name)}${have ? ` <span class="sub">· ${have}${b.max(site) > 1 ? ` of ${b.max(site)}` : ''}</span>` : ''}</strong>
+          <span class="hint">${esc(b.blurb)}</span>
+          <span class="b-cost">${money(b.cost)} · ${b.timber} t timber · ${b.tools} t tools · ${s.people >= 1 ? `about ${Math.ceil(buildDays(s, b.id))} days` : `${b.work} days of work`}</span>
+          ${why && !s.project ? `<span class="b-why">${esc(why)}</span>` : ''}</div>
+        <button class="btn small ${why ? 'ghost' : 'primary'}" data-action="build" data-id="${b.id}" ${why ? 'disabled' : ''}>Build</button></li>`;
+    }).join('');
+    // Settlers sign on at home; supplies come in the hold.
+    const home = world.era.start.port;
+    let settlers = '';
+    if (isReady(g, ship) && ship.location === home) {
+      const room = Math.floor((typeOf(ship).capacity - cargoTons(ship)) / SETTLEMENT_TUNING.settlerTons);
+      const can = Math.min(room, willing(s));
+      const opts = [10, 20, 30].filter((n) => n <= can);
+      if (can > 0 && !opts.includes(can)) opts.push(can);
+      settlers = `<div class="settler-box"><p><strong>Settlers for ${esc(name)}</strong> sign on here at ${money(SETTLEMENT_TUNING.settlerCost)} each, and take ${SETTLEMENT_TUNING.settlerTons} t of hold room apiece. ${willing(s)} are willing to go just now (more come forward every week); the ${esc(ship.name)} has room for ${room}.</p>
+        <div class="btn-row">${opts.map((n) => `<button class="btn small primary" data-action="recruit" data-n="${n}">${n} settlers · ${money(n * SETTLEMENT_TUNING.settlerCost)}</button>`).join('') || `<span class="hint">${room ? 'Nobody else is willing just now.' : 'No room in her hold.'}</span>`}</div></div>`;
+    } else settlers = `<p class="hint">Settlers sign on at ${esc(world.ports[home].name)}: open this tab with a ship in port there. ${willing(s)} are willing to go just now.${ship.settlers ? ` The ${esc(ship.name)} carries ${ship.settlers}.` : ''}</p>`;
+    const supplies = SETTLEMENT_TUNING.supplies;
+    const aboard = (ship.goods ?? []).filter((l) => supplies.includes(l.good));
+    const unload = isReady(g, ship) && ship.location === s.site && (aboard.length || ship.settlers)
+      ? `<button class="btn primary wide" data-action="unload-settlement">Unload into the stores (${aboard.map((l) => `${Math.round(l.tons)} t ${world.goods[l.good].name.toLowerCase()}`).join(', ')})</button>` : '';
+    const news = s.news.slice(0, 8).map((n) => `<li class="${n.kind}"><span class="sub">${gameDate(n.day)}</span> ${esc(n.text)}</li>`).join('');
+    return `<div class="port-head"><div><h2>${esc(name)}</h2><span class="sub">${STAGE_NAMES[s.stage]} · founded ${gameDate(s.founded)} · ${esc(world.ports[s.site].country)}</span></div></div>
+      ${s.hungry ? `<p class="o-warn">${esc(name)} has no food: people are leaving. Bring rice or grain.</p>` : s.people >= 1 && days < 15 ? `<p class="o-warn">Food for only ${Math.floor(days)} days. Bring rice or grain.</p>` : ''}
+      <div class="kvs settle-kv">
+        <div class="kv"><span>People</span><strong>${Math.floor(s.people)}</strong><em>${s.people > housing(s) ? `crowded: room for ${housing(s)}` : `room for ${housing(s)}`}</em></div>
+        <div class="kv"><span>Food</span><strong>${daysText}</strong><em>they eat ${tons(eats(s))} a day</em></div>
+        <div class="kv"><span>In store</span><strong>${tons(stored(s))}</strong><em>of ${storeRoom(s)} t</em></div>
+      </div>
+      ${need ? `<h3>To become ${need.stage === 'outpost' ? 'an outpost' : 'a village'}</h3><ul class="needs">${need.needs.map((n) => `<li class="${n.done ? 'done' : ''}">${n.done ? '✓' : '○'} ${esc(n.text)}</li>`).join('')}</ul>` : ''}
+      <h3>Stores</h3><div class="kvs">${store}</div>
+      ${making.length ? `<p class="sub">${making.map(esc).join(' · ')}</p>` : ''}
+      ${unload}
+      ${project}
+      <h3>Build</h3><ul class="build-list">${builds}</ul>
+      <h3>Settlers</h3>${settlers}
+      <p class="hint">Supplies: buy rice${site.crop === 'grain' ? ' or grain' : ''}, timber, and iron and tools on your own account (Market tab) and sail them here; on arrival settlers go ashore and supplies go into the stores. Rent to the local ruler: ${money(Math.round(site.charter * SETTLEMENT_TUNING.rent))} a year.</p>
+      ${news ? `<h3>News</h3><ul class="settle-news">${news}</ul>` : ''}`;
   }
 
   /** Shown in the Cargo and Voyage tabs while the selected ship can't take orders. */
@@ -1359,6 +1471,7 @@ class App {
           ${row(FUEL(), (b) => b.fuel, -1)}
           ${row('Port fees & canals', (b) => b.fees, -1)}
           ${row('Upkeep', (b) => b.upkeep, -1)}
+          ${g.settlement || (g.books ?? []).some((b) => b.settlement) ? row('Settlement', (b) => b.settlement ?? 0, -1) : ''}
           ${row('Interest', (b) => b.interest, -1)}
           ${row('Repairs', (b) => b.repairs, -1)}
           ${row('Breakdowns & emergencies', (b) => b.incidents, -1)}
@@ -1723,7 +1836,8 @@ class App {
     if (this.areaDraft?.shipId === ship.id) return this.areaEditor();
     if (!isReady(g, ship) || onOrders(ship)) return this.newsCard() + this.captainCard() + this.busyCard();
     const here = ship.location;
-    const rows = world.portList.filter((p) => p.id !== here).map((p) => ({ p, plan: planVoyage(g, ship.id, p.id)! }))
+    const settlementPort = g.settlement ? [world.ports[g.settlement.site]] : [];
+    const rows = [...world.portList, ...settlementPort].filter((p) => p.id !== here).map((p) => ({ p, plan: planVoyage(g, ship.id, p.id)! }))
       .sort((a, b) => a.plan.route.nm - b.plan.route.nm);
     const type = typeOf(ship);
     const list = rows.map(({ p, plan }) => {

@@ -26,6 +26,8 @@ export interface PortDef {
   portFee: number;
   /** Ports with a shipyard sell new ships. */
   shipyard?: boolean;
+  /** A settlement site of this house (Age of Sail): hidden and inert until the house founds it there. */
+  site?: 'dutch' | 'chinese';
   /** Where the map label goes relative to the port (default right). */
   label?: "left" | "right" | "above" | "below";
   produces: { good: string; weight: number }[];
@@ -100,6 +102,8 @@ export interface ShipState {
   cargo: Contract[];
   /** Where the player is ultimately heading, kept while the ship calls at ports on the way ("Go via"). */
   plannedDest?: string;
+  /** Settlers aboard, bound for the settlement (each takes a ton of hold room). */
+  settlers?: number;
   /** Goods bought on your own account (Age of Sail): what's aboard and what it cost in all. */
   goods?: OwnLot[];
   /** Set while the ship is at sea. */
@@ -319,6 +323,8 @@ export interface GameState {
   /** Captains on the payroll, and the ones looking for work. Missing in older saves. */
   captains?: Captain[];
   captainPool?: Captain[];
+  /** The house's settlement (Age of Sail), once founded. */
+  settlement?: Settlement;
   /** The guide: steps done (they stay done). Missing until the game first meets the guide. */
   guide?: { done: string[] };
   /** Net-worth milestones reached, with the day each was reached. */
@@ -326,6 +332,30 @@ export interface GameState {
   oil: OilMarket;
   /** World events: active and recently ended (kept for the news list). */
   events: WorldEvent[];
+}
+
+/** A settlement of your own (see settlement.ts). */
+export interface Settlement {
+  /** The site's port id. */
+  site: string;
+  founded: number;
+  stage: 'camp' | 'outpost' | 'village';
+  /** People living there (fractional while it grows slowly). */
+  people: number;
+  /** Tons in store, by good (rice, grain, timber, tools). */
+  stores: Record<string, number>;
+  /** How many of each building. */
+  buildings: Record<string, number>;
+  /** The building under way: person-days of work done. */
+  project?: { id: string; done: number };
+  /** The days the fields were cleared (each harvests after a while). */
+  fields?: number[];
+  /** Days in a row without food. */
+  hungry?: number;
+  /** People at home willing to go out as settlers now (it refills slowly). */
+  willing?: number;
+  /** What happened there lately (newest first). */
+  news: { day: number; text: string; kind: 'good' | 'bad' | 'info' }[];
 }
 
 /** One calendar month of the company's money. Costs are positive numbers. */
@@ -343,6 +373,8 @@ export interface MonthBook {
   incidents: number;
   /** Captains' wages (missing in books from before captains). */
   wages?: number;
+  /** The settlement: charter, rent, settlers and buildings (missing in older books). */
+  settlement?: number;
   /** Profit (or loss) on goods traded on your own account: what they sold for less what they cost. */
   trade?: number;
   shipsBought: number;

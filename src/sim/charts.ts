@@ -46,7 +46,8 @@ export function hasFog(world: World): boolean {
 
 /** Nodes inside any of the boxes. */
 function nodesIn(world: World, boxes: Box[]): string[] {
-  return Object.values(world.points).filter((p) => boxes.some((b) => inBox(p.lon, p.lat, b))).map((p) => p.id);
+  // (Settlement sites stay off the charts until the house founds one there.)
+  return Object.values(world.points).filter((p) => !world.isSite(p.id) && boxes.some((b) => inBox(p.lon, p.lat, b))).map((p) => p.id);
 }
 
 /** Give a game in a foggy world its starting charts (no-op if it has them, or the world has no fog). */
@@ -79,7 +80,7 @@ export function chartNewWaypoints(world: World, g: GameState): void {
   const known = new Set(nodesIn(world, world.era.charts.known));
   const add: string[] = [];
   for (const id of Object.keys(world.points)) {
-    if (charted.has(id) || world.ports[id]) continue;
+    if (charted.has(id) || world.ports[id] || world.isSite(id)) continue;
     const near = world.edges.filter((e) => e.a === id || e.b === id).map((e) => (e.a === id ? e.b : e.a));
     if (known.has(id) || (near.length && near.every((n) => charted.has(n)))) add.push(id);
   }
@@ -128,7 +129,7 @@ export function chartPath(world: World, g: GameState, path: string[]): string[] 
   for (const id of path) {
     if (g.charted.includes(id)) continue;
     g.charted = [...g.charted, id];
-    if (world.ports[id]) found.push(id);
+    if (world.ports[id] && !world.ports[id].site) found.push(id);
   }
   for (const id of found) discoveryBoom(world, g, id);
   return found;

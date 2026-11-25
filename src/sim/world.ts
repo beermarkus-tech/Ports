@@ -39,6 +39,10 @@ export class World {
   readonly goods: Record<string, GoodDef> = {};
   readonly ports: Record<string, PortDef> = {};
   readonly portList: PortDef[];
+  /** Settlement sites of this world's house (in `ports` by id, but not in `portList`). */
+  readonly siteList: PortDef[];
+  /** Every house's settlement sites: routes may end at one, but never pass through. */
+  private siteIds = new Set<string>();
   readonly shipTypes: Record<string, ShipTypeDef> = {};
   readonly points: Record<string, GeoPoint> = {};
   readonly edges: Edge[] = [];
@@ -64,11 +68,16 @@ export class World {
     this.regions = regions;
     this.canals = lanes.canals;
     for (const g of goods) this.goods[g.id] = g;
+    // A house's settlement sites are known by id (routes, names, ships lying there) but stay out of
+    // the port list, so boards, markets and prices pass them by. Other houses' sites are just points.
+    const house = era.house?.id ?? 'dutch';
     for (const p of ports) {
-      this.ports[p.id] = p;
+      if (!p.site || p.site === house) this.ports[p.id] = p;
       this.points[p.id] = { id: p.id, lat: p.lat, lon: p.lon };
     }
-    this.portList = ports;
+    this.portList = ports.filter((p) => !p.site);
+    this.siteList = ports.filter((p) => p.site === house);
+    for (const p of ports) if (p.site) this.siteIds.add(p.id);
     for (const s of ships) this.shipTypes[s.id] = s;
     for (const n of lanes.nodes) this.points[n.id] = n;
 
@@ -82,6 +91,11 @@ export class World {
       (this.adjacency[e.a] ??= []).push(edge);
       (this.adjacency[e.b] ??= []).push(edge);
     }
+  }
+
+  /** Is this point a settlement site (of any house)? */
+  isSite(id: string): boolean {
+    return this.siteIds.has(id);
   }
 
   /** Straight-line length of a leg between two nodes, nautical miles. */
@@ -113,6 +127,7 @@ export class World {
       }
       if (current === null) break;
       done.add(current);
+      if (current !== from && this.siteIds.has(current)) continue;
       for (const edge of this.adjacency[current] ?? []) {
         if (edge.canal && closedCanals.includes(edge.canal)) continue;
         const next = edge.a === current ? edge.b : edge.a;

@@ -30,6 +30,7 @@ import type {
   ActiveVoyage, Captain, Contract, Delivery, GameState, MonthBook, ShipState, ShipTypeDef, StandingOrders, VoyageEvent, VoyageReport,
 } from './types';
 import { getWorld, type Route, type World } from './world';
+import { BUILDING, SETTLEMENT_TUNING, SITES, cannotBuild, settlementDay, store } from './settlement';
 
 /** The money sign of the era being played. */
 const cur = (): string => getWorld().era.currency;
@@ -85,7 +86,7 @@ export function monthOf(day: number): number {
   return (d.getUTCFullYear() - 2000) * 12 + d.getUTCMonth();
 }
 
-type BookField = 'revenue' | 'fuel' | 'fees' | 'upkeep' | 'interest' | 'repairs' | 'incidents' | 'wages' | 'trade' | 'shipsBought' | 'shipsSold';
+type BookField = 'revenue' | 'fuel' | 'fees' | 'upkeep' | 'interest' | 'repairs' | 'incidents' | 'wages' | 'trade' | 'shipsBought' | 'shipsSold' | 'settlement';
 
 /** This month's page in the books (kept for 20 years). */
 function bookFor(g: GameState, world: World, day = g.day): MonthBook {
@@ -208,7 +209,7 @@ export function harbourServices(g: GameState, ship: Pick<ShipState, 'typeId'>, p
 
 /** Tons aboard: charters and goods on your own account. */
 export function cargoTons(ship: ShipState): number {
-  return ship.cargo.reduce((s, c) => s + c.tons, 0) + goodsTons(ship);
+  return ship.cargo.reduce((s, c) => s + c.tons, 0) + goodsTons(ship) + (ship.settlers ?? 0) * SETTLEMENT_TUNING.settlerTons;
 }
 
 export function dailyUpkeep(g: GameState, world: World = getWorld()): number {
@@ -318,6 +319,11 @@ function runClock(world: World, g: GameState, days: number): void {
     }
     economyDay(world, g, d);
     tradeDay(world, g, d);
+    if (g.settlement) {
+      const rent = settlementDay(world, g, d, (text, kind) => settlementNews(g, text, kind, d));
+      g.cash -= rent;
+      book(g, world, 'settlement', rent, d);
+    }
     for (const ship of g.fleet) {
       if (ship.busyUntil !== undefined && ship.busyUntil <= d) delete ship.busyUntil;
     }
@@ -1313,6 +1319,8 @@ function arrive(world: World, g: GameState, ship: ShipState): void {
     const drop = recordDelivery(world, g, dest, good, tons);
     if (drop >= 0.03) marketNotes.push(`${portName} now pays ${Math.round(drop * 100)}% less for ${world.goods[good].name.toLowerCase()}.`);
   }
+  // At your own settlement: settlers go ashore and its supplies are unloaded into the stores.
+  if (g.settlement?.site === dest) marketNotes.push(...landAtSettlement(world, g, ship));
   const news = g.events.filter((e) => e.startDay > v.departDay && e.startDay <= g.day).map((e) => e.headline);
   // Every league sailed is charted; a port found for the first time pays well for a while.
   const chartedBefore = g.charted?.length ?? 0;
@@ -1355,7 +1363,7 @@ function arrive(world: World, g: GameState, ship: ShipState): void {
   delete ship.voyage;
 
   // Fresh offers on the quay, unless another of our ships is already working this port.
-  if (!g.fleet.some((s) => s !== ship && s.location === dest && !atSea(s))) regenerateBoard(world, g, dest);
+  if (!world.ports[dest].site && !g.fleet.some((s) => s !== ship && s.location === dest && !atSea(s))) regenerateBoard(world, g, dest);
 
   for (const e of v.events) log(g, `${ship.name}: ${e.text}`, e.cost ? -e.cost : undefined);
   for (const d of deliveries) {
@@ -1543,3 +1551,114 @@ export function sellShip(state: GameState, shipId: number, world: World = getWor
   checkEnd(g, world);
   return g;
 }
+
+// ---------------------------------------------------------------- the settlement
+
+/** Something happened at the settlement: its news, and the log. */
+function settlementNews(g: GameState, text: string, kind: 'good' | 'bad' | 'info', day = g.day): void {
+  const s = g.settlement;
+  if (!s) return;
+  s.news.unshift({ day, text, kind });
+  if (s.news.length > 30) s.news.length = 30;
+  log(g, text);
+}
+
+/** The charter to settle: the guide's chapter 3 done, in the Age of Sail. */
+export function hasCharter(g: GameState, world: World = getWorld()): boolean {
+  return !!world.era.wind && ['captain', 'threeShips', 'worth5M'].every((id) => g.guide?.done.includes(id));
+}
+
+/** Found the settlement at one of the house's sites: pay the charter; settlers and supplies come by ship. */
+export function foundSettlement(state: GameState, siteId: string, world: World = getWorld()): GameState {
+  if (!hasCharter(state, world)) throw new ActionError('The charter to settle comes with chapter 3 of the guide.');
+  if (state.settlement) throw new ActionError('Your house has its settlement already.');
+  const site = SITES[siteId];
+  if (!site || !world.siteList.some((p) => p.id === siteId)) throw new ActionError('Not a site for your house.');
+  if (state.cash < site.charter) throw new ActionError('Not enough money for the charter.');
+  const g = clone(state);
+  g.cash -= site.charter;
+  book(g, world, 'settlement', site.charter);
+  g.settlement = { site: siteId, founded: g.day, stage: 'camp', people: 0, stores: {}, buildings: {}, news: [] };
+  g.ports[siteId] ??= { fuelDev: 0, board: [], market: [], prices: {} };
+  if (g.charted && !g.charted.includes(siteId)) g.charted = [...g.charted, siteId];
+  settlementNews(g, `The charter is signed: ${world.ports[siteId].name} is yours to settle. Bring settlers, food, timber and tools.`, 'good');
+  return g;
+}
+
+/** Take settlers aboard at your home port (they pay their way to the settlement in hold room). */
+export function recruitSettlers(state: GameState, shipId: number, n: number, world: World = getWorld()): GameState {
+  const ship = readyShip(state, shipId);
+  if (!state.settlement) throw new ActionError('Found the settlement first.');
+  if (ship.location !== world.era.start.port) throw new ActionError(`Settlers sign on at ${world.ports[world.era.start.port].name}.`);
+  n = Math.floor(n);
+  if (n < 1) throw new ActionError('How many settlers?');
+  const room = Math.floor((typeOf(ship, world).capacity - cargoTons(ship)) / SETTLEMENT_TUNING.settlerTons);
+  if (n > room) throw new ActionError(`Room for ${room} settlers in the hold.`);
+  const willingNow = Math.floor(state.settlement.willing ?? SETTLEMENT_TUNING.willingStart);
+  if (n > willingNow) throw new ActionError(willingNow ? `Only ${willingNow} are willing to go just now.` : 'Nobody is willing to go just now: more will come forward in a few weeks.');
+  const cost = n * SETTLEMENT_TUNING.settlerCost;
+  if (state.cash < cost) throw new ActionError('Not enough money.');
+  const g = clone(state);
+  const s = getShip(g, shipId);
+  s.settlers = (s.settlers ?? 0) + n;
+  g.settlement!.willing = willingNow - n;
+  g.cash -= cost;
+  book(g, world, 'settlement', cost);
+  log(g, `${s.name} takes on ${n} settlers for ${world.ports[g.settlement!.site].name}.`, -cost);
+  return g;
+}
+
+/** A ship at the settlement: settlers ashore, supplies into the stores (as far as there's room). Returns notes. */
+function landAtSettlement(world: World, g: GameState, ship: ShipState): string[] {
+  const s = g.settlement!;
+  const name = world.ports[s.site].name;
+  const notes: string[] = [];
+  if (ship.settlers) {
+    const first = s.people < 1;
+    s.people += ship.settlers;
+    notes.push(`${ship.settlers} settlers went ashore at ${name}.`);
+    settlementNews(g, first ? `The first ${ship.settlers} settlers landed at ${name} and pitched their tents.` : `${ship.settlers} settlers landed at ${name}.`, 'good');
+    delete ship.settlers;
+  }
+  for (const lot of [...(ship.goods ?? [])]) {
+    if (!SETTLEMENT_TUNING.supplies.includes(lot.good)) continue;
+    const fit = store(s, lot.good, lot.tons);
+    if (fit <= 0) { notes.push(`No room in the stores at ${name} for the ${world.goods[lot.good].name.toLowerCase()}: build a storehouse.`); continue; }
+    const share = fit / lot.tons;
+    book(g, world, 'settlement', lot.cost * share);
+    lot.cost = Math.round(lot.cost * (1 - share));
+    lot.tons = +(lot.tons - fit).toFixed(3);
+    notes.push(`${Math.round(fit)} t of ${world.goods[lot.good].name.toLowerCase()} into the stores at ${name}.`);
+  }
+  ship.goods = (ship.goods ?? []).filter((l) => l.tons > 0.001);
+  if (!ship.goods.length) delete ship.goods;
+  return notes;
+}
+
+/** Unload supplies at the settlement now (a ship lying there, e.g. after a storehouse is built). */
+export function unloadAtSettlement(state: GameState, shipId: number, world: World = getWorld()): GameState {
+  const ship = readyShip(state, shipId);
+  if (state.settlement?.site !== ship.location) throw new ActionError('The ship is not at your settlement.');
+  const g = clone(state);
+  for (const n of landAtSettlement(world, g, getShip(g, shipId))) log(g, n);
+  return g;
+}
+
+/** Start a building at the settlement: timber and tools from the stores, and the money. */
+export function startBuilding(state: GameState, id: string, world: World = getWorld()): GameState {
+  const s0 = state.settlement;
+  if (!s0) throw new ActionError('Found the settlement first.');
+  const why = cannotBuild(state, s0, id);
+  if (why) throw new ActionError(why);
+  const b = BUILDING[id];
+  const g = clone(state);
+  const s = g.settlement!;
+  s.stores.timber = +((s.stores.timber ?? 0) - b.timber).toFixed(3);
+  s.stores.tools = +((s.stores.tools ?? 0) - b.tools).toFixed(3);
+  s.project = { id, done: 0 };
+  g.cash -= b.cost;
+  book(g, world, 'settlement', b.cost);
+  log(g, `${world.ports[s.site].name}: work begins on the ${b.name.toLowerCase()}.`, -b.cost);
+  return g;
+}
+

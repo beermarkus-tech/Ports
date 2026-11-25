@@ -450,6 +450,8 @@ interface PortView {
   note: Text;
   /** Container for name and note, faded as one. */
   tag: Container;
+  /** A settlement site not founded (yet): not drawn, not tappable. */
+  hidden: boolean;
   marker: PortMarker | null;
   rumour: boolean;
   night: boolean;
@@ -653,9 +655,9 @@ export class GlMapView {
     // Ports a few miles apart (Canton and Macau, Bantam and Batavia) would sit on one dot:
     // nudge such dots apart on the chart, a few map units at most.
     const at: Record<string, [number, number]> = {};
-    for (const p of world.portList) at[p.id] = this.projection([p.lon, p.lat])! as [number, number];
+    for (const p of [...world.portList, ...world.siteList]) at[p.id] = this.projection([p.lon, p.lat])! as [number, number];
     const truePos: Record<string, [number, number]> = {};
-    for (const p of world.portList) truePos[p.id] = [...at[p.id]] as [number, number];
+    for (const p of [...world.portList, ...world.siteList]) truePos[p.id] = [...at[p.id]] as [number, number];
     for (let pass = 0; pass < 6; pass++) {
       for (let i = 0; i < world.portList.length; i++) for (let j = i + 1; j < world.portList.length; j++) {
         const a = at[world.portList[i].id], b = at[world.portList[j].id];
@@ -677,7 +679,7 @@ export class GlMapView {
       for (const q of world.portList) if (q !== p) d0 = Math.min(d0, Math.hypot(truePos[q.id][0] - tx, truePos[q.id][1] - ty));
       this.nudges.push({ x: tx, y: ty, nx, ny, d0: Math.min(d0, MIN_GAP * 0.9) });
     }
-    for (const p of world.portList) {
+    for (const p of [...world.portList, ...world.siteList]) {
       // Keyboard and screen readers: an invisible button over every port (the map itself is one canvas).
       const button = document.createElement('button');
       button.type = 'button';
@@ -692,7 +694,7 @@ export class GlMapView {
         id: p.id, name: p.name, x: truePos[p.id][0], y: truePos[p.id][1], lon: p.lon, lat: p.lat, dataSpot: (p.label ?? 'right') as LabelKey,
         g: new Graphics(), label: new Text({ text: p.name }), note: new Text({ text: '' }), tag,
         marker: null, rumour: false, night: false, styleKey: '', spot: (p.label ?? 'right') as LabelKey,
-        wantSpot: (p.label ?? 'right') as LabelKey, showNote: true, wantNote: true, leader: false, wantLeader: false, leaderG: new Graphics(), leaderKey: '', visible: false, alpha: 0, button,
+        wantSpot: (p.label ?? 'right') as LabelKey, showNote: true, wantNote: true, hidden: !!p.site, leader: false, wantLeader: false, leaderG: new Graphics(), leaderKey: '', visible: false, alpha: 0, button,
       };
       tag.addChild(view.leaderG, view.label, view.note);
       tag.alpha = 0;
@@ -1305,9 +1307,9 @@ export class GlMapView {
 
   /** Screen position of a port's dot (pushed apart from close neighbours on the flat map). */
   private portScreen(p: PortView): [number, number, boolean] {
-    if (this.globeMode) return this.lonlatScreen([p.lon, p.lat]);
+    if (this.globeMode) { const q = this.lonlatScreen([p.lon, p.lat]); return [q[0], q[1], q[2] && !p.hidden]; }
     const [x, y] = this.screenOf(...this.portXY(p));
-    return [x, y, true];
+    return [x, y, !p.hidden];
   }
 
   /** The sun as a unit vector for the globe's night (w: 1 when there's a sun to show). */
@@ -1859,6 +1861,9 @@ export class GlMapView {
   updatePorts(markers: PortMarker[]): void {
     this.markers = markers;
     if (!this.ready) return;
+    // A settlement site shows once the view hands it in (founded); others stay hidden.
+    const given = new Set(markers.map((m) => m.id));
+    for (const p of this.ports) if (this.world.ports[p.id]?.site) p.hidden = !given.has(p.id);
     for (const m of markers) {
       const p = this.portById[m.id];
       if (!p) continue;

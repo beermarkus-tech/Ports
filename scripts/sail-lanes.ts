@@ -152,7 +152,9 @@ const PORT_LINKS: Record<string, string[]> = {
   // Coasts the coarse coastline smooths over: a way in from each direction along the coast.
   zanzibar: ['wp_mombasa', 'delgado'], madras: ['madras_off'], goa: ['goa_off'], calicut: ['calicut_off'],
   bahia: ['abrolhos', 'sergipe'], recife: ['alagoas', 'saoroque'], acapulco: ['pac_e', 'manzanillo'],
-  malacca: ['malacca_s', 'muar_off'], patani: ['gulfthai'], macassar: ['makassar', 'flores'], mozambique: ['channel_n', 'delgado'],
+  malacca: ['malacca_s', 'muar_off'],
+  // Settlement sites.
+  tamsui: ['taiwan', 'zhejiang'], songkhla: ['gulfthai', 'wp_bangkok'], patani: ['gulfthai'], macassar: ['makassar', 'flores'], mozambique: ['channel_n', 'delgado'],
 };
 
 // Links that look like sea legs but cross an isthmus (no canal in 1650).

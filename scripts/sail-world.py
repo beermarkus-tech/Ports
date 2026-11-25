@@ -36,6 +36,7 @@ GOODS = [
     ('salt', 'Salt', 'bulk', 21, 30, 250, 800),
     ('cod', 'Stockfish', 'general', 38, 20, 150, 400),
     ('rice', 'Rice', 'bulk', 31, 30, 250, 800),
+    ('tools', 'Iron and tools', 'general', 88, 5, 60, 150),
 ]
 
 # id, name, country, lat, lon, victuals price, port fee, produces [(good, weight)], demands [(good, strength)], extra
@@ -114,7 +115,7 @@ PORTS = [
      [('cloves', 2), ('rice', 2)],
      [('textiles', 1.3), ('silver', 1.2), ('porcelain', 1.2), ('silk', 1.1)], {'label': 'left'}),
     ('ayutthaya', 'Ayutthaya', 'Siam', 14.35, 100.57, 180, 1800,
-     [('rice', 2), ('tin', 1), ('furs', 1)],
+     [('rice', 2), ('tin', 1), ('furs', 1), ('timber', 1)],
      [('textiles', 1.2), ('silver', 1.2), ('copper', 1.1)], {'label': 'left'}),
     ('hoian', 'Hoi An', 'Đại Việt', 15.88, 108.33, 190, 1800,
      [('silk', 2), ('sugar', 1)],
@@ -213,6 +214,7 @@ REGIONS = [
 # More buyers, added later: every good must sell somewhere (tin, ivory and gold had no buyer at all),
 # and the Chinese house needs buyers in Asia for what it finds in the western seas.
 EXTRA_DEMANDS = {
+    'jamestown': [('tools', 1.3)], 'manila': [('tools', 1.1)], 'recife': [('tools', 1.2)], 'newamsterdam': [('tools', 1.2)],
     'canton': [('tin', 1.2), ('ivory', 1.3), ('nutmeg', 1.1)],
     'amoy': [('tin', 1.1), ('ivory', 1.1), ('saltpetre', 1.2), ('nutmeg', 1.1)],  # gunpowder for Koxinga's war on the Qing
     'surat': [('tin', 1.1), ('ivory', 1.3), ('gold', 1.2)],
@@ -220,14 +222,29 @@ EXTRA_DEMANDS = {
     'madras': [('gold', 1.2)],
     'lisbon': [('ivory', 1.1)],
     'amsterdam': [('ivory', 1.0), ('gold', 1.0)],
-    'batavia': [('cinnamon', 1.1)],
+    'batavia': [('cinnamon', 1.1), ('tools', 1.2)],
 }
+
+# Who makes iron and tools.
+EXTRA_PRODUCES = {'amsterdam': [('tools', 1)], 'london': [('tools', 1)], 'amoy': [('tools', 1)], 'canton': [('tools', 1)]}
+
+# Sites where a house may found its settlement (hidden and empty until it does). Same fields as a
+# port; 'site' says whose. They produce and buy nothing yet: the settlement decides that.
+SITES = [
+    ('tamsui', 'Tamsui', 'North Formosa', 25.17, 121.43, 260, 0, 'chinese', {'label': 'right'}),
+    ('bintan', 'Bintan', 'Riau islands', 0.92, 104.45, 240, 0, 'chinese', {'label': 'right'}),
+    ('songkhla', 'Songkhla', 'Gulf of Siam', 7.2, 100.6, 220, 0, 'chinese', {'label': 'right'}),
+    ('mauritius', 'Mauritius', 'Indian Ocean', -20.16, 57.5, 260, 0, 'dutch', {'label': 'right'}),
+    ('sthelena', 'St Helena', 'South Atlantic', -15.92, -5.72, 260, 0, 'dutch', {'label': 'right'}),
+    ('berbice', 'Berbice', 'the Wild Coast', 6.4, -57.5, 240, 0, 'dutch', {'label': 'right'}),
+]
 
 goods = [{'id': i, 'name': n, 'cargoClass': c, 'freightRate': r, 'lotMin': a, 'lotMax': b, 'bigLotMax': m} for i, n, c, r, a, b, m in GOODS]
 ids = {g['id'] for g in goods}
 ports = []
 for pid, name, country, lat, lon, fuel, fee, produces, demands, extra in PORTS:
     demands = demands + [d for d in EXTRA_DEMANDS.get(pid, []) if d[0] not in [x for x, _ in demands]]
+    produces = produces + [x for x in EXTRA_PRODUCES.get(pid, []) if x[0] not in [y for y, _ in produces]]
     for g, _ in produces + demands:
         assert g in ids, (pid, g)
     p = {'id': pid, 'name': name, 'country': country, 'lat': lat, 'lon': lon, 'fuelPrice': fuel, 'portFee': fee}
@@ -235,12 +252,18 @@ for pid, name, country, lat, lon, fuel, fee, produces, demands, extra in PORTS:
     p['produces'] = [{'good': g, 'weight': w} for g, w in produces]
     p['demands'] = [{'good': g, 'strength': s} for g, s in demands]
     ports.append(p)
-pids = {p['id'] for p in ports}
+for pid, name, country, lat, lon, fuel, fee, house, extra in SITES:
+    p = {'id': pid, 'name': name, 'country': country, 'lat': lat, 'lon': lon, 'fuelPrice': fuel, 'portFee': fee, 'site': house}
+    p.update(extra)
+    p['produces'] = []
+    p['demands'] = []
+    ports.append(p)
+pids = {p['id'] for p in ports if 'site' not in p}
 for _, _, members in REGIONS:
     for m in members:
         assert m in pids, m
 assert sorted(m for _, _, ms in REGIONS for m in ms) == sorted(pids), 'every port in exactly one region'
-assert set(EXTRA_DEMANDS) <= pids
+assert set(EXTRA_DEMANDS) <= pids and set(EXTRA_PRODUCES) <= pids
 for g in ids:
     assert any(d['good'] == g for p in ports for d in p['demands']), f'nobody buys {g}'
 ships = [{'id': i, 'name': n, 'description': d, 'capacity': c, 'speedKn': s, 'fuelPerDay': f, 'bunkerCapacity': b, 'dailyCost': dc,

@@ -2,6 +2,7 @@
 // Each step is a condition on the game; once met it stays done. A chapter is done when all its
 // steps are, and the next one opens. Pure: no DOM (main.ts shows it and announces what's new).
 
+import { foodDays, ripeFields } from './settlement';
 import { netWorth } from './ships';
 import type { GameState } from './types';
 import type { World } from './world';
@@ -46,7 +47,7 @@ function discovered(w: World, g: GameState): number {
   return g.charted.filter((id) => w.ports[id] && id !== w.era.start.port && !inBox(w.ports[id].lon, w.ports[id].lat)).length;
 }
 
-const CHAPTERS: { title: (w: World) => string; epilogue: (w: World) => string; steps: StepDef[] }[] = [
+const CHAPTERS: { title: (w: World) => string; epilogue: (w: World) => string; when?: (w: World) => boolean; steps: StepDef[] }[] = [
   {
     title: () => 'First voyages',
     epilogue: (w) => `The ${w.era.start.shipName} has paid her way, and the merchants of ${w.ports[w.era.start.port].name} start to know your ${sail(w) ? 'house' : 'company'}.`,
@@ -82,7 +83,7 @@ const CHAPTERS: { title: (w: World) => string; epilogue: (w: World) => string; s
   {
     title: (w) => (sail(w) ? 'A charter to settle' : 'A real company'),
     epilogue: (w) => (sail(w)
-      ? 'The charter is yours: you may found a settlement of your own. Settlements come in a coming build; the guide will take you on from here.'
+      ? 'The charter is yours: you may found a settlement of your own. Open the Settlement tab and choose where.'
       : 'A real shipping company. More to do comes in coming builds; the guide will take you on from here.'),
     steps: [
       { id: 'captain', title: () => 'Hire a captain to run a ship', hint: () => 'The Company tab: a captain trades in an area you choose, by himself.',
@@ -93,12 +94,44 @@ const CHAPTERS: { title: (w: World) => string; epilogue: (w: World) => string; s
         check: (w, g) => count(Math.round(netWorth(g, w)), 5_000_000) },
     ],
   },
+  {
+    title: () => 'A place of our own',
+    when: sail,
+    epilogue: (w) => `A camp has become a place: a jetty to land at, a storehouse against the rain, people who mean to stay. ${w.era.house?.id === 'chinese' ? 'The elders in Amoy' : 'The partners in Amsterdam'} begin to speak of it.`,
+    steps: [
+      { id: 'found', title: () => 'Found your settlement', hint: () => 'The Settlement tab: choose one of three sites and sign the charter.',
+        check: (_w, g) => ({ done: !!g.settlement }) },
+      { id: 'settlers15', title: () => 'Land 15 settlers', hint: (w) => `Settlers sign on at ${w.ports[w.era.start.port].name} (Settlement tab, with a ship in port there); they go ashore when she arrives.`,
+        check: (_w, g) => count(Math.floor(g.settlement?.people ?? 0), 15) },
+      { id: 'food30', title: () => 'Food for 30 days in store', hint: () => 'Buy rice or grain on your own account (Market tab) and sail it there: it goes into the stores on arrival.',
+        check: (_w, g) => count(g.settlement && g.settlement.people >= 1 ? Math.min(999, Math.floor(foodDays(g.settlement, g.day))) : 0, 30) },
+      { id: 'jetty', title: () => 'Build the jetty', hint: () => 'Buildings need timber and iron and tools in store, and money. The settlers build them.',
+        check: (_w, g) => ({ done: !!g.settlement?.buildings.jetty }) },
+      { id: 'storehouse', title: () => 'Build a storehouse', hint: () => 'Without one, the stores hold only 150 t.',
+        check: (_w, g) => ({ done: !!g.settlement?.buildings.storehouse }) },
+    ],
+  },
+  {
+    title: () => 'It feeds itself',
+    when: sail,
+    epilogue: () => 'A village now, its fields in, its people healthy. Next it will make something the world wants: workshops come in a coming build.',
+    steps: [
+      { id: 'outpost', title: () => 'Grow into an outpost', hint: () => '40 people, a jetty, a storehouse and food for 60 days.',
+        check: (_w, g) => ({ done: !!g.settlement && g.settlement.stage !== 'camp' }) },
+      { id: 'harvest', title: () => 'Bring in the first harvest', hint: () => 'Clear fields (an outpost can): the first harvest comes about 2½ months later.',
+        check: (_w, g) => ({ done: !!g.settlement && ripeFields(g.settlement, g.day) > 0 }) },
+      { id: 'well', title: () => 'Dig a well', hint: () => 'Fever strikes half as often.',
+        check: (_w, g) => ({ done: !!g.settlement?.buildings.well }) },
+      { id: 'village', title: () => 'Grow into a village', hint: () => '120 people, a well, and every field the land allows harvesting.',
+        check: (_w, g) => ({ done: g.settlement?.stage === 'village' }) },
+    ],
+  },
 ];
 
 /** The chapters as they stand for this game (steps that don't apply to its era are left out). */
 export function guideChapters(w: World, g: GameState): GuideChapter[] {
   const done = new Set(g.guide?.done ?? []);
-  return CHAPTERS.map((c, i) => ({
+  return CHAPTERS.filter((c) => !c.when || c.when(w)).map((c, i) => ({
     n: i + 1,
     title: c.title(w),
     epilogue: c.epilogue(w),
