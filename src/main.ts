@@ -19,7 +19,7 @@ import {
 import type { Captain, Contract, GameState, PremiumKind, ShipOffer, ShipState, ShipTypeDef, VoyageReport } from './sim/types';
 import { currentEra, currentHouse, getWorld, setEra } from './sim/world';
 import { currentChapter, guideChapters, updateGuide, type GuideChapter } from './sim/guide';
-import { BUILDINGS, SETTLEMENT_TUNING, SITES, STAGE_NAMES, buildDays, cannotBuild, count as bcount, eats, foodDays, grows, housing, nextStageNeeds, siteOf, roomFor, storeRoom, stored, willing, yardStored } from './sim/settlement';
+import { BUILDINGS, SETTLEMENT_TUNING, SITES, STAGE_NAMES, buildDays, cannotBuild, count as bcount, eats, foodDays, grows, housing, nextStageNeeds, siteOf, roomFor, storeRoom, stored, willing, yardStored, fish } from './sim/settlement';
 import { compactMoney, currency, days, esc, gameDate, money, setEraFormat, startYear, tons } from './ui/format';
 import { mapIconPath, shipFamily, shipSideView } from './ui/art';
 import { CLASS_LABEL, goodIcon } from './ui/goods-icons';
@@ -1129,7 +1129,7 @@ class App {
           <div class="port-head"><div><h3 class="site-name">${esc(p.name)}</h3><span class="sub">${esc(p.country)} · ${Math.round(routeFor(world, g, world.era.start.port, p.id)?.nm ?? 0).toLocaleString('en-US')} nm from ${esc(world.ports[world.era.start.port].name)}</span></div></div>
           <p>${esc(site.blurb)}</p>
           <div class="chips">${site.plus.map((x) => `<span class="chip plus">${esc(x)}</span>`).join('')}${site.minus.map((x) => `<span class="chip minus">${esc(x)}</span>`).join('')}</div>
-          <p class="sub">Charter ${money(site.charter)} · rent ${money(Math.round(site.charter * SETTLEMENT_TUNING.rent))} a year · up to ${site.fields} field${site.fields === 1 ? '' : 's'}${site.forest ? ' · forest for a sawmill' : ''}</p>
+          <p class="sub">Charter ${money(site.charter)} · rent ${money(Math.round(site.charter * SETTLEMENT_TUNING.rent))} a year · up to ${site.fields} field${site.fields === 1 ? '' : 's'} and ${site.fishing} fishing boat${site.fishing === 1 ? '' : 's'}${site.forest ? ' · forest for a sawmill' : ''}</p>
           <button class="btn primary wide" data-action="found" data-id="${p.id}" ${can ? '' : 'disabled'}>Found the settlement at ${esc(p.name)}</button>
         </div>`;
       }).join('');
@@ -1140,12 +1140,12 @@ class App {
     const site = siteOf(s);
     const name = world.ports[s.site].name;
     const days = foodDays(s, g.day);
-    const daysText = s.people < 1 ? 'nobody there yet' : days === Infinity ? 'fed by its fields' : `${Math.floor(days)} days`;
+    const daysText = s.people < 1 ? 'nobody there yet' : days === Infinity ? 'feeds itself' : `${Math.floor(days)} days`;
     const need = nextStageNeeds(s, g.day);
     const tons = (n: number) => `${(Math.round(n * 10) / 10).toLocaleString('en-US')} t`;
     const store = ['rice', 'grain', 'timber', 'tools'].filter((k) => (s.stores[k] ?? 0) > 0.05 || k === 'timber' || k === 'tools' || k === site.crop)
       .map((k) => `<div class="kv"><span>${esc(world.goods[k].name)}</span><strong>${tons(s.stores[k] ?? 0)}</strong></div>`).join('');
-    const making = [grows(s, g.day) ? `${tons(grows(s, g.day))} of ${site.crop} a day from the fields` : '', bcount(s, 'sawmill') ? `${tons(site.forest)} of timber a day from the sawmill` : ''].filter(Boolean);
+    const making = [grows(s, g.day) ? `${tons(grows(s, g.day))} of ${site.crop} a day from the fields` : '', fish(s) ? `${tons(fish(s))} of fish a day from the boats, eaten fresh` : '', bcount(s, 'sawmill') ? `${tons(site.forest)} of timber a day from the sawmill` : ''].filter(Boolean);
     const project = s.project ? (() => {
       const b = BUILDINGS.find((x) => x.id === s.project!.id)!;
       const left = Math.max(0, (b.work - s.project!.done) / Math.max(1, s.people * SETTLEMENT_TUNING.workShare));

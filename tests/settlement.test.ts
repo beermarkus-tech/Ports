@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { isCharted } from '../src/sim/charts';
 import { advance, foundSettlement, hasCharter, newGame, recruitSettlers, sail, startBuilding, unloadAtSettlement } from '../src/sim/game';
-import { BUILDING, SETTLEMENT_TUNING, foodDays, housing } from '../src/sim/settlement';
+import { BUILDING, SETTLEMENT_TUNING, SITES, feedsItself, foodDays, housing } from '../src/sim/settlement';
 import type { GameState } from '../src/sim/types';
 import { getWorld, setEra } from '../src/sim/world';
 
@@ -106,16 +106,28 @@ describe('the settlement', () => {
 
 describe('the settlement grows up', () => {
   afterEach(() => setEra('modern'));
-  it('becomes a village with 120 people, a well and every field the land allows', () => {
+  it('becomes a village with 120 people, a well, and food from its own fields and boats for everyone', () => {
     setEra('sail', 'chinese');
-    let g = foundSettlement(charter(newGame(56)), 'bintan');
+    let g = foundSettlement(charter(newGame(56)), 'tamsui');
     const s = g.settlement!;
     s.stage = 'outpost';
     s.people = 125;
-    s.buildings = { jetty: 1, storehouse: 1, houses: 6, well: 1, fields: 1 };
-    s.fields = [g.day - 80];                       // Bintan allows one field: harvesting
+    s.buildings = { jetty: 1, storehouse: 1, houses: 6, well: 1, fields: 3 };
+    s.fields = [g.day - 80, g.day - 80, g.day - 80];      // 4.5 t a day: not enough for 125
     s.stores = { rice: 125 * SETTLEMENT_TUNING.food * 60 };
     g = advance(g, 1);
+    expect(g.settlement!.stage).toBe('outpost');
+    expect(feedsItself(g.settlement!, g.day)).toBe(false);
+    g.settlement!.buildings.fishery = 2;                  // + 2 t of fish: 6.5 t for 5.6 t eaten
+    const rice = g.settlement!.stores.rice!;
+    g = advance(g, 1);
     expect(g.settlement!.stage).toBe('village');
+    expect(g.settlement!.stores.rice!).toBeGreaterThanOrEqual(rice);   // fed from its own fields and boats
+  });
+
+  it('every site can feed a village of 120 from its own land and sea', () => {
+    for (const site of Object.values(SITES)) {
+      expect(site.fields * SETTLEMENT_TUNING.fieldYield + site.fishing * SETTLEMENT_TUNING.fishYield).toBeGreaterThanOrEqual(120 * SETTLEMENT_TUNING.food);
+    }
   });
 });

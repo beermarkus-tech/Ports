@@ -114,7 +114,7 @@ const CHAPTERS: { title: (w: World) => string; epilogue: (w: World) => string; w
   {
     title: () => 'It feeds itself',
     when: sail,
-    epilogue: () => 'A village now, its fields in, its people healthy. Next it will make something the world wants: workshops come in a coming build.',
+    epilogue: () => 'A village now, fed by its own fields and boats, its people healthy. Next it will make something the world wants: workshops come in a coming build.',
     steps: [
       { id: 'outpost', title: () => 'Grow into an outpost', hint: () => '40 people, a jetty, a storehouse and food for 60 days.',
         check: (_w, g) => ({ done: !!g.settlement && g.settlement.stage !== 'camp' }) },
@@ -122,7 +122,7 @@ const CHAPTERS: { title: (w: World) => string; epilogue: (w: World) => string; w
         check: (_w, g) => ({ done: !!g.settlement && ripeFields(g.settlement, g.day) > 0 }) },
       { id: 'well', title: () => 'Dig a well', hint: () => 'Fever strikes half as often.',
         check: (_w, g) => ({ done: !!g.settlement?.buildings.well }) },
-      { id: 'village', title: () => 'Grow into a village', hint: () => '120 people, a well, and every field the land allows harvesting.',
+      { id: 'village', title: () => 'Grow into a village', hint: () => '120 people, a well, and enough food from its own fields and fishing boats for everyone.',
         check: (_w, g) => ({ done: g.settlement?.stage === 'village' }) },
     ],
   },

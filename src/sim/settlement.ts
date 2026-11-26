@@ -20,6 +20,8 @@ export interface SiteInfo {
   /** Most fields the land allows, and the crop. */
   fields: number;
   crop: 'rice' | 'grain';
+  /** Most fishing boats the waters allow (each lands fish for about 22 people a day). */
+  fishing: number;
   /** Timber a day from a sawmill (0: no forest worth the name). */
   forest: number;
   /** Chance a month of a fever, and of a storm (in the storm months, 0 = January). */
@@ -34,32 +36,32 @@ export const SITES: Record<string, SiteInfo> = {
   tamsui: {
     blurb: 'Two days from Amoy, on the north of Formosa: a fine harbour, camphor and timber in the hills.',
     plus: ['timber', 'good harbour', 'near home'], minus: ['typhoons', 'little rice land'],
-    fields: 3, crop: 'rice', forest: 0.8, fever: 0.04, storm: 0.3, stormMonths: [6, 7, 8, 9], charter: 120_000,
+    fields: 3, crop: 'rice', fishing: 2, forest: 0.8, fever: 0.04, storm: 0.3, stormMonths: [6, 7, 8, 9], charter: 120_000,
   },
   bintan: {
     blurb: 'On the Riau islands, where every ship between Malacca and China passes. Pepper and gambier; fever.',
-    plus: ['every ship passes', 'some timber'], minus: ['fever', 'no rice land'],
-    fields: 1, crop: 'rice', forest: 0.3, fever: 0.12, storm: 0.03, stormMonths: [11, 0], charter: 100_000,
+    plus: ['every ship passes', 'rich fishing', 'some timber'], minus: ['fever', 'no rice land'],
+    fields: 1, crop: 'rice', fishing: 5, forest: 0.3, fever: 0.12, storm: 0.03, stormMonths: [11, 0], charter: 100_000,
   },
   songkhla: {
     blurb: 'A lagoon on the Gulf of Siam: rice land and tin nearby, but off the main routes.',
     plus: ['rice land', 'feeds itself early'], minus: ['off the routes', 'no forest'],
-    fields: 8, crop: 'rice', forest: 0, fever: 0.06, storm: 0.06, stormMonths: [10, 11], charter: 90_000,
+    fields: 8, crop: 'rice', fishing: 1, forest: 0, fever: 0.06, storm: 0.06, stormMonths: [10, 11], charter: 90_000,
   },
   mauritius: {
     blurb: 'An empty island on the way to the Indies: ebony forests, fresh water, and cyclones.',
-    plus: ['ebony and timber', 'on the Indies route'], minus: ['cyclones', 'little farmland'],
-    fields: 3, crop: 'grain', forest: 0.7, fever: 0.03, storm: 0.3, stormMonths: [0, 1, 2], charter: 120_000,
+    plus: ['ebony and timber', 'on the Indies route', 'fishing'], minus: ['cyclones', 'little farmland'],
+    fields: 3, crop: 'grain', fishing: 3, forest: 0.7, fever: 0.03, storm: 0.3, stormMonths: [0, 1, 2], charter: 120_000,
   },
   sthelena: {
     blurb: 'A lonely, healthy island in the South Atlantic: water and a stop for every ship sailing home.',
-    plus: ['healthy', 'on the way home'], minus: ['small', 'far from everything'],
-    fields: 2, crop: 'grain', forest: 0.15, fever: 0.01, storm: 0.02, stormMonths: [6, 7], charter: 80_000,
+    plus: ['healthy', 'on the way home', 'good fishing'], minus: ['small', 'far from everything'],
+    fields: 2, crop: 'grain', fishing: 4, forest: 0.15, fever: 0.01, storm: 0.02, stormMonths: [6, 7], charter: 80_000,
   },
   berbice: {
     blurb: 'A river on the Wild Coast of Guiana: rich soil and forest, and fever.',
     plus: ['rich soil', 'forest'], minus: ['fever', 'far from home'],
-    fields: 6, crop: 'grain', forest: 0.8, fever: 0.13, storm: 0.02, stormMonths: [5, 6], charter: 100_000,
+    fields: 6, crop: 'grain', fishing: 1, forest: 0.8, fever: 0.13, storm: 0.02, stormMonths: [5, 6], charter: 100_000,
   },
 };
 
@@ -75,7 +77,7 @@ export interface BuildingDef {
   work: number;
   /** The stage that allows it. */
   stage: Stage;
-  /** Most of it (a function of the site for fields). */
+  /** Most of it (a function of the site for fields and boats). */
   max: (site: SiteInfo) => number;
 }
 
@@ -83,7 +85,8 @@ export const BUILDINGS: BuildingDef[] = [
   { id: 'jetty', name: 'Jetty', blurb: 'A place to land people and cargo: the beginning of a port.', cost: 20_000, timber: 20, tools: 4, work: 240, stage: 'camp', max: () => 1 },
   { id: 'storehouse', name: 'Storehouse', blurb: 'Room for 500 t more in store, out of the rain.', cost: 15_000, timber: 30, tools: 4, work: 300, stage: 'camp', max: () => 3 },
   { id: 'houses', name: 'Houses', blurb: 'Room for 20 more people.', cost: 8_000, timber: 15, tools: 2, work: 150, stage: 'camp', max: () => 30 },
-  { id: 'fields', name: 'Fields', blurb: 'Food from the land: 0.5 t a day, from the first harvest (about 2½ months after they are cleared).', cost: 6_000, timber: 4, tools: 6, work: 300, stage: 'outpost', max: (s) => s.fields },
+  { id: 'fields', name: 'Fields', blurb: 'Food from the land: 1.5 t a day (enough for 33 people), from the first harvest about 2½ months after they are cleared.', cost: 6_000, timber: 4, tools: 6, work: 300, stage: 'outpost', max: (s) => s.fields },
+  { id: 'fishery', name: 'Fishing boats', blurb: 'Fresh fish, eaten the day it is landed: 1 t a day (enough for 22 people), from the day they are built.', cost: 8_000, timber: 12, tools: 3, work: 150, stage: 'outpost', max: (s) => s.fishing },
   { id: 'well', name: 'Well', blurb: 'Clean water: fever strikes half as often.', cost: 10_000, timber: 6, tools: 4, work: 160, stage: 'outpost', max: () => 1 },
   { id: 'sawmill', name: 'Sawmill', blurb: 'Timber from the forest, every day.', cost: 25_000, timber: 20, tools: 10, work: 400, stage: 'outpost', max: (s) => (s.forest > 0 ? 1 : 0) },
   { id: 'stockade', name: 'Stockade', blurb: 'A palisade and shelter: storms do half the damage.', cost: 18_000, timber: 40, tools: 6, work: 400, stage: 'outpost', max: () => 1 },
@@ -114,7 +117,9 @@ export const SETTLEMENT_TUNING = {
   /** Share of the people who build (the rest farm, fish, cook). */
   workShare: 0.5,
   /** A field's harvest a day, and how long from clearing to the first one. */
-  fieldYield: 0.5,
+  fieldYield: 1.5,
+  /** Fish a boat lands a day (eaten fresh, never stored). */
+  fishYield: 1,
   fieldDays: 75,
   /** Growth when well fed and housed, a day; people leaving when hungry, a day. */
   growth: 0.0012,
@@ -146,9 +151,15 @@ export const eats = (s: Settlement): number => s.people * T.food;
 /** Fields with a harvest in. */
 export const ripeFields = (s: Settlement, day: number): number => (s.fields ?? []).filter((d) => day - d >= T.fieldDays).length;
 export const grows = (s: Settlement, day: number): number => ripeFields(s, day) * T.fieldYield;
-/** Days the food in store lasts, counting what the fields bring in. */
+/** Fish landed a day (eaten fresh). */
+export const fish = (s: Settlement): number => count(s, 'fishery') * T.fishYield;
+/** Food from the land and the sea a day. */
+export const localFood = (s: Settlement, day: number): number => grows(s, day) + fish(s);
+/** Does it feed itself (with people there)? */
+export const feedsItself = (s: Settlement, day: number): boolean => s.people >= 1 && localFood(s, day) >= eats(s);
+/** Days the food in store lasts, counting what the fields and boats bring in. */
 export function foodDays(s: Settlement, day: number): number {
-  const net = eats(s) - grows(s, day);
+  const net = eats(s) - localFood(s, day);
   if (net <= 0) return Infinity;
   return foodStock(s) / net;
 }
@@ -178,7 +189,7 @@ export function buildDays(s: Settlement, id: string): number {
 /** Has it reached the next stage? Returns the new stage, if so. */
 function nextStage(s: Settlement, day: number): Stage | null {
   if (s.stage === 'camp' && s.people >= T.outpost.people && count(s, 'jetty') && count(s, 'storehouse') && foodDays(s, day) >= T.outpost.foodDays) return 'outpost';
-  if (s.stage === 'outpost' && s.people >= T.village.people && count(s, 'well') && ripeFields(s, day) >= siteOf(s).fields) return 'village';
+  if (s.stage === 'outpost' && s.people >= T.village.people && count(s, 'well') && feedsItself(s, day)) return 'village';
   return null;
 }
 
@@ -193,10 +204,12 @@ export function nextStageNeeds(s: Settlement, day: number): { stage: Stage; need
   if (s.stage === 'outpost') return { stage: 'village', needs: [
     { text: `${T.village.people} people (now ${Math.floor(s.people)})`, done: s.people >= T.village.people },
     { text: 'A well', done: !!count(s, 'well') },
-    { text: `All the fields the land allows, harvesting (${ripeFields(s, day)} of ${siteOf(s).fields})`, done: ripeFields(s, day) >= siteOf(s).fields },
+    { text: `Food from its own fields and boats for everyone (${fmt(localFood(s, day))} of ${fmt(eats(s))} t a day)`, done: feedsItself(s, day) },
   ] };
   return null;
 }
+
+const fmt = (n: number) => (Math.round(n * 10) / 10).toLocaleString('en-US');
 
 type Note = (text: string, kind: 'good' | 'bad' | 'info') => void;
 
@@ -231,7 +244,7 @@ export function settlementDay(world: World, g: GameState, day: number, note: Not
   if (grows(s, day)) store(s, site.crop, grows(s, day));
   if (count(s, 'sawmill')) store(s, 'timber', site.forest);
   if (s.people > 0) {
-    const short = eat(s, eats(s));
+    const short = eat(s, Math.max(0, eats(s) - fish(s)));
     if (short > 0.001) {
       // Hungry: people leave on the next boat, down to a caretaker crew.
       s.hungry = (s.hungry ?? 0) + 1;
@@ -253,7 +266,7 @@ export function settlementDay(world: World, g: GameState, day: number, note: Not
         s.buildings[b.id] = count(s, b.id) + 1;
         if (b.id === 'fields') (s.fields ??= []).push(day);
         delete s.project;
-        note(`${name}: the ${b.name.toLowerCase()} ${b.id === 'houses' || b.id === 'fields' ? 'are' : 'is'} finished.`, 'good');
+        note(`${name}: the ${b.name.toLowerCase()} ${['houses', 'fields', 'fishery'].includes(b.id) ? 'are' : 'is'} ${b.id === 'fishery' ? 'out' : 'finished'}.`, 'good');
       }
     }
   }
@@ -277,7 +290,7 @@ export function settlementDay(world: World, g: GameState, day: number, note: Not
     s.stage = up;
     note(up === 'outpost'
       ? `${name} is an outpost now: fields, a well, a sawmill and a stockade can be built.`
-      : `${name} is a village now: its fields are in and its people settled. Workshops come with a coming build.`, 'good');
+      : `${name} is a village now: it feeds itself from its fields and boats, and its people mean to stay. Workshops come with a coming build.`, 'good');
   }
   return Math.round((site.charter * T.rent) / 365);
 }

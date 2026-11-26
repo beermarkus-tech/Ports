@@ -120,6 +120,7 @@ export function drawSailScene(c: CanvasRenderingContext2D, input: SceneInput, w:
     });
     const keelY = yW + draft(ship, d) * m;
     drawShip(c, ship, d, shipX, keelY, m, t, { faded: false, cutaway: false });
+    if (settle?.buildings.fishery) fishingBoats(c, settle, w, yW, m, t);
     // Water over the hull below the waterline, then the cutaway hold as a diagram.
     c.fillStyle = WATER[t]; c.globalAlpha = 0.84;
     c.fillRect(-w, yW, w * 3, h);
@@ -302,7 +303,7 @@ function windmill(c: CanvasRenderingContext2D, x: number, base: number, m: numbe
 
 /**
  * Your settlement, as far as it has grown: forest on the hills, cleared fields, the first tents,
- * then houses, a storehouse, a well, a sawmill with its log pile and a palisade; the house's flag.
+ * then houses, a storehouse, a well, a sawmill with its log pile, fishing boats and a palisade; the house's flag.
  */
 function settlementTown(c: CanvasRenderingContext2D, s: NonNullable<SceneInput['settlement']>, portId: string, w: number, base: number, yW: number,
   m: number, t: TimeOfDay): void {
@@ -401,6 +402,26 @@ function settlementTown(c: CanvasRenderingContext2D, s: NonNullable<SceneInput['
     c.beginPath(); c.moveTo(fx, base - fh); c.lineTo(fx + 4.2 * m, base - fh); c.lineTo(fx + 3.4 * m, base - fh + 1.3 * m); c.lineTo(fx + 4.2 * m, base - fh + 2.6 * m); c.lineTo(fx, base - fh + 2.6 * m); c.fill();
   } else flag(c, fx, base - fh, 4.2 * m, t);
   if (s.people >= 1) people(c, [w * 0.42 / m, w * 0.45 / m, w * 0.55 / m], base, m, t);
+}
+
+/** The settlement's fishing boats, riding at their moorings in the foreground water. */
+function fishingBoats(c: CanvasRenderingContext2D, s: NonNullable<SceneInput['settlement']>, w: number, yW: number, m: number, t: TimeOfDay): void {
+  const dim = (col: string) => (t === 'night' ? shade(col, -0.72) : t === 'dusk' ? shade(col, -0.35) : col);
+  const chinese = s.house === 'chinese';
+  for (let i = 0; i < Math.min(5, s.buildings.fishery ?? 0); i++) {
+    const bw = 5 * m, bh = 1.2 * m;
+    const x = w * 0.04 + i * 7 * m, y = yW + (7 + (i % 2) * 2.5) * m;
+    c.fillStyle = dim(chinese ? '#6b4a2b' : '#4e4034');
+    c.beginPath(); c.moveTo(x, y - bh); c.lineTo(x + bw, y - bh * 1.2);
+    c.quadraticCurveTo(x + bw * 0.8, y + bh * 0.5, x + bw * 0.5, y + bh * 0.5); c.quadraticCurveTo(x + bw * 0.15, y + bh * 0.5, x, y - bh); c.fill();
+    c.strokeStyle = dim('#2e2218'); c.lineWidth = Math.max(0.6, 0.18 * m);
+    c.beginPath(); c.moveTo(x + bw * 0.45, y - bh); c.lineTo(x + bw * 0.45, y - bh - 4 * m); c.stroke();
+    // The sail: a battened lug for the Chinese house, a little spritsail for the Dutch.
+    c.fillStyle = dim(chinese ? '#a8754a' : '#e2d8bf');
+    c.beginPath(); c.moveTo(x + bw * 0.47, y - bh - 3.8 * m); c.lineTo(x + bw * 0.47 + 2.4 * m, y - bh - 3.2 * m); c.lineTo(x + bw * 0.47 + 2 * m, y - bh - 0.6 * m); c.lineTo(x + bw * 0.47, y - bh - 0.6 * m); c.fill();
+    c.strokeStyle = 'rgba(255,255,255,0.25)';
+    c.beginPath(); c.moveTo(x - 0.5 * m, y + bh * 0.8); c.lineTo(x + bw + 0.5 * m, y + bh * 0.8); c.stroke();
+  }
 }
 
 /** The Dutch prince's flag (orange, white, blue), `wid` wide, its hoist at (x, y). */

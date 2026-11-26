@@ -130,8 +130,12 @@ Modern and shared:
     Settlement tab has a Land button per good aboard, plus "Land all that fits". New good: iron and tools (made in Amsterdam, London,
     Amoy, Canton).
   - Stages camp → outpost (40 people, jetty, storehouse, food 60 days) → village (120 people,
-    well, every field the land allows harvesting). Buildings (BUILDINGS): jetty, storehouse,
-    houses, fields, well, sawmill, stockade; one project at a time, built by half the people.
+    well, and it feeds itself: food from its own fields and boats ≥ what everyone eats; build 64).
+    Buildings (BUILDINGS): jetty, storehouse, houses, fields (1.5 t a day each, after 75 days),
+    fishing boats (`fishery`, 1 t a day each, eaten fresh and never stored; SiteInfo.fishing sets
+    how many: Bintan 5, St Helena 4, Mauritius 3, Tamsui 2, Songkhla/Berbice 1), well, sawmill,
+    stockade; one project at a time, built by half the people. Every site can feed 120 from its
+    own land and sea (a test checks it); Songkhla and Berbice grow a surplus (step C's first export).
   - Daily (settlementDay): harvests, sawmill timber, eating 0.045 t a person, hunger shrinks to a
     caretaker crew of 5 (never dies), growth when fed and housed, fever and storms monthly, rent
     to the local ruler booked in the month's books.
@@ -421,3 +425,4 @@ Check `vite-plugin-pwa` precache size limits after adding it.
 | 61 | The settlement, step B part 1: the charter, three sites per house, settlers (scarce), stores, buildings, camp → outpost → village, hunger, fever, storms, rent, guide chapters 4–5, the settlement's harbour view; new good iron and tools |
 | 62 | The Journal tab (was Log): the guide, achievements with dates, your record, the log |
 | 63 | Settlement: a yard for timber and tools with its own room; land what you choose, good by good |
+| 64 | Settlement feeds itself: fields give 1.5 t a day, fishing boats (more where the land is poor), a village is one that feeds itself; boats in the harbour view |
