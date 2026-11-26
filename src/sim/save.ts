@@ -7,6 +7,7 @@ import type { GameState, ShipState } from './types';
 import { getWorld, worldFor } from './world';
 import { chartKnownWaters, chartNewWaypoints, ensureCharts } from './charts';
 import { ensureTrade } from './trade';
+import { syncSettlementPort } from './settlement';
 
 // Several games ("slots"), each in its own key, with an index of them for the start
 // screen. The single save from before slots (LEGACY_KEY) becomes the first slot.
@@ -181,6 +182,7 @@ export function migrate(raw: unknown): GameState | null {
   chartNewWaypoints(gw, g as GameState);
   // New ports first: the trade news samples every port's prices.
   addNewPorts(g as GameState);
+  syncSettlementPort(gw, g as GameState);
   ensureTrade(gw, g as GameState);
   addCaptains(g as GameState);
   return g as GameState;

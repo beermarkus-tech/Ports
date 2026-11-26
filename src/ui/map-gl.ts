@@ -655,9 +655,9 @@ export class GlMapView {
     // Ports a few miles apart (Canton and Macau, Bantam and Batavia) would sit on one dot:
     // nudge such dots apart on the chart, a few map units at most.
     const at: Record<string, [number, number]> = {};
-    for (const p of [...world.portList, ...world.siteList]) at[p.id] = this.projection([p.lon, p.lat])! as [number, number];
+    for (const p of [...world.portList, ...world.siteList.filter((x) => !world.portList.includes(x))]) at[p.id] = this.projection([p.lon, p.lat])! as [number, number];
     const truePos: Record<string, [number, number]> = {};
-    for (const p of [...world.portList, ...world.siteList]) truePos[p.id] = [...at[p.id]] as [number, number];
+    for (const p of [...world.portList, ...world.siteList.filter((x) => !world.portList.includes(x))]) truePos[p.id] = [...at[p.id]] as [number, number];
     for (let pass = 0; pass < 6; pass++) {
       for (let i = 0; i < world.portList.length; i++) for (let j = i + 1; j < world.portList.length; j++) {
         const a = at[world.portList[i].id], b = at[world.portList[j].id];
@@ -679,7 +679,7 @@ export class GlMapView {
       for (const q of world.portList) if (q !== p) d0 = Math.min(d0, Math.hypot(truePos[q.id][0] - tx, truePos[q.id][1] - ty));
       this.nudges.push({ x: tx, y: ty, nx, ny, d0: Math.min(d0, MIN_GAP * 0.9) });
     }
-    for (const p of [...world.portList, ...world.siteList]) {
+    for (const p of [...world.portList, ...world.siteList.filter((x) => !world.portList.includes(x))]) {
       // Keyboard and screen readers: an invisible button over every port (the map itself is one canvas).
       const button = document.createElement('button');
       button.type = 'button';

@@ -42,7 +42,7 @@ as an installable offline PWA (Vite + TypeScript, no framework).
 ```
 npm install
 npm run dev          # local dev server
-npm test             # vitest, 118 tests, all must pass
+npm test             # vitest, 122 tests, all must pass
 npm run build        # tsc + vite build into dist/
 npx vite preview --port 4173 --strictPort   # serve dist/ (base is './', open http://localhost:4173/)
 ERA=sail [HOUSE=chinese] npx tsx scripts/balance.ts 10 100 greedy   # balance bots (also: casual)
@@ -139,7 +139,23 @@ Modern and shared:
   - Daily (settlementDay): harvests, sawmill timber, eating 0.045 t a person, hunger shrinks to a
     caretaker crew of 5 (never dies), growth when fed and housed, fever and storms monthly, rent
     to the local ruler booked in the month's books.
-  - Harbour view: settlementTown() in port-scene-sail.ts (tents → houses Chinese/Dutch style,
+  - Step C (build 65): stages go on to town (250 people, wharf, market hall, 2 workshops; the
+    sawmill counts) and port (400 people, customs house). Fields and boats allowed ×2 at village,
+    ×3 at town/port. Workshops per site (SiteInfo.works; BUILDINGS with `makes` and `jobs`):
+    Tamsui deerskins + salt pans, Bintan pepper, Songkhla tin mine, Mauritius salt pans, St Helena
+    fish curing, Berbice tobacco + indigo (no sugar on purpose: plantations of the time used
+    enslaved labour). They need 20 hands each beyond the first 80 people (`staffed`) and fill the
+    store daily. loadFromSettlement() puts its goods aboard at cost 0 (s.shipped counts them).
+  - The open port: World.setOpenPort() moves the site into portList (produces = products(s),
+    demands = SiteInfo.buys), into the nearest region, out of siteIds (routes pass through), and
+    clears the route cache; world.epoch keys trade.ts's nearest-producer cache. syncSettlementPort()
+    in settlement.ts makes the world match the game: called by newGame, migrate (load) and when the
+    stage becomes port. Map views and the voyage list de-duplicate the site. Own ships pay no port
+    fee there. Harbour dues 1.5 a person a day (s.dues), booked against the rent in 'settlement'.
+  - Guide chapters 6 Something to sell (workshop, ship 20 t, wharf, town) and 7 A port of our own
+    (customs house, port opens, 100,000 in dues).
+  - Harbour view: settlementTown() in port-scene-sail.ts (workshops with smoke, market hall,
+    customs house; fishing boats moored in front) (tents → houses Chinese/Dutch style,
     fields, storehouse, well, sawmill, stockade); anchored until there is a jetty.
 - Contracts with deadlines, fuel, repairs, ship market (12 classes), loans, ageing,
   dynamic economy (prices, oil, events, canal closures, strikes).
@@ -373,9 +389,10 @@ Check `vite-plugin-pwa` precache size limits after adding it.
   conquest). Owner's answers: three sites per house; the charter at three ships and a captain;
   hunger shrinks a settlement, never kills it; only nature for now (pirates later); growth about
   FOUR game years from founding to port; step A (the guide) first (done in build 58). Step B part 1 in build 61 (see section 5).
-  NEXT: supply runs (standing orders that keep the settlement supplied by a ship of the fleet),
-  then step C (workshops, becoming a port that sells its own goods), commissions, chart
-  workshop. Tune growth so founding → port takes about four game years.
+  Step C in build 65. NEXT: watch the pace (founding → port should take about four game years;
+  tune willing settlers, growth, people needed); then commissions (now the settlement makes
+  goods), chart workshop, cabinet of curiosities; supply runs only if still wanted; maybe
+  own-account trade for ★★★ captains (offered to the owner).
 - Harbour life in the modern port view (cranes, bunker barge, horn, tugs).
 - Rivals (at the very end).
 - Possibly: rescale victual cask prices (currently ƒ150–270 a cask; costs balance).
@@ -426,3 +443,4 @@ Check `vite-plugin-pwa` precache size limits after adding it.
 | 62 | The Journal tab (was Log): the guide, achievements with dates, your record, the log |
 | 63 | Settlement: a yard for timber and tools with its own room; land what you choose, good by good |
 | 64 | Settlement feeds itself: fields give 1.5 t a day, fishing boats (more where the land is poor), a village is one that feeds itself; boats in the harbour view |
+| 65 | Step C: workshops, town and port stages, the settlement opens as a real port (board, market, dues), own goods loaded for nothing, guide chapters 6–7 |

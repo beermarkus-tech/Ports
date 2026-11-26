@@ -2,7 +2,7 @@
 // Each step is a condition on the game; once met it stays done. A chapter is done when all its
 // steps are, and the next one opens. Pure: no DOM (main.ts shows it and announces what's new).
 
-import { foodDays, ripeFields } from './settlement';
+import { BUILDINGS, foodDays, ripeFields } from './settlement';
 import { netWorth } from './ships';
 import type { GameState } from './types';
 import type { World } from './world';
@@ -114,7 +114,7 @@ const CHAPTERS: { title: (w: World) => string; epilogue: (w: World) => string; w
   {
     title: () => 'It feeds itself',
     when: sail,
-    epilogue: () => 'A village now, fed by its own fields and boats, its people healthy. Next it will make something the world wants: workshops come in a coming build.',
+    epilogue: () => 'A village now, fed by its own fields and boats, its people healthy. Next it will make something the world wants.',
     steps: [
       { id: 'outpost', title: () => 'Grow into an outpost', hint: () => '40 people, a jetty, a storehouse and food for 60 days.',
         check: (_w, g) => ({ done: !!g.settlement && g.settlement.stage !== 'camp' }) },
@@ -123,7 +123,35 @@ const CHAPTERS: { title: (w: World) => string; epilogue: (w: World) => string; w
       { id: 'well', title: () => 'Dig a well', hint: () => 'Fever strikes half as often.',
         check: (_w, g) => ({ done: !!g.settlement?.buildings.well }) },
       { id: 'village', title: () => 'Grow into a village', hint: () => '120 people, a well, and enough food from its own fields and fishing boats for everyone.',
-        check: (_w, g) => ({ done: g.settlement?.stage === 'village' }) },
+        check: (_w, g) => ({ done: !!g.settlement && ['village', 'town', 'port'].includes(g.settlement.stage) }) },
+    ],
+  },
+  {
+    title: () => 'Something to sell',
+    when: sail,
+    epilogue: () => 'A town now: a wharf, a market, workshops at work, and its goods sold in far ports. One thing is missing: the world does not yet call there.',
+    steps: [
+      { id: 'workshop', title: () => 'Build a workshop', hint: () => 'A village can: what it makes depends on the site (Settlement tab). Workshops need hands beyond the first 80 people.',
+        check: (_w, g) => ({ done: !!g.settlement && BUILDINGS.some((b) => b.makes && g.settlement!.buildings[b.id]) }) },
+      { id: 'shipGoods', title: () => 'Ship 20 t of your own goods', hint: () => 'With a ship lying at the settlement, load its goods in the Settlement tab (they cost nothing), then sell them where they are wanted.',
+        check: (_w, g) => count(Math.floor(g.settlement?.shipped ?? 0), 20) },
+      { id: 'wharf', title: () => 'Build a wharf', hint: () => 'Where seagoing ships lie alongside: it needs the jetty first.',
+        check: (_w, g) => ({ done: !!g.settlement?.buildings.wharf }) },
+      { id: 'town', title: () => 'Grow into a town', hint: () => '250 people, a wharf, a market hall and two workshops (the sawmill counts).',
+        check: (_w, g) => ({ done: !!g.settlement && ['town', 'port'].includes(g.settlement.stage) }) },
+    ],
+  },
+  {
+    title: () => 'A port of our own',
+    when: sail,
+    epilogue: (w) => `Ships of every flag drop anchor off your town, and its dues come to your house. ${w.era.house?.id === 'chinese' ? 'In Amoy' : 'In Amsterdam'} they speak of it as a port. More to do comes in coming builds.`,
+    steps: [
+      { id: 'customs', title: () => 'Build a customs house', hint: () => 'A town can: it opens the port.',
+        check: (_w, g) => ({ done: !!g.settlement?.buildings.customs }) },
+      { id: 'portOpen', title: () => 'Open the port', hint: () => '400 people and the customs house: then other merchants call, and its market trades with the world.',
+        check: (_w, g) => ({ done: g.settlement?.stage === 'port' }) },
+      { id: 'dues', title: (w) => `Earn ${w.era.currency}100,000 in harbour dues`, hint: () => 'The bigger the town, the more its trade brings in.',
+        check: (_w, g) => count(Math.floor(g.settlement?.dues ?? 0), 100_000) },
     ],
   },
 ];

@@ -40,7 +40,7 @@ const nearestCache = new WeakMap<World, Map<string, number>>();
 function nearestProducerNm(world: World, portId: string, good: string): number {
   let cache = nearestCache.get(world);
   if (!cache) { cache = new Map(); nearestCache.set(world, cache); }
-  const key = `${portId}>${good}`;
+  const key = `${world.epoch}>${portId}>${good}`;
   let nm = cache.get(key);
   if (nm === undefined) {
     nm = Math.min(...world.portList.filter((p) => p.produces.some((x) => x.good === good)).map((p) => world.distance(portId, p.id)));

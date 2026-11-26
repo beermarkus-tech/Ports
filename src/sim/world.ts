@@ -51,6 +51,10 @@ export class World {
   readonly regions: Region[];
   private adjacency: Record<string, Edge[]> = {};
   private routeCache = new Map<string, Route | null>();
+  /** The house's settlement once it has opened as a port (the game being played decides it). */
+  private opened: { id: string; site: PortDef; region?: Region } | null = null;
+  /** Bumped whenever the port list changes, for caches kept outside the world. */
+  epoch = 0;
 
   constructor(
     goods: GoodDef[] = goodsData as GoodDef[],
@@ -65,7 +69,7 @@ export class World {
     regions: Region[] = regionsData as Region[],
   ) {
     this.era = era;
-    this.regions = regions;
+    this.regions = regions.map((r) => ({ ...r, ports: [...r.ports] }));
     this.canals = lanes.canals;
     for (const g of goods) this.goods[g.id] = g;
     // A house's settlement sites are known by id (routes, names, ships lying there) but stay out of
@@ -91,6 +95,43 @@ export class World {
       (this.adjacency[e.a] ??= []).push(edge);
       (this.adjacency[e.b] ??= []).push(edge);
     }
+  }
+
+  /**
+   * The settlement opens as a port: it joins the port list (boards, markets, prices, routes through
+   * it) with the goods it trades, in the nearest region. One at a time; `null` closes it again
+   * (another game of the same house loaded). The site stays in siteList, with the new definition.
+   */
+  setOpenPort(open: { id: string; produces: PortDef['produces']; demands: PortDef['demands']; portFee: number } | null): void {
+    if (open && this.opened?.id === open.id) return;
+    if (!open && !this.opened) return;
+    if (this.opened) {
+      const { id, site, region } = this.opened;
+      this.ports[id] = site;
+      this.siteList[this.siteList.findIndex((p) => p.id === id)] = site;
+      this.portList.splice(this.portList.findIndex((p) => p.id === id), 1);
+      if (region) region.ports.splice(region.ports.indexOf(id), 1);
+      this.siteIds.add(id);
+      this.opened = null;
+    }
+    if (open) {
+      const site = this.ports[open.id];
+      const port: PortDef = { ...site, produces: open.produces, demands: open.demands, portFee: open.portFee };
+      this.ports[open.id] = port;
+      this.siteList[this.siteList.findIndex((p) => p.id === open.id)] = port;
+      this.portList.push(port);
+      this.siteIds.delete(open.id);
+      // The nearest region by its nearest port.
+      let region: Region | undefined, best = Infinity;
+      for (const r of this.regions) for (const id of r.ports) {
+        const d = this.points[id] ? haversineNm(this.points[id], port) : Infinity;
+        if (d < best) { best = d; region = r; }
+      }
+      region?.ports.push(open.id);
+      this.opened = { id: open.id, site, region };
+    }
+    this.routeCache.clear();
+    this.epoch++;
   }
 
   /** Is this point a settlement site (of any house)? */

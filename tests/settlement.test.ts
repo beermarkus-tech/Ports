@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { isCharted } from '../src/sim/charts';
-import { advance, foundSettlement, hasCharter, newGame, recruitSettlers, sail, startBuilding, unloadAtSettlement } from '../src/sim/game';
-import { BUILDING, SETTLEMENT_TUNING, SITES, feedsItself, foodDays, housing } from '../src/sim/settlement';
+import { advance, foundSettlement, hasCharter, loadFromSettlement, newGame, recruitSettlers, sail, startBuilding, syncSettlementPort, unloadAtSettlement } from '../src/sim/game';
+import { regionOf } from '../src/sim/regions';
+import { buyPrice, sellPrice } from '../src/sim/trade';
+import { BUILDING, SETTLEMENT_TUNING, SITES, cannotBuild, feedsItself, foodDays, housing, staffed } from '../src/sim/settlement';
 import type { GameState } from '../src/sim/types';
 import { getWorld, setEra } from '../src/sim/world';
 
@@ -128,6 +130,84 @@ describe('the settlement grows up', () => {
   it('every site can feed a village of 120 from its own land and sea', () => {
     for (const site of Object.values(SITES)) {
       expect(site.fields * SETTLEMENT_TUNING.fieldYield + site.fishing * SETTLEMENT_TUNING.fishYield).toBeGreaterThanOrEqual(120 * SETTLEMENT_TUNING.food);
+    }
+  });
+});
+
+describe('the settlement makes goods, becomes a town and opens as a port', () => {
+  afterEach(() => { setEra('sail', 'chinese'); syncSettlementPort(getWorld(), newGame(1)); setEra('modern'); });
+
+  const village = (site: string, seed: number): GameState => {
+    const g = foundSettlement(charter(newGame(seed)), site);
+    const s = g.settlement!;
+    s.stage = 'village';
+    s.people = 140;
+    s.buildings = { jetty: 1, storehouse: 2, houses: 8, well: 1, fields: 6, fishery: 4 };
+    s.fields = Array(6).fill(g.day - 100);
+    s.stores = { rice: 300, timber: 250, tools: 40 };
+    g.cash = 5_000_000;
+    return g;
+  };
+
+  it('workshops make goods with the hands there are, and your ships load them for nothing', () => {
+    setEra('sail', 'chinese');
+    let g = village('bintan', 61);
+    expect(cannotBuild(g, g.settlement!, 'tinmine')).toBe('Not at this site.');
+    g = startBuilding(g, 'pepper');
+    g = advance(g, 15);
+    expect(g.settlement!.buildings.pepper).toBe(1);
+    expect(staffed(g.settlement!)).toBe(1);                       // 60 hands beyond the first 80, 20 needed
+    g = advance(g, 20);
+    expect(g.settlement!.stores.pepper).toBeGreaterThan(8);
+    g.fleet[0].location = 'bintan';
+    const tons = Math.floor(g.settlement!.stores.pepper!);
+    g = loadFromSettlement(g, g.fleet[0].id, 'pepper');
+    expect(g.fleet[0].goods!.find((l) => l.good === 'pepper')).toMatchObject({ tons, cost: 0 });
+    expect(g.settlement!.shipped).toBe(tons);
+  });
+
+  it('grows into a town, then opens as a port: in the port list, with a board, a market and dues', () => {
+    setEra('sail', 'chinese');
+    const w = getWorld();
+    let g = village('tamsui', 62);
+    const s = g.settlement!;
+    s.people = 260;
+    s.buildings = { ...s.buildings, houses: 14, wharf: 1, market: 1, deerskins: 1, sawmill: 1 };
+    g = advance(g, 1);
+    expect(g.settlement!.stage).toBe('town');
+    expect(w.portList.some((p) => p.id === 'tamsui')).toBe(false);
+    g.settlement!.people = 410;
+    g.settlement!.buildings.houses = 20;
+    g.settlement!.buildings.customs = 1;
+    const cash = g.cash;
+    g = advance(g, 1);
+    expect(g.settlement!.stage).toBe('port');
+    expect(w.portList.some((p) => p.id === 'tamsui')).toBe(true);
+    expect(regionOf('tamsui')).toBeDefined();
+    expect(g.ports.tamsui.board.length).toBeGreaterThan(0);
+    expect(sellPrice(w, g, 'tamsui', 'textiles')).toBeGreaterThan(0);
+    expect(buyPrice(w, g, 'tamsui', 'furs')).toBeGreaterThan(0);
+    expect(w.route('amoy', 'tamsui')).not.toBeNull();
+    g = advance(g, 30);
+    expect(g.settlement!.dues).toBeGreaterThan(0);
+    expect(g.cash).toBeGreaterThan(cash - 50_000);                  // dues more than pay the rent
+    // Another game of the same house: the port closes again.
+    syncSettlementPort(w, newGame(63));
+    expect(w.portList.some((p) => p.id === 'tamsui')).toBe(false);
+    expect(w.isSite('tamsui')).toBe(true);
+  });
+
+  it('every workshop good and every product sells somewhere', () => {
+    for (const house of ['chinese', 'dutch'] as const) {
+      setEra('sail', house);
+      const w = getWorld();
+      for (const site of w.siteList) {
+        const info = SITES[site.id];
+        for (const id of info.works) {
+          const good = BUILDING[id].makes!.good;
+          expect(w.portList.some((p) => p.demands.some((d) => d.good === good)), `${site.id} ${good}`).toBe(true);
+        }
+      }
     }
   });
 });

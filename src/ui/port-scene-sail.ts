@@ -303,7 +303,8 @@ function windmill(c: CanvasRenderingContext2D, x: number, base: number, m: numbe
 
 /**
  * Your settlement, as far as it has grown: forest on the hills, cleared fields, the first tents,
- * then houses, a storehouse, a well, a sawmill with its log pile, fishing boats and a palisade; the house's flag.
+ * then houses, a storehouse, a well, a sawmill with its log pile, fishing boats and a palisade; later
+ * workshops, a market hall and a customs house; the house's flag.
  */
 function settlementTown(c: CanvasRenderingContext2D, s: NonNullable<SceneInput['settlement']>, portId: string, w: number, base: number, yW: number,
   m: number, t: TimeOfDay): void {
@@ -392,6 +393,39 @@ function settlementTown(c: CanvasRenderingContext2D, s: NonNullable<SceneInput['
     c.fillStyle = dim('#4e3520'); c.fillRect(x - 0.5 * m, base - 5.6 * m, 10 * m, 0.8 * m);
     c.fillStyle = dim('#9a7444');
     for (let k = 0; k < 6; k++) { c.beginPath(); c.arc(x - 3 * m + (k % 3) * 1.1 * m, base - 0.5 * m - Math.floor(k / 3) * 1 * m, 0.55 * m, 0, Math.PI * 2); c.fill(); }
+  }
+  // Workshops up the slope: sheds with smoke from their chimneys.
+  const shops = ['pepper', 'tinmine', 'saltpans', 'deerskins', 'curing', 'tobacco', 'indigo'].reduce((k, id) => k + n(id), 0);
+  for (let i = 0; i < Math.min(6, shops); i++) {
+    const x = w * 0.7 - i * 11 * m, y = base - (12 + (i % 2) * 3) * m, sw = 8 * m, sh = 3.6 * m;
+    c.fillStyle = dim('#8a6a44'); c.fillRect(x, y - sh, sw, sh);
+    c.fillStyle = dim('#5a4028');
+    c.beginPath(); c.moveTo(x - 0.6 * m, y - sh); c.lineTo(x + sw / 2, y - sh - 2.2 * m); c.lineTo(x + sw + 0.6 * m, y - sh); c.fill();
+    c.fillStyle = dim('#6a5a4a'); c.fillRect(x + sw * 0.75, y - sh - 2.8 * m, 0.8 * m, 2 * m);
+    c.fillStyle = night ? 'rgba(120,120,120,0.25)' : 'rgba(235,235,235,0.55)';
+    for (let k = 0; k < 3; k++) { c.beginPath(); c.arc(x + sw * 0.78 + k * 0.9 * m, y - sh - (3.4 + k * 1.3) * m, (0.7 + k * 0.35) * m, 0, Math.PI * 2); c.fill(); }
+  }
+  // The market hall: a long open hall on posts.
+  if (n('market')) {
+    const x = w * 0.3, hw = 16 * m, hh = 4.6 * m;
+    c.fillStyle = dim(roof);
+    c.beginPath();
+    if (s.house === 'chinese') { c.moveTo(x - 1.5 * m, base - hh); c.quadraticCurveTo(x + hw / 2, base - hh - 4 * m, x + hw + 1.5 * m, base - hh); }
+    else { c.moveTo(x - 0.8 * m, base - hh); c.lineTo(x + hw / 2, base - hh - 4.5 * m); c.lineTo(x + hw + 0.8 * m, base - hh); }
+    c.closePath(); c.fill();
+    c.fillStyle = dim('#4e3520');
+    for (let k = 0; k <= 5; k++) c.fillRect(x + (k * (hw - 0.6 * m)) / 5, base - hh, 0.6 * m, hh);
+    c.fillStyle = dim('#c9a46a');
+    for (let k = 0; k < 4; k++) c.fillRect(x + (1.6 + k * 3.4) * m, base - 1.4 * m, 2 * m, 1.4 * m);
+  }
+  // The customs house: two storeys and a flag of its own.
+  if (n('customs')) {
+    const x = w * 0.5, hw = 9 * m, hh = 7.5 * m;
+    c.fillStyle = dim(s.house === 'chinese' ? '#d8cdb4' : '#c9a172'); c.fillRect(x, base - hh, hw, hh);
+    c.fillStyle = lit ? '#f5c86a' : dim('#3a2a1c');
+    for (let k = 0; k < 3; k++) { c.fillRect(x + (1.2 + k * 2.6) * m, base - hh + 1.4 * m, 1.2 * m, 1.6 * m); c.fillRect(x + (1.2 + k * 2.6) * m, base - hh + 4.2 * m, 1.2 * m, 1.6 * m); }
+    c.fillStyle = dim(roof);
+    c.beginPath(); c.moveTo(x - 0.8 * m, base - hh); c.lineTo(x + hw / 2, base - hh - 3.5 * m); c.lineTo(x + hw + 0.8 * m, base - hh); c.fill();
   }
   // The house's flag on a pole.
   const fx = w * 0.6, fh = 12 * m;

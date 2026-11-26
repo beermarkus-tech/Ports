@@ -339,7 +339,7 @@ export interface Settlement {
   /** The site's port id. */
   site: string;
   founded: number;
-  stage: 'camp' | 'outpost' | 'village';
+  stage: 'camp' | 'outpost' | 'village' | 'town' | 'port';
   /** People living there (fractional while it grows slowly). */
   people: number;
   /** Tons in store, by good (rice, grain, timber, tools). */
@@ -354,6 +354,10 @@ export interface Settlement {
   hungry?: number;
   /** People at home willing to go out as settlers now (it refills slowly). */
   willing?: number;
+  /** Tons of its own goods loaded aboard your ships, all told (for the guide). */
+  shipped?: number;
+  /** Harbour dues and trade earned since the port opened, all told. */
+  dues?: number;
   /** What happened there lately (newest first). */
   news: { day: number; text: string; kind: 'good' | 'bad' | 'info' }[];
 }

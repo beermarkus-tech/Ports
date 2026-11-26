@@ -30,7 +30,8 @@ import type {
   ActiveVoyage, Captain, Contract, Delivery, GameState, MonthBook, ShipState, ShipTypeDef, StandingOrders, VoyageEvent, VoyageReport,
 } from './types';
 import { getWorld, type Route, type World } from './world';
-import { BUILDING, SETTLEMENT_TUNING, SITES, cannotBuild, inYard, settlementDay, store } from './settlement';
+import { BUILDING, SETTLEMENT_TUNING, SITES, cannotBuild, inYard, settlementDay, store, syncSettlementPort } from './settlement';
+export { syncSettlementPort };
 
 /** The money sign of the era being played. */
 const cur = (): string => getWorld().era.currency;
@@ -197,6 +198,7 @@ export function fuelPrice(g: GameState, portId: string, world: World = getWorld(
 }
 
 export function portFee(g: GameState, ship: Pick<ShipState, 'typeId'>, portId: string, world: World = getWorld()): number {
+  if (g.settlement?.site === portId) return 0;               // your own port: your ships pay no dues
   const strike = strikeAt(g, portId) ? ECONOMY.strike.feeMultiplier : 1;
   return Math.round(world.ports[portId].portFee * typeOf(ship, world).sizeFactor * strike);
 }
@@ -320,9 +322,11 @@ function runClock(world: World, g: GameState, days: number): void {
     economyDay(world, g, d);
     tradeDay(world, g, d);
     if (g.settlement) {
+      const wasPort = g.settlement.stage === 'port';
       const rent = settlementDay(world, g, d, (text, kind) => settlementNews(g, text, kind, d));
       g.cash -= rent;
       book(g, world, 'settlement', rent, d);
+      if (!wasPort && g.settlement.stage === 'port') syncSettlementPort(world, g);
     }
     for (const ship of g.fleet) {
       if (ship.busyUntil !== undefined && ship.busyUntil <= d) delete ship.busyUntil;
@@ -399,6 +403,7 @@ export function newGame(seed: number = Date.now() % 2 ** 31, world: World = getW
     age: world.era.start.age,
     cargo: [],
   });
+  syncSettlementPort(world, g);
   for (const p of world.portList) {
     g.ports[p.id] = { fuelDev: randRange(g, -0.12, 0.12), board: [], market: [], prices: {} };
   }
@@ -1363,7 +1368,7 @@ function arrive(world: World, g: GameState, ship: ShipState): void {
   delete ship.voyage;
 
   // Fresh offers on the quay, unless another of our ships is already working this port.
-  if (!world.ports[dest].site && !g.fleet.some((s) => s !== ship && s.location === dest && !atSea(s))) regenerateBoard(world, g, dest);
+  if (!world.isSite(dest) && !g.fleet.some((s) => s !== ship && s.location === dest && !atSea(s))) regenerateBoard(world, g, dest);
 
   for (const e of v.events) log(g, `${ship.name}: ${e.text}`, e.cost ? -e.cost : undefined);
   for (const d of deliveries) {
@@ -1642,6 +1647,28 @@ export function unloadAtSettlement(state: GameState, shipId: number, good?: stri
   if (state.settlement?.site !== ship.location) throw new ActionError('The ship is not at your settlement.');
   const g = clone(state);
   for (const n of landAtSettlement(world, g, getShip(g, shipId), good)) log(g, n);
+  return g;
+}
+
+/** Load goods the settlement made (or grew, or stored) aboard a ship lying there: they cost nothing. */
+export function loadFromSettlement(state: GameState, shipId: number, good: string, tons?: number, world: World = getWorld()): GameState {
+  const ship0 = readyShip(state, shipId);
+  const s0 = state.settlement;
+  if (!s0 || s0.site !== ship0.location) throw new ActionError('The ship is not at your settlement.');
+  const have = s0.stores[good] ?? 0;
+  if (have < 0.5) throw new ActionError(`There is no ${world.goods[good]?.name.toLowerCase() ?? good} in store.`);
+  const room = typeOf(ship0, world).capacity - cargoTons(ship0);
+  const n = Math.floor(Math.min(tons ?? have, have, room));
+  if (n < 1) throw new ActionError('No room in her hold.');
+  const g = clone(state);
+  const s = g.settlement!;
+  const ship = getShip(g, shipId);
+  s.stores[good] = +(have - n).toFixed(3);
+  const lots = (ship.goods ??= []);
+  const lot = lots.find((x) => x.good === good);
+  if (lot) lot.tons += n; else lots.push({ good, tons: n, cost: 0, from: s.site });
+  s.shipped = (s.shipped ?? 0) + n;
+  log(g, `${n} t of ${world.goods[good].name.toLowerCase()} from ${world.ports[s.site].name} loaded aboard the ${ship.name}.`);
   return g;
 }
 
