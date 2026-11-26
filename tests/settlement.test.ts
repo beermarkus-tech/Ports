@@ -83,14 +83,24 @@ describe('the settlement', () => {
     expect(g.settlement!.news[0].text).toMatch(/outpost/);
   });
 
-  it('unloads supplies on demand once there is room', () => {
+  it('lands what you choose; timber and tools go to the yard, so a full store of food never blocks them', () => {
     setEra('sail', 'chinese');
     let g = foundSettlement(charter(newGame(55)), 'songkhla');
+    g.settlement!.stores = { rice: SETTLEMENT_TUNING.store };              // the store is full of rice
     g.fleet[0].location = 'songkhla';
-    g.fleet[0].goods = [{ good: 'timber', tons: 300, cost: 30_000, from: 'ayutthaya' }];
-    g = unloadAtSettlement(g, g.fleet[0].id);
-    expect(g.settlement!.stores.timber).toBe(SETTLEMENT_TUNING.store);   // no storehouse: 150 t
-    expect(g.fleet[0].goods![0].tons).toBe(150);
+    g.fleet[0].goods = [
+      { good: 'rice', tons: 14, cost: 1_400, from: 'ayutthaya' },
+      { good: 'tools', tons: 10, cost: 9_000, from: 'ayutthaya' },
+      { good: 'timber', tons: 400, cost: 40_000, from: 'ayutthaya' },
+    ];
+    const id = g.fleet[0].id;
+    g = unloadAtSettlement(g, id, 'tools');
+    expect(g.settlement!.stores.tools).toBe(10);
+    expect(g.fleet[0].goods!.map((l) => l.good)).toEqual(['rice', 'timber']);   // only the tools landed
+    g = unloadAtSettlement(g, id);                                             // all that fits
+    expect(g.settlement!.stores.timber).toBe(SETTLEMENT_TUNING.yard - 10);     // the yard holds 300 t
+    expect(g.settlement!.stores.rice).toBe(SETTLEMENT_TUNING.store);           // no room for more rice
+    expect(g.fleet[0].goods!.find((l) => l.good === 'rice')!.tons).toBe(14);
   });
 });
 

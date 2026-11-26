@@ -101,6 +101,9 @@ export const SETTLEMENT_TUNING = {
   /** Store room without a storehouse, and per storehouse. */
   store: 150,
   perStorehouse: 500,
+  /** Building materials lie in a yard on the beach with its own room, so food never blocks a building. */
+  yardGoods: ['timber', 'tools'],
+  yard: 300,
   /** What a settler costs to recruit at home (passage, wages, tools), and the hold room one takes. */
   settlerCost: 300,
   settlerTons: 1,
@@ -131,7 +134,13 @@ export const siteOf = (s: Settlement): SiteInfo => SITES[s.site];
 export const count = (s: Settlement, id: string): number => s.buildings[id] ?? 0;
 export const housing = (s: Settlement): number => T.tents + count(s, 'houses') * T.perHouse;
 export const storeRoom = (s: Settlement): number => T.store + count(s, 'storehouse') * T.perStorehouse;
-export const stored = (s: Settlement): number => Object.values(s.stores).reduce((a, b) => a + b, 0);
+export const inYard = (good: string): boolean => T.yardGoods.includes(good);
+/** Tons in the store (food and the like; the yard's timber and tools not counted). */
+export const stored = (s: Settlement): number => Object.entries(s.stores).reduce((a, [g, t]) => a + (inYard(g) ? 0 : t), 0);
+/** Tons in the yard (timber, iron and tools). */
+export const yardStored = (s: Settlement): number => Object.entries(s.stores).reduce((a, [g, t]) => a + (inYard(g) ? t : 0), 0);
+/** Room left for a good: in the yard for building materials, in the store for the rest. */
+export const roomFor = (s: Settlement, good: string): number => Math.max(0, inYard(good) ? T.yard - yardStored(s) : storeRoom(s) - stored(s));
 export const foodStock = (s: Settlement): number => (s.stores.rice ?? 0) + (s.stores.grain ?? 0);
 export const eats = (s: Settlement): number => s.people * T.food;
 /** Fields with a harvest in. */
@@ -202,7 +211,7 @@ function eat(s: Settlement, tons: number): number {
 
 /** Add to the stores, up to the room there is. Returns what fitted. */
 export function store(s: Settlement, good: string, tons: number): number {
-  const fit = Math.max(0, Math.min(tons, storeRoom(s) - stored(s)));
+  const fit = Math.min(tons, roomFor(s, good));
   if (fit > 0) s.stores[good] = +((s.stores[good] ?? 0) + fit).toFixed(3);
   return fit;
 }

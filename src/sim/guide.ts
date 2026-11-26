@@ -107,7 +107,7 @@ const CHAPTERS: { title: (w: World) => string; epilogue: (w: World) => string; w
         check: (_w, g) => count(g.settlement && g.settlement.people >= 1 ? Math.min(999, Math.floor(foodDays(g.settlement, g.day))) : 0, 30) },
       { id: 'jetty', title: () => 'Build the jetty', hint: () => 'Buildings need timber and iron and tools in store, and money. The settlers build them.',
         check: (_w, g) => ({ done: !!g.settlement?.buildings.jetty }) },
-      { id: 'storehouse', title: () => 'Build a storehouse', hint: () => 'Without one, the stores hold only 150 t.',
+      { id: 'storehouse', title: () => 'Build a storehouse', hint: () => 'Without one, the store holds only 150 t of food (timber and tools lie in the yard).',
         check: (_w, g) => ({ done: !!g.settlement?.buildings.storehouse }) },
     ],
   },

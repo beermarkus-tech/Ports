@@ -19,7 +19,7 @@ import {
 import type { Captain, Contract, GameState, PremiumKind, ShipOffer, ShipState, ShipTypeDef, VoyageReport } from './sim/types';
 import { currentEra, currentHouse, getWorld, setEra } from './sim/world';
 import { currentChapter, guideChapters, updateGuide, type GuideChapter } from './sim/guide';
-import { BUILDINGS, SETTLEMENT_TUNING, SITES, STAGE_NAMES, buildDays, cannotBuild, count as bcount, eats, foodDays, grows, housing, nextStageNeeds, siteOf, storeRoom, stored, willing } from './sim/settlement';
+import { BUILDINGS, SETTLEMENT_TUNING, SITES, STAGE_NAMES, buildDays, cannotBuild, count as bcount, eats, foodDays, grows, housing, nextStageNeeds, siteOf, roomFor, storeRoom, stored, willing, yardStored } from './sim/settlement';
 import { compactMoney, currency, days, esc, gameDate, money, setEraFormat, startYear, tons } from './ui/format';
 import { mapIconPath, shipFamily, shipSideView } from './ui/art';
 import { CLASS_LABEL, goodIcon } from './ui/goods-icons';
@@ -547,7 +547,7 @@ class App {
         if (this.act((g) => recruitSettlers(g, ship.id, Number(data.n)))) this.toast(`${data.n} settlers aboard the ${ship.name}.`, 'good');
         break;
       case 'unload-settlement':
-        this.act((g) => unloadAtSettlement(g, ship.id));
+        this.act((g) => unloadAtSettlement(g, ship.id, data.good || undefined));
         break;
       case 'build':
         if (this.act((g) => startBuilding(g, data.id!))) this.toast('Work begins.', 'good');
@@ -1175,15 +1175,20 @@ class App {
     } else settlers = `<p class="hint">Settlers sign on at ${esc(world.ports[home].name)}: open this tab with a ship in port there. ${willing(s)} are willing to go just now.${ship.settlers ? ` The ${esc(ship.name)} carries ${ship.settlers}.` : ''}</p>`;
     const supplies = SETTLEMENT_TUNING.supplies;
     const aboard = (ship.goods ?? []).filter((l) => supplies.includes(l.good));
-    const unload = isReady(g, ship) && ship.location === s.site && (aboard.length || ship.settlers)
-      ? `<button class="btn primary wide" data-action="unload-settlement">Unload into the stores (${aboard.map((l) => `${Math.round(l.tons)} t ${world.goods[l.good].name.toLowerCase()}`).join(', ')})</button>` : '';
+    const lots = [...(ship.settlers ? [{ good: 'settlers', label: `${ship.settlers} settlers`, fits: true }] : []),
+      ...aboard.map((l) => ({ good: l.good, label: `${tons(l.tons)} ${world.goods[l.good].name.toLowerCase()}`, fits: roomFor(s, l.good) > 0.05 }))];
+    const unload = isReady(g, ship) && ship.location === s.site && lots.length
+      ? `<div class="settler-box"><p><strong>Aboard the ${esc(ship.name)}</strong>: land what you choose. Timber and tools go to the yard, food to the store.</p>
+        <div class="btn-row">${lots.map((l) => `<button class="btn small ${l.fits ? 'primary' : 'ghost'}" data-action="unload-settlement" data-good="${l.good}" ${l.fits ? '' : 'disabled title="No room"'}>Land ${esc(l.label)}</button>`).join('')}
+        ${lots.length > 1 ? `<button class="btn small" data-action="unload-settlement" data-good="">Land all that fits</button>` : ''}</div></div>` : '';
     const news = s.news.slice(0, 8).map((n) => `<li class="${n.kind}"><span class="sub">${gameDate(n.day)}</span> ${esc(n.text)}</li>`).join('');
     return `<div class="port-head"><div><h2>${esc(name)}</h2><span class="sub">${STAGE_NAMES[s.stage]} · founded ${gameDate(s.founded)} · ${esc(world.ports[s.site].country)}</span></div></div>
       ${s.hungry ? `<p class="o-warn">${esc(name)} has no food: people are leaving. Bring rice or grain.</p>` : s.people >= 1 && days < 15 ? `<p class="o-warn">Food for only ${Math.floor(days)} days. Bring rice or grain.</p>` : ''}
       <div class="kvs settle-kv">
         <div class="kv"><span>People</span><strong>${Math.floor(s.people)}</strong><em>${s.people > housing(s) ? `crowded: room for ${housing(s)}` : `room for ${housing(s)}`}</em></div>
         <div class="kv"><span>Food</span><strong>${daysText}</strong><em>they eat ${tons(eats(s))} a day</em></div>
-        <div class="kv"><span>In store</span><strong>${tons(stored(s))}</strong><em>of ${storeRoom(s)} t</em></div>
+        <div class="kv"><span>Store</span><strong>${tons(stored(s))}</strong><em>of ${storeRoom(s)} t · food</em></div>
+        <div class="kv"><span>Yard</span><strong>${tons(yardStored(s))}</strong><em>of ${SETTLEMENT_TUNING.yard} t · timber, tools</em></div>
       </div>
       ${need ? `<h3>To become ${need.stage === 'outpost' ? 'an outpost' : 'a village'}</h3><ul class="needs">${need.needs.map((n) => `<li class="${n.done ? 'done' : ''}">${n.done ? '✓' : '○'} ${esc(n.text)}</li>`).join('')}</ul>` : ''}
       <h3>Stores</h3><div class="kvs">${store}</div>
@@ -1192,7 +1197,7 @@ class App {
       ${project}
       <h3>Build</h3><ul class="build-list">${builds}</ul>
       <h3>Settlers</h3>${settlers}
-      <p class="hint">Supplies: buy rice${site.crop === 'grain' ? ' or grain' : ''}, timber, and iron and tools on your own account (Market tab) and sail them here; on arrival settlers go ashore and supplies go into the stores. Rent to the local ruler: ${money(Math.round(site.charter * SETTLEMENT_TUNING.rent))} a year.</p>
+      <p class="hint">Supplies: buy rice${site.crop === 'grain' ? ' or grain' : ''}, timber, and iron and tools on your own account (Market tab) and sail them here; on arrival settlers go ashore and supplies are landed (timber and tools in the yard, food in the store). Rent to the local ruler: ${money(Math.round(site.charter * SETTLEMENT_TUNING.rent))} a year.</p>
       ${news ? `<h3>News</h3><ul class="settle-news">${news}</ul>` : ''}`;
   }
 

@@ -125,7 +125,9 @@ Modern and shared:
   - Settlers sign on at the home port (Tls/ƒ300 each, 1 t of hold room); only so many are willing
     (30 at the start, +0.5 a day, max 40 waiting: `willing`). They go ashore on arrival; supply
     goods (rice, grain, timber, tools) bought on own account go into the stores on arrival (or by
-    "Unload" later when the store was full). New good: iron and tools (made in Amsterdam, London,
+    "Land" buttons later). Timber and tools lie in a yard (300 t, its own room: yardGoods), food
+    in the store (150 t + 500 per storehouse), so food never blocks a building (build 63). The
+    Settlement tab has a Land button per good aboard, plus "Land all that fits". New good: iron and tools (made in Amsterdam, London,
     Amoy, Canton).
   - Stages camp → outpost (40 people, jetty, storehouse, food 60 days) → village (120 people,
     well, every field the land allows harvesting). Buildings (BUILDINGS): jetty, storehouse,
@@ -418,3 +420,4 @@ Check `vite-plugin-pwa` precache size limits after adding it.
 | 60 | The globe: an optional 3D view (Globe/Map button), turned by finger, zoomed like the map; night as a real shadow, routes as arcs, fog, clouds, all on the sphere |
 | 61 | The settlement, step B part 1: the charter, three sites per house, settlers (scarce), stores, buildings, camp → outpost → village, hunger, fever, storms, rent, guide chapters 4–5, the settlement's harbour view; new good iron and tools |
 | 62 | The Journal tab (was Log): the guide, achievements with dates, your record, the log |
+| 63 | Settlement: a yard for timber and tools with its own room; land what you choose, good by good |
