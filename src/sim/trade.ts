@@ -22,10 +22,13 @@ export const TRADE_TUNING = {
   driftMin: 0.55,
   driftMax: 1.7,
   /** Buying this many lots' worth (good's lot size) at once pushes the price up 100%. */
-  buyImpactLots: 6,
+  buyImpactLots: 20,
+  /** Selling on your own account moves a market this many times less than a freight delivery of the same tons. */
+  saleSoftening: 5,
   /** News: letters travel with other people's ships at this speed (knots). */
   letterKn: 4,
-  /** A price sample is kept every this many days (for the news), and this many samples. */
+  /** Price news: a sample every day for this many days, and before that one a week, this many. */
+  dailyDays: 30,
   sampleEvery: 7,
   samples: 60,
 };
@@ -79,7 +82,11 @@ function sample(world: World, g: GameState, portId: string, day = g.day): void {
   const p: Record<string, number> = {};
   for (const good of traded(world, portId)) p[good] = (buyPrice(world, g, portId, good) ?? sellPrice(world, g, portId, good))!;
   (ps.hist ??= []).push({ day, p });
-  if (ps.hist.length > TRADE_TUNING.samples) ps.hist.shift();
+  // Daily samples for the last month, weekly ones before that.
+  const T = TRADE_TUNING;
+  ps.hist = ps.hist.filter((h, i) => i === 0 || h.day >= day - T.dailyDays || h.day % T.sampleEvery === 0);
+  const weekly = ps.hist.filter((h) => h.day < day - T.dailyDays).length;
+  if (weekly > T.samples) ps.hist.splice(0, weekly - T.samples);
 }
 
 /** A new game (or an old save): every port's first price sample, the news you start with. */
@@ -110,7 +117,7 @@ export function tradeDay(world: World, g: GameState, day = g.day): void {
       ps.drift[good] = Math.round(Math.max(T.driftMin, Math.min(T.driftMax, next)) * 1000) / 1000;
     }
   }
-  if (day % T.sampleEvery === 0) for (const p of world.portList) sample(world, g, p.id, day);
+  for (const p of world.portList) sample(world, g, p.id, day);
 }
 
 /** Tons of own-account goods aboard. */
@@ -136,20 +143,31 @@ export function goodsBuyQuote(world: World, g: GameState, portId: string, good: 
   return { price: p, total: Math.round(tons * p * (1 + rise / 2)) };
 }
 
-/** What selling `tons` here would fetch: the price falls as you sell (the average of before and after). */
+/**
+ * The share of the first ton's price that selling `tons` fetches on average, with the market at
+ * `level`: the price falls steadily as you sell, down to the floor, and stays there.
+ */
+export function saleFactor(world: World, good: string, tons: number, level = 1): number {
+  if (tons <= 0 || level <= 0) return 1;
+  const def = world.goods[good];
+  const slope = ECONOMY.deliveryImpact / ((def.bigLotMax ?? def.lotMax * 2) * TRADE_TUNING.saleSoftening);
+  const floor = Math.min(level, ECONOMY.minPrice);
+  const toFloor = (level - floor) / slope;            // tons until the price reaches the floor
+  const t1 = Math.min(tons, toFloor);
+  const area = t1 * level - (slope * t1 * t1) / 2 + Math.max(0, tons - t1) * floor;
+  return area / (tons * level);
+}
+
+/** What selling `tons` here would fetch: the price falls as you sell. */
 export function goodsSaleQuote(world: World, g: GameState, portId: string, good: string, tons: number): { price: number; total: number } | null {
   const p = sellPrice(world, g, portId, good);
   if (p === null) return null;
-  const def = world.goods[good];
-  const before = priceLevel(g, portId, good);
-  const after = Math.max(ECONOMY.minPrice, before - ECONOMY.deliveryImpact * (tons / (def.bigLotMax ?? def.lotMax * 2)));
-  const drop = before > 0 ? (before - after) / before : 0;
-  return { price: p, total: Math.round(tons * p * (1 - drop / 2)) };
+  return { price: p, total: Math.round(tons * p * saleFactor(world, good, tons, priceLevel(g, portId, good))) };
 }
 
-/** Selling saturates the buyer's market, as a delivery does. */
+/** Selling saturates the buyer's market, as a delivery does (more gently: see saleSoftening). */
 export function recordSale(world: World, g: GameState, portId: string, good: string, tons: number): void {
-  recordDelivery(world, g, portId, good, tons);
+  recordDelivery(world, g, portId, good, tons / TRADE_TUNING.saleSoftening);
 }
 
 export interface PriceNews {

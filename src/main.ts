@@ -1,7 +1,7 @@
 import './ui/style.css';
 import { activeEvents, closedCanals, priceLevel, routeFor } from './sim/economy';
 import { CHART_TUNING, chartOffers, fogFor, isCharted, unchartedShare, wantedGoods } from './sim/charts';
-import { bestKnownMarkets, buyPrice, goodsBuyQuote, goodsSaleQuote, hasTrade, priceNews, type PriceNews } from './sim/trade';
+import { bestKnownMarkets, buyPrice, goodsBuyQuote, goodsSaleQuote, hasTrade, priceNews, saleFactor, type PriceNews } from './sim/trade';
 import {
   ActionError, LAID_UP, RULES, acceptContract, advance, atSea, borrow, buyFuel, buyShip, canCarry, cargoTons, clearOrders,
   assignCaptain, buyChart, callsOnTheWay, detour, onTheWay, setPlannedDest, type CallOnTheWay, buyGoods, sellGoods, captainOf, fireCaptain, hireCaptain, monthOf, monthProfit, onOrders, resumeOrders,
@@ -1890,10 +1890,14 @@ class App {
     return `${money(n.price)}${unit} <span class="asof" title="The latest letter from there">as of ${gameDate(n.asOf)}</span>`;
   }
 
-  /** Where a good sells best, by the news you have. */
-  private bestMarkets(good: string, except: string, n = 2): string {
+  /**
+   * Where a good sells best, by the news you have; with `lot`, what selling that many tons there
+   * would fetch on average (the price falls as you sell).
+   */
+  private bestMarkets(good: string, except: string, n = 2, lot = 0): string {
     const best = bestKnownMarkets(world, this.g, good, except).slice(0, n);
-    return best.length ? best.map((b) => `${esc(world.ports[b.port].name)} ${this.newsText(b)}`).join(' · ') : 'no buyer you know of';
+    const avg = (price: number) => (lot >= 1 ? ` <span class="avg">(≈ ${money(Math.round(price * saleFactor(world, good, lot)))}/t for ${tons(lot)})</span>` : '');
+    return best.length ? best.map((b) => `${esc(world.ports[b.port].name)} ${this.newsText(b)}${avg(b.price)}`).join(' · ') : 'no buyer you know of';
   }
 
   /** Goods on your own account aboard a ship (shown at sea too). */
@@ -1905,7 +1909,7 @@ class App {
       const q = here ? goodsSaleQuote(world, this.g, here, l.good, l.tons) : null;
       const profit = q ? q.total - l.cost : 0;
       return `<li><div class="og-main">${goodIcon(l.good, 28)}<strong>${esc(world.goods[l.good].name)}</strong> · ${tons(l.tons)} <span class="hint">${l.cost === 0 && this.g.settlement?.site === l.from ? `your own, from ${esc(world.ports[l.from].name)}` : `bought at ${money(Math.round(l.cost / l.tons))}/t in ${esc(world.ports[l.from].name)}`}</span></div>
-        <div class="og-where hint">Best known: ${this.bestMarkets(l.good, here ?? '')}</div>
+        <div class="og-where hint">Best known: ${this.bestMarkets(l.good, here ?? '', 2, l.tons)}</div>
         <div class="btn-row">${here ? (q ? `<button class="btn small ${profit >= 0 ? 'primary' : 'loss'}" data-action="sell-goods" data-good="${l.good}">Sell all here<span>${money(q.total)} · ${money(profit, true)}</span></button>`
           : `<span class="hint">Nobody here buys it.</span>`) : ''}
           <button class="btn small ghost jettison" data-action="jettison-goods" data-good="${l.good}" title="Throw it overboard: you lose what it cost">Jettison</button></div>
@@ -1923,8 +1927,8 @@ class App {
       const wanted = world.ports[dest].demands.some((d) => d.good === l.good);
       const good = esc(world.goods[l.good].name.toLowerCase());
       if (!wanted || !n) return `<li>${goodIcon(l.good, 18)} ${tons(l.tons)} of ${good}: nobody in ${esc(name)} buys it.</li>`;
-      const value = n.price * l.tons;
-      return `<li>${goodIcon(l.good, 18)} ${tons(l.tons)} of ${good}: ${esc(name)} paid ${this.newsText(n, '/t')}, ≈ ${compactMoney(value)} (${money(value - l.cost, true)} on cost).</li>`;
+      const value = n.price * l.tons * saleFactor(world, l.good, l.tons, n.live ? (this.g.ports[dest].prices?.[l.good] ?? 1) : 1);
+      return `<li>${goodIcon(l.good, 18)} ${tons(l.tons)} of ${good}: ${esc(name)} paid ${this.newsText(n, '/t')} for the first ton; all of it ≈ ${compactMoney(value)} (${money(Math.round(value / l.tons))}/t, ${money(value - l.cost, true)} on cost).</li>`;
     }).join('');
     return `<div class="goods-outlook"><span class="lbl">Your own goods</span><ul>${rows}</ul></div>`;
   }
@@ -1945,13 +1949,13 @@ class App {
     };
     const rows = forSale.map((good) => `<li>
         <div class="tg-main">${goodIcon(good, 28)}<strong>${esc(world.goods[good].name)}</strong> <b>${money(buyPrice(world, g, port.id, good)!)}/t</b></div>
-        <div class="hint">Sells best in: ${this.bestMarkets(good, port.id)}</div>
+        <div class="hint">Sells best in: ${this.bestMarkets(good, port.id, 2, Math.min(room, 300))}</div>
         <div class="btn-row">${room > 10 ? buyBtn(good, 10, '+10 t') : ''}${room > 50 ? buyBtn(good, 50, '+50 t') : ''}${buyBtn(good, 'max', room > 0 ? `Fill ${tons(room)}` : 'Hold full')}</div>
       </li>`).join('');
     const wants = wanted.map((good) => `<span class="gchip">${goodIcon(good, 18)}${esc(world.goods[good].name.toLowerCase())} ${money(priceNews(world, g, port.id, good)!.price)}</span>`).join(' ');
     return `<section class="card trade-card">
       <h3>⚖ Trade on your own account</h3>
-      <p class="hint">Buy goods here and sell them where they're wanted. Prices elsewhere are as of the latest letter from there: news travels by ship.</p>
+      <p class="hint">Buy goods here and sell them where they're wanted. Prices elsewhere are as of the latest letter from there: news travels by ship. A price is for the first ton: the more you buy, the dearer it gets, and the more you sell, the less each ton fetches (≈ shows the average for a whole lot).</p>
       ${this.ownGoods(ship)}
       ${rows ? `<h4>For sale in ${esc(port.name)}</h4><ul class="trade-goods">${rows}</ul>` : `<p class="hint">${esc(port.name)} sells nothing your ${esc(type.name.toLowerCase())} can carry.</p>`}
       ${wants ? `<p class="hint"><strong>${esc(port.name)} buys:</strong> ${wants}</p>` : ''}

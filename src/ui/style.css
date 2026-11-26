@@ -975,3 +975,4 @@ button.era-card:hover { border-color: var(--accent); }
 .ach-steps li.done .ach-title { color: var(--muted); }
 .ach-worth { margin-top: 10px; }
 .o-good { color: var(--good); font-size: 13px; margin: 8px 0; }
+.avg { color: var(--text); white-space: nowrap; }

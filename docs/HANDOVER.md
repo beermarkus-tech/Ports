@@ -42,7 +42,7 @@ as an installable offline PWA (Vite + TypeScript, no framework).
 ```
 npm install
 npm run dev          # local dev server
-npm test             # vitest, 122 tests, all must pass
+npm test             # vitest, 124 tests, all must pass
 npm run build        # tsc + vite build into dist/
 npx vite preview --port 4173 --strictPort   # serve dist/ (base is './', open http://localhost:4173/)
 ERA=sail [HOUSE=chinese] npx tsx scripts/balance.ts 10 100 greedy   # balance bots (also: casual)
@@ -444,3 +444,4 @@ Check `vite-plugin-pwa` precache size limits after adding it.
 | 63 | Settlement: a yard for timber and tools with its own room; land what you choose, good by good |
 | 64 | Settlement feeds itself: fields give 1.5 t a day, fishing boats (more where the land is poor), a village is one that feeds itself; boats in the harbour view |
 | 65 | Step C: workshops, town and port stages, the settlement opens as a real port (board, market, dues), own goods loaded for nothing, guide chapters 6–7 |
+| 66 | Own-account trade: gentler market impact (buyImpactLots 20, sales 5× softer than freight, a correct average down to the floor via saleFactor), outlooks show the average for the whole lot, daily price news for the last month |

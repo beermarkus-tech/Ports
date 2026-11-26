@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { advance, buyGoods, canCarry, cargoTons, newGame, sail, sellGoods } from '../src/sim/game';
 import { netWorth } from '../src/sim/ships';
-import { buyPrice, goodsSaleQuote, hasTrade, priceNews, sellPrice } from '../src/sim/trade';
+import { buyPrice, goodsSaleQuote, hasTrade, priceNews, saleFactor, sellPrice } from '../src/sim/trade';
 import type { GameState } from '../src/sim/types';
 import { setEra, worldFor } from '../src/sim/world';
 
@@ -46,6 +46,27 @@ describe('trade on your own account (Age of Sail)', () => {
     const small = goodsSaleQuote(w(), g, 'amsterdam', 'nutmeg', 10)!;
     const big = goodsSaleQuote(w(), g, 'amsterdam', 'nutmeg', 120)!;
     expect(big.total / 120).toBeLessThan(small.total / 10);
+  });
+
+  it('a full hold sells for 70–95% of the first ton\'s price, and the quote matches the sale', () => {
+    let g = at(newGame(8), 'amsterdam', 'fluyt');
+    const first = sellPrice(w(), g, 'amsterdam', 'pepper')!;
+    const q = goodsSaleQuote(w(), g, 'amsterdam', 'pepper', 300)!;
+    expect(q.total / 300 / first).toBeGreaterThan(0.7);
+    expect(q.total / 300 / first).toBeLessThan(0.95);
+    expect(saleFactor(w(), 'pepper', 10)).toBeGreaterThan(0.98);
+    // The quote is what the sale brings in.
+    g.fleet[0].goods = [{ good: 'pepper', tons: 300, cost: 0, from: 'bantam' }];
+    const cash = g.cash;
+    g = sellGoods(g, g.fleet[0].id, 'pepper');
+    expect(g.cash - cash).toBe(q.total);
+  });
+
+  it('news from a port a day or two away is a day or two old', () => {
+    let g = newGame(9);
+    g = advance(g, 40);
+    const near = priceNews(w(), g, 'london', 'pepper')!;
+    expect(g.day - near.asOf).toBeLessThanOrEqual(3);
   });
 
   it('own goods take hold space from charters', () => {
