@@ -2471,8 +2471,13 @@ reloadBtn.addEventListener('click', async () => {
 });
 
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') void checkForUpdate();
+  const hidden = document.visibilityState === 'hidden';
+  sound.setHidden(hidden);
+  if (!hidden) void checkForUpdate();
 });
+// Some Android browsers fire only these when the app is put away or comes back.
+window.addEventListener('pagehide', () => sound.setHidden(true));
+window.addEventListener('pageshow', () => { if (document.visibilityState === 'visible') sound.setHidden(false); });
 
 initServiceWorker();
 new App({ showStart: !justUpdated() && !eraSwitched() });

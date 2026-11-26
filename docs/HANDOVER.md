@@ -34,6 +34,8 @@ as an installable offline PWA (Vite + TypeScript, no framework).
 - The trade in enslaved people stays out of the game entirely.
 - Commit messages end with the attribution lines the harness provides
   (`Co-Authored-By: …` and `Claude-Session: …`). Never put model names in commits or code.
+- The owner plays on an **Android** device (phone/tablet), installed as a PWA: test touch, small
+  screens and Android browser behaviour (backgrounding, GPU quirks).
 - Write in plain, direct English in the UI. Use UK spellings in game text
   (harbour, colour) as the game already does.
 
@@ -445,3 +447,4 @@ Check `vite-plugin-pwa` precache size limits after adding it.
 | 64 | Settlement feeds itself: fields give 1.5 t a day, fishing boats (more where the land is poor), a village is one that feeds itself; boats in the harbour view |
 | 65 | Step C: workshops, town and port stages, the settlement opens as a real port (board, market, dues), own goods loaded for nothing, guide chapters 6–7 |
 | 66 | Own-account trade: gentler market impact (buyImpactLots 20, sales 5× softer than freight, a correct average down to the floor via saleFactor), outlooks show the average for the whole lot, daily price news for the last month |
+| 67 | Sound and music pause when the app goes to the background or the screen turns off (AudioContext suspended on visibilitychange/pagehide), and resume on return |

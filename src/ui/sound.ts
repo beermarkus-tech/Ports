@@ -63,6 +63,17 @@ class SoundBoard {
     else void this.ctx.resume().then(() => this.syncMusic());
   }
 
+  /**
+   * The app went to the background (another app, the screen off) or came back: all sound is
+   * suspended while it's hidden, and the music picks up where it was on return.
+   */
+  setHidden(hidden: boolean): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (hidden) { if (ctx.state === 'running') void ctx.suspend(); }
+    else if (ctx.state === 'suspended') void ctx.resume().then(() => this.syncMusic()).catch(() => { /* needs a tap: unlock() */ });
+  }
+
   setEnabled(on: boolean): void {
     this.enabled = on;
     try { localStorage.setItem(KEY, on ? 'on' : 'off'); } catch { /* ignore */ }
