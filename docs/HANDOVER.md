@@ -6,7 +6,7 @@ build log and move items in "Now and next" as work lands.
 
 ## 0. Now and next (read this first)
 
-**State at build 76** (harbour life step 2 in build 75; the settlement view in 76). Live at https://beermarkus-tech.github.io/Ports/. 136 tests pass. Working
+**State at build 77** (harbour life step 2 in build 75; the settlement view in 76; live settlement tab in 77). Live at https://beermarkus-tech.github.io/Ports/. 136 tests pass. Working
 branch of the last chat: `ccr-e09247f0-shm8l1`; everything is merged into `main` (main deploys).
 The owner plays the 1650 game (mostly the Chinese house) on an Android device.
 
@@ -546,6 +546,7 @@ Check `vite-plugin-pwa` precache size limits after adding it.
 | 74 | Handover brought up to date: section 0 (now and next), build table repaired, artifacts listed |
 | 75 | Harbour life step 2 (1650): dockers carry sacks and casks over a gangway when you load, sell or unload; scaffolding and builders at the settlement's project; visiting merchants (junks in East Asia) warp in to a free berth and leave, also at your open settlement port; a ferry boat at an anchorage; rowing boats crossing. Hold shows own goods too. src/ui/harbour-life.ts |
 | 76 | Look at your settlement from anywhere: "Look at …" button in the settlement tab opens its harbour picture, with or without a ship of yours there |
+| 77 | The settlement tab refreshes as the days pass (people, stores, building progress; it was only redrawn on leaving and coming back); "1 day left" |
 
 ## 10. Proposals and artifacts (claude.ai, owner's account)
 

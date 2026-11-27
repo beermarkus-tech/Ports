@@ -497,10 +497,11 @@ class App {
       this.lastSave = performance.now();
     }
     this.renderLive();
-    // The Cargo, Voyage and Ship tabs show day-to-day things (offers, deadlines, voyage progress, prices):
-    // refresh them when the day changes, at most once a second. Market and Log only change on actions.
+    // The Cargo, Voyage, Ship, Fleet and settlement tabs show day-to-day things (offers, deadlines, voyage
+    // progress, the settlement's people, stores and building): refresh them when the day changes, at most
+    // once a second. Market and Log only change on actions.
     const dayChanged = Math.floor(this.g.day) !== this.renderedDay;
-    const live = this.tab === 'contracts' || this.tab === 'voyage' || this.tab === 'ship' || this.tab === 'fleet';
+    const live = this.tab === 'contracts' || this.tab === 'voyage' || this.tab === 'ship' || this.tab === 'fleet' || this.tab === 'settlement';
     // Don't redraw under an open dropdown (it would snap shut).
     const picking = document.activeElement?.tagName === 'SELECT';
     if (dayChanged && live && !picking && performance.now() - this.lastPanel > 1000) this.renderPanel();
@@ -1445,7 +1446,7 @@ class App {
       const b = BUILDINGS.find((x) => x.id === s.project!.id)!;
       const left = Math.max(0, (b.work - s.project!.done) / Math.max(1, s.people * SETTLEMENT_TUNING.workShare));
       return `<div class="building-now"><span class="lbl">Building now</span><strong>${esc(b.name)}</strong>
-        <div class="gs-bar"><i style="width:${Math.min(100, (s.project!.done / b.work) * 100).toFixed(0)}%"></i></div><span class="sub">about ${Math.ceil(left)} days left</span></div>`;
+        <div class="gs-bar"><i style="width:${Math.min(100, (s.project!.done / b.work) * 100).toFixed(0)}%"></i></div><span class="sub">about ${Math.ceil(left)} day${Math.ceil(left) === 1 ? '' : 's'} left</span></div>`;
     })() : '';
     const builds = BUILDINGS.filter((b) => b.max(site, { ...s, stage: 'port' }) > 0).map((b) => {
       const why = cannotBuild(g, s, b.id);
