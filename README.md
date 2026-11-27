@@ -60,6 +60,24 @@ era: Modern from 2000, or the Age of Sail from 1650), rename or delete games.
 With more than one game saved, the app opens on this screen. A save from before
 slots becomes the first game automatically.
 
+## Cloud saves (GitHub gist)
+
+Sync your games between devices through a secret gist on your GitHub account.
+In **Your games** (☰) open *Cloud saves*, paste a GitHub token with only the
+**gist** permission (Settings → Developer settings → Personal access tokens →
+Tokens (classic)), name the device and connect; do the same on each device with
+the same token. The game finds or creates the gist itself.
+
+- When the game opens (or comes back to the front after a while) it checks the
+  cloud. If the cloud has a newer save of the game you have open, it asks:
+  *Device or cloud?*, with both versions side by side and the newer one picked.
+- Per game: if only one side changed since the last sync, the newer one wins
+  without asking; if both changed, you choose. Deleted games are deleted on the
+  other devices too. Games are stored gzip-compressed with a permanent id each.
+- While playing it saves to the cloud about every 1½ minutes when something
+  changed, and when you switch away; *Sync now* does it at once.
+- The token stays on the device; *Turn off on this device* forgets it.
+
 ## The Age of Sail (1650)
 
 A second era with its own world: found a merchant house in Amsterdam with the
