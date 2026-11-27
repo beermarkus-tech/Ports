@@ -147,7 +147,7 @@ export function drawSailScene(c: CanvasRenderingContext2D, input: SceneInput, w:
       drawShip(c, n, nd, x, yW + draft(n, nd) * m, m, t, { faded: true, cutaway: false });
     });
     const keelY = yW + draft(ship, d) * m;
-    drawShip(c, ship, d, shipX, keelY, m, t, { faded: false, cutaway: false });
+    if (!input.noShip) drawShip(c, ship, d, shipX, keelY, m, t, { faded: false, cutaway: false });
     if (settle?.buildings.fishery) fishingBoats(c, settle, w, yW, m, t);
     // Water over the hull below the waterline, then the cutaway hold as a diagram.
     c.fillStyle = WATER[t]; c.globalAlpha = 0.84;
@@ -167,13 +167,15 @@ export function drawSailScene(c: CanvasRenderingContext2D, input: SceneInput, w:
       const y = yW + 2 + r() * (h - yW - 4), x = r() * w, l = 4 + r() * 10;
       c.beginPath(); c.moveTo(x, y); c.quadraticCurveTo(x + l / 2, y - 2.5, x + l, y + 0.5); c.stroke();
     }
-    c.save();
-    c.clip(hullPath(d, shipX, keelY, m));
-    hold(c, ship, d, shipX, keelY, m);
-    c.restore();
-    c.strokeStyle = 'rgba(255,250,235,0.55)'; c.setLineDash([4, 3]);
-    c.beginPath(); c.moveTo(shipX, yW); c.lineTo(shipX + d.L * m, yW); c.stroke();
-    c.setLineDash([]);
+    if (!input.noShip) {
+      c.save();
+      c.clip(hullPath(d, shipX, keelY, m));
+      hold(c, ship, d, shipX, keelY, m);
+      c.restore();
+      c.strokeStyle = 'rgba(255,250,235,0.55)'; c.setLineDash([4, 3]);
+      c.beginPath(); c.moveTo(shipX, yW); c.lineTo(shipX + d.L * m, yW); c.stroke();
+      c.setLineDash([]);
+    }
   }
   c.restore();
   if (careen) return { L: d.L, draft: null, d1: d.d1 };

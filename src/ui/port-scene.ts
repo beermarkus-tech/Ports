@@ -33,6 +33,8 @@ export interface SceneInput {
   portId: string;
   portName: string;
   time: TimeOfDay;
+  /** Looking at your settlement with no ship of ours there: the harbour without her (ship is a stand-in). */
+  noShip?: boolean;
   /** Other ships of ours in the same port, moored at the edges of the picture. */
   neighbours: SceneShip[];
   /** Days left in dry dock, if docked. */
@@ -40,7 +42,7 @@ export interface SceneInput {
   /** The weather there (1650 harbours). */
   weather?: Weather;
   /** At your own settlement (1650): what stands there, to draw it. */
-  settlement?: { people: number; buildings: Record<string, number>; house: 'dutch' | 'chinese'; forest: boolean; stage?: string; project?: string };
+  settlement?: { people: number; buildings: Record<string, number>; house: 'dutch' | 'chinese'; forest: boolean; stage?: string; project?: string; stageName?: string; projectName?: string };
 }
 
 interface Dims { L: number; D: number; d0: number; d1: number; sup: number }
@@ -185,7 +187,7 @@ export class PortScene {
     if (this.input?.ship.id !== input.ship.id) this.zoomed = false;
     this.input = input;
     this.el.hidden = false;
-    if (input.ship.family === 'sail') this.life.observe(input, performance.now());
+    if (input.ship.family === 'sail' && !input.noShip) this.life.observe(input, performance.now());
     this.draw();
     // Dockers just started: the loop picks them up.
     if (this.base && this.lay) this.pace();
@@ -414,6 +416,18 @@ export class PortScene {
 
   private renderSailHud(input: SceneInput, d: { L: number; draft: number | null; d1: number }): void {
     const s = input.ship;
+    const st = input.settlement;
+    if (input.noShip && st) {
+      const chip = (text: string) => `<span>${text}</span>`;
+      this.hud.innerHTML = [
+        chip(`<strong>${esc(input.portName)}</strong> · ${esc(st.stageName ?? 'your settlement')}`),
+        chip(`${Math.floor(st.people).toLocaleString('en-US')} people`),
+        st.projectName ? chip(`Building: ${esc(st.projectName)}`) : chip('Nothing being built'),
+        chip(st.buildings.jetty ? 'No ship of yours in port' : 'No ship of yours at anchor'),
+        input.weather ? chip(esc(weatherWords(input.weather))) : '',
+      ].join('');
+      return;
+    }
     const cargo = s.cargo.reduce((a, l) => a + l.tons, 0);
     const share = s.fuel / s.bunkerCapacity;
     const chip = (text: string, cls = '') => `<span class="${cls}">${text}</span>`;

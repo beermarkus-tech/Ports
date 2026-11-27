@@ -6,7 +6,7 @@ build log and move items in "Now and next" as work lands.
 
 ## 0. Now and next (read this first)
 
-**State at build 75** (harbour life step 2 landed in build 75). Live at https://beermarkus-tech.github.io/Ports/. 136 tests pass. Working
+**State at build 76** (harbour life step 2 in build 75; the settlement view in 76). Live at https://beermarkus-tech.github.io/Ports/. 136 tests pass. Working
 branch of the last chat: `ccr-e09247f0-shm8l1`; everything is merged into `main` (main deploys).
 The owner plays the 1650 game (mostly the Chinese house) on an Android device.
 
@@ -22,6 +22,10 @@ selling, unloading on arrival), scaffolding and builders at the settlement's pro
 merchants' ships warping in to a free edge berth and leaving (also at your settlement once it
 is an open port; junks in East Asia and for the Chinese house), a ferry boat at an anchorage
 (no jetty yet), and now and then a rowing boat crossing. The hold now also shows your own goods.
+Build 76: **look at your settlement from anywhere**: a "🏡 Look at <name>" button in the
+settlement tab opens its harbour picture (main.ts view `'colony'`); a ship of yours lying there
+is shown, otherwise the harbour without one (SceneInput.noShip) and a settlement HUD (stage,
+people, what's being built, weather). Map returns to the map.
 
 **Next, in the owner's order:**
 1. **The passage** (step 3): a "Watch her sail" button while a ship is at sea (button only, never
@@ -541,6 +545,7 @@ Check `vite-plugin-pwa` precache size limits after adding it.
 | 73 | Readable buttons on the start screen: Rename/Delete on the parchment game cards in dark mode, and light text on the brown main buttons in the light 1650 theme |
 | 74 | Handover brought up to date: section 0 (now and next), build table repaired, artifacts listed |
 | 75 | Harbour life step 2 (1650): dockers carry sacks and casks over a gangway when you load, sell or unload; scaffolding and builders at the settlement's project; visiting merchants (junks in East Asia) warp in to a free berth and leave, also at your open settlement port; a ferry boat at an anchorage; rowing boats crossing. Hold shows own goods too. src/ui/harbour-life.ts |
+| 76 | Look at your settlement from anywhere: "Look at …" button in the settlement tab opens its harbour picture, with or without a ship of yours there |
 
 ## 10. Proposals and artifacts (claude.ai, owner's account)
 

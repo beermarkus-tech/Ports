@@ -139,7 +139,8 @@ class App {
   private marketPort: string | null = null;
   private contractSort: ContractSort = loadContractSort();
   /** What the big area shows: the world map, or the selected ship in port. */
-  private view: 'map' | 'port' = 'map';
+  /** The map, the selected ship's port, or your settlement's harbour (from wherever you are). */
+  private view: 'map' | 'port' | 'colony' = 'map';
   private portScene!: PortScene;
   private portBtn!: HTMLButtonElement;
   private sunLon = 30;
@@ -757,6 +758,12 @@ class App {
       case 'sell-goods':
         this.act((g) => sellGoods(g, this.activeId, data.good!));
         break;
+      case 'colony-view':
+        this.view = 'colony';
+        this.renderView();
+        // On a phone the picture is above the panel: bring it into sight.
+        $('#map').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        break;
       case 'found':
         if (this.act((g) => foundSettlement(g, data.id!))) { this.toast(`The charter is signed: ${world.ports[data.id!].name} is yours to settle.`, 'good'); sound.play('coins'); }
         break;
@@ -979,11 +986,16 @@ class App {
   /** The port view over the map when the selected ship is in port (and the button to get to it). */
   private renderView(): void {
     if (!world.era.portView) this.view = 'map';
-    const ship = this.ship();
-    const inPort = !atSea(ship);
-    if (this.view === 'port' && inPort) {
-      const docked = inDryDock(this.g, ship);
-      const port = world.ports[ship.location];
+    if (this.view === 'colony' && !(this.g.settlement && world.ports[this.g.settlement.site])) this.view = 'map';
+    const selected = this.ship();
+    const inPort = !atSea(selected);
+    const colony = this.view === 'colony' ? this.g.settlement! : null;
+    // Looking at the settlement: one of our ships lying there (the selected one first), or none.
+    const here = (s: ShipState) => colony !== null && !atSea(s) && s.location === colony.site;
+    const ship = colony ? (here(selected) ? selected : this.g.fleet.find(here) ?? null) : selected;
+    if ((this.view === 'port' && inPort) || colony) {
+      const docked = ship ? inDryDock(this.g, ship) : false;
+      const port = world.ports[colony ? colony.site : selected.location];
       const time = this.timeOfDay(port.lon);
       const weather = isSail() ? this.weatherHere(port.id) : undefined;
       const settle = this.g.settlement?.site === port.id ? this.g.settlement : undefined;
@@ -997,18 +1009,21 @@ class App {
       } else { sound.setAmbience(null); this.portScene.setAmbientButton(null); }
       this.portScene.show({
         weather,
-        ship: this.sceneShip(ship),
+        ship: this.sceneShip(ship ?? selected),
+        noShip: !ship,
         place: docked ? 'dock' : 'quay',
         portId: port.id,
         portName: port.name,
         time,
-        neighbours: this.g.fleet.filter((s) => s.id !== ship.id && !atSea(s) && !inDryDock(this.g, s) && s.location === ship.location)
+        neighbours: this.g.fleet.filter((s) => s.id !== ship?.id && !atSea(s) && !inDryDock(this.g, s) && s.location === port.id)
           .map((s) => this.sceneShip(s)),
-        dockDays: docked ? ship.busyUntil! - this.g.day : undefined,
+        dockDays: docked ? ship!.busyUntil! - this.g.day : undefined,
         settlement: this.g.settlement?.site === port.id ? {
           people: this.g.settlement.people, buildings: this.g.settlement.buildings,
           house: world.era.house?.id === 'chinese' ? 'chinese' : 'dutch', forest: SITES[port.id].forest > 0,
           stage: this.g.settlement.stage, project: this.g.settlement.project?.id,
+          stageName: STAGE_NAMES[this.g.settlement.stage],
+          projectName: this.g.settlement.project ? BUILDINGS.find((b) => b.id === this.g.settlement!.project!.id)?.name : undefined,
         } : undefined,
       });
       if (!this.portScene.visible || !this.miniShown) { this.miniShown = true; this.renderRoutes(); }
@@ -1407,6 +1422,7 @@ class App {
     }
     const site = siteOf(s);
     const name = world.ports[s.site].name;
+    const look = world.era.portView ? `<button class="btn wide" data-action="colony-view">🏡 Look at ${esc(name)}</button>` : '';
     const days = foodDays(s, g.day);
     const daysText = s.people < 1 ? 'nobody there yet' : days === Infinity ? 'feeds itself' : `${Math.floor(days)} days`;
     const need = nextStageNeeds(s, g.day);
@@ -1463,6 +1479,7 @@ class App {
         ${lots.length > 1 ? `<button class="btn small" data-action="unload-settlement" data-good="">Land all that fits</button>` : ''}</div></div>` : '';
     const news = s.news.slice(0, 8).map((n) => `<li class="${n.kind}"><span class="sub">${gameDate(n.day)}</span> ${esc(n.text)}</li>`).join('');
     return `<div class="port-head"><div><h2>${esc(name)}</h2><span class="sub">${STAGE_NAMES[s.stage]} · founded ${gameDate(s.founded)} · ${esc(world.ports[s.site].country)}</span></div></div>
+      ${look}
       ${s.hungry ? `<p class="o-warn">${esc(name)} has no food: people are leaving. Bring rice or grain.</p>` : s.people >= 1 && days < 15 ? `<p class="o-warn">Food for only ${Math.floor(days)} days. Bring rice or grain.</p>` : ''}
       <div class="kvs settle-kv">
         <div class="kv"><span>People</span><strong>${Math.floor(s.people)}</strong><em>${s.people > housing(s) ? `crowded: room for ${housing(s)}` : `room for ${housing(s)}`}</em></div>
