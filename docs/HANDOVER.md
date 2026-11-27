@@ -476,3 +476,4 @@ Check `vite-plugin-pwa` precache size limits after adding it.
 | 68–69 | Cloud saves through a GitHub gist, with a device-or-cloud check at launch (merged with builds 48–67 from the other session) |
 | 71 | Harbour life step 1: realistic weather in 1650 harbours (climate by place and month: monsoons, typhoons, cyclones, hurricanes, European winters; src/sim/weather.ts), rain/snow/lightning animated over a kept picture, and background sound for each harbour (src/ui/ambience.ts) with a Sound button in the port view |
 | 72 | Renamed Here Be Dragons (was Deadweight): title, header, PWA name, README; storage keys stay `deadweight.*` and the gist file `deadweight-saves.json` (the old gist description is still found) so no save is lost |
+| 73 | Readable buttons on the start screen: Rename/Delete on the parchment game cards in dark mode, and light text on the brown main buttons in the light 1650 theme |
