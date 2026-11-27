@@ -11,7 +11,9 @@ import {
 
 const KEY = 'deadweight.cloud';
 export const CLOUD_FILE = 'deadweight-saves.json';
-export const CLOUD_DESCRIPTION = 'Deadweight saved games (synced by the game)';
+export const CLOUD_DESCRIPTION = 'Here Be Dragons saved games (synced by the game)';
+/** The description of the gist before the game was renamed (still found). */
+const OLD_DESCRIPTIONS = ['Deadweight saved games (synced by the game)'];
 const API = 'https://api.github.com';
 
 type Store = Storage | undefined;
@@ -141,7 +143,7 @@ export async function findOrCreateGist(cfg: CloudConfig, f: Fetch = fetch): Prom
   if (cfg.gistId) return cfg.gistId;
   for (let page = 1; page <= 5; page++) {
     const list = await gh<Gist[]>(cfg, `/gists?per_page=100&page=${page}`, {}, f);
-    const found = list.find((g) => g.description === CLOUD_DESCRIPTION && g.files[CLOUD_FILE]);
+    const found = list.find((g) => (g.description === CLOUD_DESCRIPTION || OLD_DESCRIPTIONS.includes(g.description ?? '')) && g.files[CLOUD_FILE]);
     if (found) return found.id;
     if (list.length < 100) break;
   }

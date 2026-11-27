@@ -1,4 +1,6 @@
-# Deadweight (working title)
+# Here Be Dragons
+
+(Called Deadweight until build 72.)
 
 A calm, strategic shipping-company game built as a PWA. Start with one tired
 old coaster and $150,000, carry cargo between 26 world ports, and grow from

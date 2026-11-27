@@ -1,4 +1,4 @@
-# Deadweight
+# Here Be Dragons (formerly Deadweight)
 
 Read `docs/HANDOVER.md` first: it holds the project state, the owner's standing
 instructions, the architecture, what's next (the WebGL map rewrite) and the build log.

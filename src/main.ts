@@ -430,7 +430,7 @@ class App {
         <details><summary>How to get a token</summary>
           <ol class="cloud-help">
             <li>On github.com open <b>Settings → Developer settings → Personal access tokens → Tokens (classic)</b>.</li>
-            <li>Choose <b>Generate new token (classic)</b>, give it a name such as "Deadweight", and tick only <b>gist</b>.</li>
+            <li>Choose <b>Generate new token (classic)</b>, give it a name such as "Here Be Dragons", and tick only <b>gist</b>.</li>
             <li>Copy the token and paste it below. Do the same on each device (the same token works everywhere).</li>
           </ol>
           <p class="sub">The token stays on this device only and can do nothing but read and write your gists.</p>

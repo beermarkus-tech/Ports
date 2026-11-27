@@ -45,9 +45,9 @@ export default defineConfig({
       includeAssets: ['icons/icon.svg', 'icons/apple-touch-icon.png'],
       manifest: {
         id: './',
-        name: 'Deadweight: shipping company',
-        short_name: 'Deadweight',
-        description: 'Start with one old coaster and build a global shipping company.',
+        name: 'Here Be Dragons',
+        short_name: 'Here Be Dragons',
+        description: 'Ships, trade and far ports: build a shipping company today or a merchant house in 1650.',
         lang: 'en',
         start_url: './',
         scope: './',

@@ -1,4 +1,4 @@
-# Deadweight: handover and progress log
+# Here Be Dragons: handover and progress log
 
 The single document to read before continuing work, in any chat or account.
 Last updated at **build 60** (22 Nov 2026). Keep this file current: add to the
@@ -6,7 +6,7 @@ build log and move items in "Next" as work lands.
 
 ## 1. What this is
 
-**Deadweight** is a shipping-company game in the spirit of *Ports of Call*, built
+**Here Be Dragons** (called Deadweight until build 72) is a shipping-company game in the spirit of *Ports of Call*, built
 as an installable offline PWA (Vite + TypeScript, no framework).
 
 - Repository: `beermarkus-tech/Ports` (GitHub). Live: https://beermarkus-tech.github.io/Ports/
@@ -36,6 +36,8 @@ as an installable offline PWA (Vite + TypeScript, no framework).
   (`Co-Authored-By: …` and `Claude-Session: …`). Never put model names in commits or code.
 - The owner plays on an **Android** device (phone/tablet), installed as a PWA: test touch, small
   screens and Android browser behaviour (backgrounding, GPU quirks).
+- The game is called **Here Be Dragons** (renamed from Deadweight in build 72). Keep the
+  `deadweight.*` localStorage keys and the gist file name: renaming them would lose saves.
 - Write in plain, direct English in the UI. Use UK spellings in game text
   (harbour, colour) as the game already does.
 
@@ -473,3 +475,4 @@ Check `vite-plugin-pwa` precache size limits after adding it.
 | 67 | Sound and music pause when the app goes to the background or the screen turns off (AudioContext suspended on visibilitychange/pagehide), and resume on return |
 | 68–69 | Cloud saves through a GitHub gist, with a device-or-cloud check at launch (merged with builds 48–67 from the other session) |
 | 71 | Harbour life step 1: realistic weather in 1650 harbours (climate by place and month: monsoons, typhoons, cyclones, hurricanes, European winters; src/sim/weather.ts), rain/snow/lightning animated over a kept picture, and background sound for each harbour (src/ui/ambience.ts) with a Sound button in the port view |
+| 72 | Renamed Here Be Dragons (was Deadweight): title, header, PWA name, README; storage keys stay `deadweight.*` and the gist file `deadweight-saves.json` (the old gist description is still found) so no save is lost |
