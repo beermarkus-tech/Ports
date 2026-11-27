@@ -39,6 +39,10 @@ people, what's being built, weather). Map returns to the map.
 4. Then (agreed ideas): commissions (orders for the settlement's goods), chart workshop,
    cabinet of curiosities, shipyard (late), family house over generations (with a timeline).
 
+**Proposed and waiting for the owner (build 77):** the owner finds the side panel too text heavy
+and hard to navigate. Proposal "A Lighter Sidebar" (section 10) with five questions; build nothing
+of it before the answers. Suggested order: Orders first, then the settlement, Fleet, Company.
+
 **Open offers (the owner hasn't answered; don't build without a yes):** own-account trade for
 ★★★ captains; a new app icon to match the name (old chart corner, sea serpent, compass rose);
 a shorter home-screen name if the launcher cuts "Here Be Dragons"; named people and letters at
@@ -559,3 +563,7 @@ Private to the owner's account; the decisions they led to are recorded above.
   Dutch sites became Mauritius, St Helena and Berbice (St Helena in place of the Cape).
 - "Harbour Life and Passage" proposal (https://claude.ai/artifact/UNKCq9i6J38QcA8mqUosgb): weather,
   people, other ships, festivals, harbour sound; the view at sea and the ship's log.
+- "A Lighter Sidebar" proposal and phone mock-up (https://claude.ai/artifact/UyQPsMQnQzSZVkABzJRxnF):
+  seven tabs (about 16,000 px of scrolling on a phone) to four decision-first tabs (Orders, the
+  settlement, Fleet, Company); top 3–5 ranked by the deciding number, explanations behind ⓘ, long
+  lists folded, "Bring on the next run" for the settlement. Waiting for the owner's answers.
