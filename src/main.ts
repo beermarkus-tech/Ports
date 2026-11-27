@@ -465,7 +465,8 @@ class App {
 
   private tick(): void {
     if (this.paused || !$('#modal').hidden || this.dockingGame || this.g.gameOver) {
-      // The harbour's weather goes on while the clock waits.
+      // The harbour goes on while the clock waits: the light moves at the 1× pace, the weather by its own clock.
+      if (!this.g.gameOver && $('#modal').hidden) { this.sceneTime += TICK_MS / 1000; this.renderScenery(); }
       if (this.portScene.visible && $('#modal').hidden && performance.now() - this.lastWeather > 1000) { this.lastWeather = performance.now(); this.renderView(); }
       return;
     }
