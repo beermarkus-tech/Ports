@@ -13,16 +13,21 @@ import { ensureTrade } from './trade';
 const LEGACY_KEY = 'deadweight.save.v1';
 const INDEX_KEY = 'deadweight.slots';
 const ACTIVE_KEY = 'deadweight.active';
+/** Games deleted on this device (for cloud sync: a deletion travels to the other devices). */
+const DELETED_KEY = 'deadweight.deleted';
 const slotKey = (id: string) => `deadweight.save.${id}`;
 
 export type Era = 'modern' | 'sail';
 
 /** What the start screen shows about a saved game. */
 export interface SlotInfo {
+  /** This device's key for the game (s1, s2, …). */
   id: string;
+  /** The game's identity everywhere (the same on every device it's synced to). */
+  uid?: string;
   name: string;
   era: Era;
-  /** Real-world times (ms) the game was started and last played. */
+  /** Real-world times (ms) the game was started and last changed. */
   created: number;
   lastPlayed: number;
   /** Game day, number of ships and net worth when last saved. */
@@ -50,6 +55,21 @@ function summary(g: GameState): Pick<SlotInfo, 'day' | 'ships' | 'worth'> {
   return { day: g.day, ships: g.fleet.length, worth: Math.round(netWorth(g, getWorld())) };
 }
 
+function newUid(): string {
+  const r = globalThis.crypto?.randomUUID?.();
+  return r ?? `g${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/** Give every game a lasting identity (games from before cloud sync have none yet). */
+function ensureUids(storage: Store): SlotInfo[] {
+  const slots = readIndex(storage);
+  if (slots.some((x) => !x.uid)) {
+    for (const x of slots) x.uid ??= newUid();
+    writeIndex(storage, slots);
+  }
+  return slots;
+}
+
 function newSlotId(slots: SlotInfo[]): string {
   let n = slots.length + 1;
   while (slots.some((x) => x.id === `s${n}`)) n++;
@@ -67,13 +87,14 @@ export function listSlots(storage: Store = globalThis.localStorage): SlotInfo[] 
         const now = Date.now();
         const id = 's1';
         storage!.setItem(slotKey(id), JSON.stringify(g));
-        slots = [{ id, name: g.company ?? 'My shipping company', era: g.era ?? 'modern', created: now, lastPlayed: now, ...summary(g) }];
+        slots = [{ id, uid: newUid(), name: g.company ?? 'My shipping company', era: g.era ?? 'modern', created: now, lastPlayed: now, ...summary(g) }];
         writeIndex(storage, slots);
         storage!.setItem(ACTIVE_KEY, id);
         storage!.removeItem(LEGACY_KEY);
       }
     }
   } catch { /* leave the legacy save where it is */ }
+  if (slots.some((x) => !x.uid)) slots = ensureUids(storage);
   return [...slots].sort((a, b) => b.lastPlayed - a.lastPlayed);
 }
 
@@ -95,7 +116,7 @@ export function createSlot(g: GameState, name: string, storage: Store = globalTh
   const slots = readIndex(storage);
   const id = newSlotId(slots);
   const now = Date.now();
-  slots.push({ id, name, era: g.era ?? 'modern', created: now, lastPlayed: now, ...summary(g) });
+  slots.push({ id, uid: newUid(), name, era: g.era ?? 'modern', created: now, lastPlayed: now, ...summary(g) });
   writeIndex(storage, slots);
   setActiveSlot(id, storage);
   try { storage?.setItem(slotKey(id), JSON.stringify(g)); } catch { /* storage full */ }
@@ -112,10 +133,13 @@ export function loadSlot(id: string, storage: Store = globalThis.localStorage): 
 }
 
 export function renameSlot(id: string, name: string, storage: Store = globalThis.localStorage): void {
-  writeIndex(storage, readIndex(storage).map((x) => (x.id === id ? { ...x, name } : x)));
+  // A rename is a change too: it should reach the other devices.
+  writeIndex(storage, readIndex(storage).map((x) => (x.id === id ? { ...x, name, lastPlayed: Date.now() } : x)));
 }
 
 export function deleteSlot(id: string, storage: Store = globalThis.localStorage): void {
+  const gone = readIndex(storage).find((x) => x.id === id);
+  if (gone?.uid) markDeleted(gone.uid, Date.now(), storage);
   writeIndex(storage, readIndex(storage).filter((x) => x.id !== id));
   try {
     storage?.removeItem(slotKey(id));
@@ -128,11 +152,72 @@ export function saveGame(g: GameState, storage: Store = globalThis.localStorage)
   try {
     const id = activeSlot(storage);
     if (!id) { createSlot(g, g.company ?? 'My shipping company', storage); return; }
-    storage?.setItem(slotKey(id), JSON.stringify(g));
+    const json = JSON.stringify(g);
+    // Unchanged: leave "last played" alone, so it means "last changed" (cloud sync compares it).
+    if (storage?.getItem(slotKey(id)) === json) return;
+    storage?.setItem(slotKey(id), json);
     writeIndex(storage, readIndex(storage).map((x) => (x.id === id ? { ...x, lastPlayed: Date.now(), ...summary(g) } : x)));
   } catch {
     // Storage full or blocked (private mode): the game still runs, it just won't persist.
   }
+}
+
+// ---------------------------------------------------------------- for cloud sync
+
+export interface Tombstone { uid: string; at: number }
+
+/** Games deleted on this device, and when. */
+export function deletedGames(storage: Store = globalThis.localStorage): Tombstone[] {
+  try {
+    const raw = storage?.getItem(DELETED_KEY);
+    return raw ? (JSON.parse(raw) as Tombstone[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Remember that a game was deleted (here or on another device). */
+export function markDeleted(uid: string, at: number, storage: Store = globalThis.localStorage): void {
+  const list = deletedGames(storage).filter((t) => t.uid !== uid);
+  list.push({ uid, at });
+  try { storage?.setItem(DELETED_KEY, JSON.stringify(list.slice(-200))); } catch { /* ignore */ }
+}
+
+/** Every saved game with its stored text, as cloud sync uploads them. */
+export function exportSlots(storage: Store = globalThis.localStorage): { info: SlotInfo & { uid: string }; json: string }[] {
+  listSlots(storage); // gives older games their uid
+  return readIndex(storage).flatMap((info) => {
+    const json = storage?.getItem(slotKey(info.id));
+    return json && info.uid ? [{ info: info as SlotInfo & { uid: string }, json }] : [];
+  });
+}
+
+/**
+ * Store a game that came from another device, keeping its identity and its "last
+ * changed" time. Replaces this device's copy of the same game, or adds it as a new
+ * slot. Returns the local slot id.
+ */
+export function importSlot(info: SlotInfo & { uid: string }, json: string, storage: Store = globalThis.localStorage): string {
+  const slots = ensureUids(storage);
+  const mine = slots.find((x) => x.uid === info.uid);
+  const id = mine?.id ?? newSlotId(slots);
+  const entry: SlotInfo = { ...info, id };
+  try {
+    storage?.setItem(slotKey(id), json);
+    writeIndex(storage, mine ? slots.map((x) => (x.id === id ? entry : x)) : [...slots, entry]);
+  } catch { /* storage full */ }
+  return id;
+}
+
+/** Remove a game that was deleted on another device (without recording a new deletion). */
+export function removeSlotByUid(uid: string, storage: Store = globalThis.localStorage): void {
+  const slot = readIndex(storage).find((x) => x.uid === uid);
+  if (!slot) return;
+  writeIndex(storage, readIndex(storage).filter((x) => x.uid !== uid));
+  try {
+    storage?.removeItem(slotKey(slot.id));
+    if (storage?.getItem(ACTIVE_KEY) === slot.id) storage.removeItem(ACTIVE_KEY);
+  } catch { /* ignore */ }
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */

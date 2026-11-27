@@ -990,3 +990,24 @@ button.era-card:hover { border-color: var(--accent); }
   .map-zoom button[data-z="world"] { font-size: 11px; }
 }
 .map-stack.zoomed { background: var(--ocean-2); border-radius: 4px; }
+
+/* ---------- cloud saves ---------- */
+.cloud-card { margin: 14px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-2); display: grid; gap: 8px; }
+.cloud-card h3 { margin: 0; }
+.cloud-card.on { border-color: color-mix(in srgb, var(--good) 45%, var(--line)); }
+.cloud-card details summary { cursor: pointer; color: var(--accent); font-size: 13.5px; }
+.cloud-help { margin: 6px 0; padding-left: 20px; font-size: 13.5px; }
+.cloud-help li { margin: 3px 0; }
+.cloud-field { display: grid; gap: 3px; font-size: 13px; color: var(--muted); }
+.cloud-field input { font: inherit; font-size: 15px; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; min-width: 0; }
+.cloud-card .btn { justify-self: start; }
+.cloud-error { color: var(--bad); font-size: 13.5px; margin: 0; }
+.cloud-items { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 14px; }
+.cloud-item h3 { margin: 0 0 2px; }
+.cloud-item .sub { margin: 0 0 8px; }
+.cloud-opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
+.cloud-opt { text-align: left; display: grid; gap: 3px; padding: 10px 12px; border-radius: var(--radius); border: 1.5px solid var(--line); background: var(--surface);
+  color: var(--text); font: inherit; cursor: pointer; }
+.cloud-opt span { font-size: 13px; color: var(--muted); }
+.cloud-opt.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); box-shadow: inset 0 0 0 1px var(--accent); }
+.cloud-opt:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

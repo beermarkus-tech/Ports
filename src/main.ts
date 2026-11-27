@@ -10,7 +10,7 @@ import {
   shipsNeedingDecision, takeReport, typeOf, unloadContract, jettisonClaim, jettisonContract, jettisonGoods, voyageProgress, waitInPort, type VoyagePlan,
 } from './sim/game';
 import {
-  clearSave, createSlot, deleteSlot, listSlots, loadGame, loadSlot, renameSlot, saveGame, setActiveSlot, activeSlot, type SlotInfo,
+  clearSave, createSlot, deleteSlot, removeSlotByUid, listSlots, loadGame, loadSlot, renameSlot, saveGame, setActiveSlot, activeSlot, type SlotInfo,
 } from './sim/save';
 import {
   SHIP_TUNING, consumptionFactor, effectiveSpeed, exportsFor, fleetValue, legTrade, maxLoan, netWorth, quotePurchase, saleValue,
@@ -20,6 +20,7 @@ import type { Captain, Contract, GameState, PremiumKind, ShipOffer, ShipState, S
 import { currentEra, getWorld, setEra } from './sim/world';
 import { compactMoney, currency, days, esc, gameDate, money, setEraFormat, startYear, tons } from './ui/format';
 import { mapIconPath, shipFamily, shipSideView } from './ui/art';
+import { applyCheck, changedSinceSync, checkCloud, clearConfig, CloudError, defaultDeviceName, findOrCreateGist, loadConfig, saveConfig, type Check, type CloudGame, type SyncedSlot } from './cloud';
 import { CLASS_LABEL, goodIcon } from './ui/goods-icons';
 import { MapView, type LonLat, type PortMarker, type ShipMarker, type WeatherCell } from './ui/map';
 import { PortScene, shipLength, type SceneShip, type TimeOfDay } from './ui/port-scene';
@@ -61,7 +62,23 @@ function eraSwitched(): boolean {
   try { const v = sessionStorage.getItem(ERA_SWITCH) !== null; sessionStorage.removeItem(ERA_SWITCH); return v; } catch { return false; }
 }
 /** The map and scenes are built for one world: a game of another era reloads the page. */
+/** A saved game's date in its own era's calendar. */
+function slotDate(x: SlotInfo): string {
+  const d = new Date(Date.UTC(x.era === 'sail' ? 1650 : 2000, 0, 1) + Math.floor(x.day) * 86_400_000);
+  return `${d.getUTCDate()} ${d.toLocaleString('en-GB', { month: 'short', timeZone: 'UTC' })} ${d.getUTCFullYear()}`;
+}
+
+/** A saved game's net worth in its own era's money. */
+function slotMoney(x: SlotInfo): string {
+  const c = x.era === 'sail' ? 'ƒ' : '$';
+  const a = Math.abs(x.worth);
+  return `${x.worth < 0 ? '−' : ''}${c}${a >= 1e6 ? `${(a / 1e6).toFixed(2)}M` : a >= 1e4 ? `${Math.round(a / 1e3)}k` : Math.round(a).toLocaleString('en-US')}`;
+}
+
+/** Set while the page reloads into another era: nothing may save the old game into the new slot then. */
+let reloading = false;
 function reloadForEra(): void {
+  reloading = true;
   try { sessionStorage.setItem(ERA_SWITCH, '1'); } catch { /* the start screen shows, no harm */ }
   location.reload();
 }
@@ -226,6 +243,201 @@ class App {
     else if (shipsNeedingDecision(this.g).some((s) => s.id === this.activeId)) { this.view = 'port'; this.renderView(); }
     // With more than one game saved, start on the start screen (not after an update reload).
     if (opts.showStart && listSlots().length > 1 && $('#modal').hidden) this.showGames();
+    // Cloud saves: check the cloud for newer saves now, then keep it up to date while playing.
+    setTimeout(() => void this.cloudSync('launch'), 400);
+    setInterval(() => {
+      const cfg = loadConfig();
+      if (!cfg || document.visibilityState !== 'visible') return;
+      if (changedSinceSync(cfg) || Date.now() - (cfg.lastSync ?? 0) > 10 * 60_000) void this.cloudSync('timer');
+    }, 90_000);
+    document.addEventListener('visibilitychange', () => {
+      if (!loadConfig()) return;
+      if (document.visibilityState === 'hidden') {
+        this.hiddenAt = Date.now();
+        if (reloading) return;
+        saveGame(this.g);
+        if (changedSinceSync(loadConfig()!)) void this.cloudSync('hidden');
+      } else if (Date.now() - this.hiddenAt > 60_000) {
+        // Back after a while (perhaps after playing on another device): check the cloud again.
+        void this.cloudSync('launch');
+      }
+    });
+  }
+
+  // ---------------------------------------------------------------- cloud saves
+
+  private syncing = false;
+  private hiddenAt = Date.now();
+  private cloudWarned = false;
+  private cloudAsk: { choices: Record<string, 'cloud' | 'device'>; resolve: (c: Record<string, 'cloud' | 'device'>) => void } | null = null;
+
+  /**
+   * Sync with the cloud: pull newer saves, push this device's, and ask when the game that's
+   * open has a newer copy in the cloud, or a game was played on both devices since the last sync.
+   */
+  private async cloudSync(reason: 'launch' | 'timer' | 'hidden' | 'manual'): Promise<void> {
+    const cfg = loadConfig();
+    if (!cfg || this.syncing || reloading) return;
+    this.syncing = true;
+    try {
+      saveGame(this.g);
+      const check = await checkCloud(cfg);
+      const d = check.decision;
+      const activeUid = listSlots().find((x) => x.id === activeSlot())?.uid;
+      const asks = d.conflicts.length > 0 || d.pull.some((g) => g.info.uid === activeUid) || d.removeLocal.some((t) => t.uid === activeUid);
+      let choices: Record<string, 'cloud' | 'device'> = {};
+      if (asks) {
+        if (reason === 'hidden') return; // ask when the game is in front again
+        choices = await this.askCloud(check, activeUid);
+        // Keeping this device's copy of the open game: push it instead of pulling or deleting it.
+        if (activeUid && choices[activeUid] === 'device') {
+          d.pull = d.pull.filter((g) => g.info.uid !== activeUid);
+          d.removeLocal = d.removeLocal.filter((t) => t.uid !== activeUid);
+          if (!d.conflicts.some((c) => c.uid === activeUid)) d.push.push(activeUid);
+        }
+      }
+      const res = await applyCheck(check, choices);
+      const open = activeSlot();
+      if (activeUid && res.removed.includes(activeUid)) {
+        this.toast('The game you had open was deleted on another device.', 'bad');
+        this.showGames();
+      } else if (activeUid && res.replaced.includes(activeUid) && open) {
+        const g = loadSlot(open);
+        if (g) {
+          const from = [...d.pull, ...d.conflicts.map((c) => c.cloud)].find((x) => x.info.uid === activeUid);
+          this.loadInto(g);
+          this.toast(`Loaded the save from ${from?.savedBy ?? 'the cloud'}.`, 'good');
+        }
+      } else if (!$('#modal').hidden && document.querySelector('.slot-list')) this.showGames();
+      const pulledOthers = res.replaced.filter((u) => u !== activeUid).length;
+      if (reason === 'manual') this.toast(pulledOthers ? `Synced: ${pulledOthers} game${pulledOthers > 1 ? 's' : ''} updated from the cloud.` : 'Synced with the cloud.', 'good');
+      this.cloudWarned = false;
+    } catch (e) {
+      const msg = e instanceof CloudError ? e.message : 'Something went wrong with the cloud save.';
+      const fresh = loadConfig();
+      if (fresh) saveConfig({ ...fresh, lastError: msg });
+      if (reason === 'manual' || !this.cloudWarned) this.toast(`Cloud save: ${msg}`, 'bad');
+      this.cloudWarned = true;
+    } finally {
+      this.syncing = false;
+    }
+  }
+
+  /** "Device or cloud?" for the open game and any game played on both sides. Resolves with the choices. */
+  private askCloud(check: Check, activeUid: string | undefined): Promise<Record<string, 'cloud' | 'device'>> {
+    this.pause('decision');
+    const local = new Map(listSlots().map((x) => [x.uid!, x]));
+    type Item = { uid: string; mine?: SyncedSlot; cloud?: CloudGame; both: boolean; deletedAt?: number };
+    const items: Item[] = [
+      ...check.decision.conflicts.map((c) => ({ uid: c.uid, mine: c.local, cloud: c.cloud, both: true })),
+      ...check.decision.pull.filter((g) => g.info.uid === activeUid).map((g) => ({ uid: g.info.uid, mine: local.get(g.info.uid) as SyncedSlot | undefined, cloud: g, both: false })),
+      ...check.decision.removeLocal.filter((t) => t.uid === activeUid).map((t) => ({ uid: t.uid, mine: local.get(t.uid) as SyncedSlot | undefined, both: false, deletedAt: t.at })),
+    ];
+    const choices: Record<string, 'cloud' | 'device'> = {};
+    for (const it of items) choices[it.uid] = it.cloud && (!it.mine || it.cloud.info.lastPlayed >= it.mine.lastPlayed) ? 'cloud' : 'device';
+    return new Promise((resolve) => {
+      this.cloudAsk = { choices, resolve };
+      this.renderCloudAsk(items);
+    });
+  }
+
+  private cloudAskItems: Parameters<App['renderCloudAsk']>[0] = [];
+
+  private renderCloudAsk(items: { uid: string; mine?: SyncedSlot; cloud?: CloudGame; both: boolean; deletedAt?: number }[]): void {
+    this.cloudAskItems = items;
+    const ch = this.cloudAsk!.choices;
+    const ago = (t: number) => {
+      const m = Math.round((Date.now() - t) / 60_000);
+      return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 48 * 60 ? `${Math.round(m / 60)} h ago` : new Date(t).toLocaleDateString();
+    };
+    const facts = (x: SyncedSlot) => `${slotDate(x)} · ${x.ships} ship${x.ships === 1 ? '' : 's'} · worth ${slotMoney(x)}`;
+    const opt = (uid: string, side: 'cloud' | 'device', title: string, body: string) =>
+      `<button class="cloud-opt ${ch[uid] === side ? 'on' : ''}" data-action="cloud-pick" data-id="${uid}" data-side="${side}" aria-pressed="${ch[uid] === side}">
+        <strong>${title}</strong><span>${body}</span></button>`;
+    const rows = items.map((it) => {
+      const name = esc((it.cloud?.info ?? it.mine)!.name);
+      const cloudSide = it.cloud ? opt(it.uid, 'cloud', `Cloud · saved on ${esc(it.cloud.savedBy)}, ${ago(it.cloud.info.lastPlayed)}`, facts(it.cloud.info))
+        : opt(it.uid, 'cloud', 'Delete it here too', `Deleted on another device ${ago(it.deletedAt ?? Date.now())}`);
+      const mine = it.mine ? opt(it.uid, 'device', `This device · ${ago(it.mine.lastPlayed)}`, facts(it.mine)) : '';
+      return `<li class="cloud-item"><h3>${name}</h3>
+        <p class="sub">${it.both ? 'Played on this device and on another one since the last sync. Pick the one to keep; the other copy is replaced.'
+          : it.cloud ? 'The cloud has a newer save of this game.' : ''}</p>
+        <div class="cloud-opts">${cloudSide}${mine}</div></li>`;
+    }).join('');
+    $('#modal').classList.add('wide');
+    $('#modal-body').innerHTML = `<h2>☁ Device or cloud?</h2><ul class="cloud-items">${rows}</ul>
+      <button class="btn primary wide" data-action="cloud-continue">Continue</button>`;
+    $('#modal').hidden = false;
+  }
+
+  /** Connect this device to the player's saves gist, then sync. */
+  private async cloudConnect(): Promise<void> {
+    const token = (document.getElementById('cloud-token') as HTMLInputElement | null)?.value.trim() ?? '';
+    const device = (document.getElementById('cloud-device') as HTMLInputElement | null)?.value.trim() || defaultDeviceName();
+    if (!token) { this.toast('Paste a GitHub token first.', 'bad'); return; }
+    const btn = document.querySelector<HTMLButtonElement>('[data-action="cloud-connect"]');
+    if (btn) { btn.disabled = true; btn.textContent = 'Connecting…'; }
+    try {
+      const gistId = await findOrCreateGist({ token, device, synced: {} });
+      // A fresh install's untouched starter game shouldn't clutter the cloud.
+      const slots = listSlots();
+      const blank = slots.length === 1 && slots[0].day === 0 ? slots[0] : null;
+      saveConfig({ token, device, gistId, synced: {} });
+      if (blank) {
+        const check = await checkCloud(loadConfig()!);
+        if (check.bundle && check.bundle.games.length) {
+          await applyCheck({ ...check, decision: { ...check.decision, push: check.decision.push.filter((u) => u !== blank.uid) } });
+          const newest = listSlots().filter((x) => x.id !== blank.id).sort((a, b) => b.lastPlayed - a.lastPlayed)[0];
+          if (newest) {
+            setActiveSlot(newest.id);
+            // Never in the cloud: remove it without recording a deletion for the other devices.
+            removeSlotByUid(blank.uid!);
+            this.toast(`Connected. Opening ${newest.name} from the cloud.`, 'good');
+            const g = loadSlot(newest.id);
+            if (g && (g.era ?? 'modern') !== currentEra()) { reloadForEra(); return; }
+            if (g) this.loadInto(g);
+            return;
+          }
+        }
+      }
+      this.toast('Connected to your cloud saves.', 'good');
+      await this.cloudSync('launch');
+      if (!$('#modal').hidden && document.querySelector('.slot-list')) this.showGames();
+    } catch (e) {
+      this.toast(`Couldn't connect: ${e instanceof CloudError ? e.message : 'something went wrong.'}`, 'bad');
+      if (btn) { btn.disabled = false; btn.textContent = 'Connect'; }
+    }
+  }
+
+  /** The "Cloud saves" section of the games screen. */
+  private cloudCard(): string {
+    const cfg = loadConfig();
+    if (!cfg) {
+      return `<section class="cloud-card">
+        <h3>☁ Cloud saves</h3>
+        <p class="sub">Keep your games in sync between your devices, through a private gist on your GitHub account.
+          When you open the game, it checks which save is newer: this device's or the cloud's.</p>
+        <details><summary>How to get a token</summary>
+          <ol class="cloud-help">
+            <li>On github.com open <b>Settings → Developer settings → Personal access tokens → Tokens (classic)</b>.</li>
+            <li>Choose <b>Generate new token (classic)</b>, give it a name such as "Deadweight", and tick only <b>gist</b>.</li>
+            <li>Copy the token and paste it below. Do the same on each device (the same token works everywhere).</li>
+          </ol>
+          <p class="sub">The token stays on this device only and can do nothing but read and write your gists.</p>
+        </details>
+        <label class="cloud-field">GitHub token <input id="cloud-token" type="password" autocomplete="off" spellcheck="false" placeholder="ghp_…"></label>
+        <label class="cloud-field">This device <input id="cloud-device" type="text" maxlength="30" value="${esc(defaultDeviceName())}"></label>
+        <button class="btn primary" data-action="cloud-connect">Connect</button>
+      </section>`;
+    }
+    const when = cfg.lastSync ? new Date(cfg.lastSync).toLocaleString() : 'not yet';
+    return `<section class="cloud-card on">
+      <h3>☁ Cloud saves · on</h3>
+      <p class="sub">This device: <b>${esc(cfg.device)}</b> · last synced ${esc(when)}${cfg.gistId ? ` · gist ${esc(cfg.gistId.slice(0, 8))}…` : ''}</p>
+      ${cfg.lastError ? `<p class="cloud-error">${esc(cfg.lastError)}</p>` : ''}
+      <div class="btn-row"><button class="btn small primary" data-action="cloud-sync">Sync now</button>
+        <button class="btn small ghost" data-action="cloud-off">Turn off on this device</button></div>
+    </section>`;
   }
 
   private ship(): ShipState {
@@ -587,6 +799,25 @@ class App {
         if (this.g.reports.length) { this.showNextReport(); return; }
         break;
       case 'games': this.showGames(); return;
+      case 'cloud-connect': void this.cloudConnect(); return;
+      case 'cloud-sync': void this.cloudSync('manual'); return;
+      case 'cloud-off':
+        if (!confirm('Stop syncing on this device? Your games stay here and in the cloud.')) return;
+        clearConfig();
+        this.showGames();
+        return;
+      case 'cloud-pick':
+        if (this.cloudAsk && data.id) { this.cloudAsk.choices[data.id] = data.side === 'device' ? 'device' : 'cloud'; this.renderCloudAsk(this.cloudAskItems); }
+        return;
+      case 'cloud-continue': {
+        const ask = this.cloudAsk;
+        if (!ask) return;
+        this.cloudAsk = null;
+        $('#modal').hidden = true;
+        $('#modal').classList.remove('wide');
+        ask.resolve(ask.choices);
+        return;
+      }
       case 'close-games':
         $('#modal').hidden = true;
         $('#modal').classList.remove('wide');
@@ -1979,6 +2210,7 @@ class App {
         <button class="era-card sail" data-action="slot-new" data-era="sail">
           <strong>Age of Sail · from 1650</strong><span>Fluyts, monsoons and spice: found a merchant house in Amsterdam with a little jacht and ƒ150,000.</span><em>Start</em></button>
       </div>
+      ${this.cloudCard()}
       <button class="btn ghost wide" data-action="close-games">Close</button>`;
     $('#modal').hidden = false;
   }
