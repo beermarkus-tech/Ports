@@ -94,6 +94,12 @@ const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)
 /** Game days per real second at 1× speed. */
 const DAYS_PER_SECOND = 1;
 const TICK_MS = 100;
+/**
+ * Real seconds per "day" of harbour weather. The weather in the port view keeps its own pace,
+ * whatever the game speed (and while the clock waits): a spell holds about three of these. The
+ * season still follows the game's date. Weather is only for the picture and the sound.
+ */
+const WEATHER_SECONDS_PER_DAY = 4;
 const EVENT_LABELS = { storm: '⛈ Storm', breakdown: '⚙ Breakdown', emergencyFuel: '⛽ Out of fuel!', strike: '✊ Dock strike' } as const;
 const EVENT_SOUNDS = { storm: 'thunder', breakdown: 'clank', emergencyFuel: 'clank', strike: 'clank' } as const;
 const REDUCED_MOTION = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
@@ -162,6 +168,7 @@ class App {
   private lastPanel = 0;
   /** Real seconds the clock has been running: drives the cosmetic day/night and weather. */
   private sceneTime = 0;
+  private lastWeather = 0;
   private storms: { id: string; at: LonLat; from: number; until: number; seed: number }[] = [];
   private shownCash: number | null = null;
   private cashAnim = 0;
@@ -458,7 +465,11 @@ class App {
   // ------------------------------------------------------------ the clock
 
   private tick(): void {
-    if (this.paused || !$('#modal').hidden || this.dockingGame || this.g.gameOver) return;
+    if (this.paused || !$('#modal').hidden || this.dockingGame || this.g.gameOver) {
+      // The harbour's weather goes on while the clock waits.
+      if (this.portScene.visible && $('#modal').hidden && performance.now() - this.lastWeather > 1000) { this.lastWeather = performance.now(); this.renderView(); }
+      return;
+    }
     // Nothing moves while a ship is waiting for orders.
     if (shipsNeedingDecision(this.g).length) {
       this.pause('decision');
@@ -1053,13 +1064,15 @@ class App {
     const p = world.ports[portId];
     const day = Math.floor(this.g.day);
     const month = new Date(Date.UTC(world.era.startYear, 0, 1) + day * 86_400_000).getUTCMonth();
+    // Spells by the weather's own clock (real time), not the game's days.
+    const wxDay = Math.floor(Date.now() / 1000 / WEATHER_SECONDS_PER_DAY);
     const s = this.g.settlement;
     if (s?.site === portId) {
       const storm = s.news.some((n) => /storm struck/i.test(n.text) && day - n.day >= 0 && day - n.day <= 1);
-      if (storm) return { kind: 'storm', wind: 0.95, storm: weatherAt(p, day, month).storm };
-      return weatherAt(p, day, month, false);
+      if (storm) return { kind: 'storm', wind: 0.95, storm: weatherAt(p, wxDay, month).storm };
+      return weatherAt(p, wxDay, month, false);
     }
-    return weatherAt(p, day, month);
+    return weatherAt(p, wxDay, month);
   }
 
   /** Local time of day at a port, from where the map's sun is right now. */

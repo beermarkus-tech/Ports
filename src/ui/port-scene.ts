@@ -120,6 +120,10 @@ function mix(a: string, b: string, t: number): string {
   return `rgb(${A.map((v, i) => Math.round(v + (B[i] - v) * k)).join(',')})`;
 }
 
+/** How long a change of weather or light takes to blend in (ms). */
+const FADE_MS = 4000;
+const ease = (p: number) => p * p * (3 - 2 * p);
+
 export class PortScene {
   readonly el: HTMLElement;
   private canvas: HTMLCanvasElement;
@@ -139,6 +143,13 @@ export class PortScene {
   /** The harbour's life, and where things are in the picture for it. */
   private life = new HarbourLife();
   private lay: LifeLayout | null = null;
+  /** A change of weather or light: the picture before it, fading out over the new one. */
+  private fadeFrom: HTMLCanvasElement | null = null;
+  private fadeStart = 0;
+  private fadeKind: string | undefined;
+  private lastScene = '';
+  private lastSky = '';
+  private lastKind: string | undefined;
   private flash = 0;
   /** Called when lightning strikes (for the thunder). */
   onLightning: (() => void) | null = null;
@@ -200,6 +211,7 @@ export class PortScene {
   hide(): void {
     this.el.hidden = true;
     this.lastKey = '';
+    this.lastScene = ''; this.fadeFrom = null;
     this.stopSparks();
     this.stopWeather();
   }
@@ -219,7 +231,7 @@ export class PortScene {
     const kind = input?.weather?.kind;
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const falls = kind === 'rain' || kind === 'storm' || kind === 'snow';
-    if (reduce || !this.base || this.el.hidden || (!falls && !this.lay)) { this.stopWeather(); return; }
+    if (reduce || !this.base || this.el.hidden || (!falls && !this.lay && !this.fadeFrom)) { this.stopWeather(); return; }
     this.frame();
     this.pace();
   }
@@ -230,7 +242,7 @@ export class PortScene {
     const falls = kind === 'rain' || kind === 'storm' || kind === 'snow';
     const now = performance.now();
     const lp = this.lay ? this.life.period(this.lay, now) : 0;
-    const want = falls ? 50 : lp;
+    const want = falls || this.fadeFrom ? 50 : lp;
     if (want !== this.period) {
       if (this.weatherTimer) clearInterval(this.weatherTimer);
       this.weatherTimer = 0; this.period = want;
@@ -253,14 +265,28 @@ export class PortScene {
   private frame(): void {
     if (!this.base) return;
     const kind = this.input?.weather?.kind;
-    const falls = kind === 'rain' || kind === 'storm' || kind === 'snow';
     const c = this.ctx;
     const dpr = this.canvas.width / Math.max(1, this.el.clientWidth);
+    const now = performance.now();
     c.setTransform(1, 0, 0, 1, 0, 0);
     c.drawImage(this.base, 0, 0);
-    if (this.lay) { c.save(); this.life.draw(c, this.lay, performance.now()); c.restore(); }
-    if (!falls) return;
+    if (this.lay) { c.save(); this.life.draw(c, this.lay, now); c.restore(); }
+    // Blending from the weather (or light) before: the old picture fades out, rain and snow fade in or out.
+    let p = 1;
+    if (this.fadeFrom) {
+      p = Math.min(1, (now - this.fadeStart) / FADE_MS);
+      if (p >= 1) this.fadeFrom = null;
+      else { c.setTransform(1, 0, 0, 1, 0, 0); c.globalAlpha = 1 - ease(p); c.drawImage(this.fadeFrom, 0, 0); c.globalAlpha = 1; }
+    }
+    const falls = (k?: string) => k === 'rain' || k === 'storm' || k === 'snow';
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (falls(kind)) this.drawFalls(kind!, falls(this.fadeKind) || p >= 1 ? 1 : ease(p));
+    else if (p < 1 && falls(this.fadeKind)) this.drawFalls(this.fadeKind!, 1 - ease(p));
+  }
+
+  /** Rain, snow or a storm's rain and lightning, at `alpha` (for fading in and out). */
+  private drawFalls(kind: string, alpha: number): void {
+    const c = this.ctx;
     const ww = this.el.clientWidth, hh = this.el.clientHeight;
     const snow = kind === 'snow';
     const n = Math.round((ww * hh) / (kind === 'storm' ? 900 : snow ? 2600 : 1600));
@@ -269,6 +295,7 @@ export class PortScene {
     }
     const k = (this.input?.weather?.wind ?? 0.3) * (snow ? 1.4 : 0.55);
     const night = this.input?.time === 'night';
+    c.globalAlpha = alpha;
     if (snow) {
       c.fillStyle = night ? 'rgba(220,226,235,0.7)' : 'rgba(255,255,255,0.9)';
       for (const d of this.drops) {
@@ -288,11 +315,12 @@ export class PortScene {
         c.moveTo(d.x, d.y); c.lineTo(d.x - d.l * k, d.y - d.l);
       }
       c.stroke();
-      if (kind === 'storm') {
+      if (kind === 'storm' && alpha >= 1) {
         if (this.flash <= 0 && Math.random() < 0.006) { this.flash = 1; this.onLightning?.(); }
         if (this.flash > 0) { c.fillStyle = `rgba(235,240,255,${(this.flash * 0.55).toFixed(2)})`; c.fillRect(0, 0, ww, hh); this.flash -= 0.18; }
       }
     }
+    c.globalAlpha = 1;
   }
 
   private stopSparks(): void {
@@ -316,6 +344,19 @@ export class PortScene {
     if (key === this.lastKey) return;
     this.lastKey = key;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
+    // Only the weather or the light changed (same harbour, ship, size and zoom): blend into the new picture.
+    const scene = JSON.stringify([input.portId, input.ship.id, input.noShip, input.place, w, h, this.zoomed]);
+    const skyKey = JSON.stringify([input.weather, input.time]);
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (input.ship.family === 'sail' && !reduce && scene === this.lastScene && skyKey !== this.lastSky && this.canvas.width) {
+      const from = this.base ?? this.canvas;
+      this.fadeFrom ??= document.createElement('canvas');
+      this.fadeFrom.width = from.width; this.fadeFrom.height = from.height;
+      this.fadeFrom.getContext('2d')!.drawImage(from, 0, 0);
+      this.fadeStart = performance.now();
+      this.fadeKind = this.lastKind;
+    } else if (scene !== this.lastScene) this.fadeFrom = null;
+    this.lastScene = scene; this.lastSky = skyKey; this.lastKind = input.weather?.kind;
     this.canvas.width = Math.round(w * dpr);
     this.canvas.height = Math.round(h * dpr);
     const c = this.ctx;
@@ -329,9 +370,8 @@ export class PortScene {
       (this.el.querySelector('[data-ps=zoom]') as HTMLElement).textContent = this.zoomed ? 'Whole quay' : 'Zoom';
       // Keep the still picture for the harbour's life and the rain or snow to move over.
       const kind = input.weather?.kind;
-      const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       this.lay = reduce ? null : drawn.life ?? null;
-      if (kind === 'rain' || kind === 'storm' || kind === 'snow' || this.lay) {
+      if (kind === 'rain' || kind === 'storm' || kind === 'snow' || this.lay || this.fadeFrom) {
         this.base ??= document.createElement('canvas');
         this.base.width = this.canvas.width; this.base.height = this.canvas.height;
         this.base.getContext('2d')!.drawImage(this.canvas, 0, 0);

@@ -6,7 +6,7 @@ build log and move items in "Now and next" as work lands.
 
 ## 0. Now and next (read this first)
 
-**State at build 77** (harbour life step 2 in build 75; the settlement view in 76; live settlement tab in 77). Live at https://beermarkus-tech.github.io/Ports/. 136 tests pass. Working
+**State at build 79** (harbour life step 2 in build 75; the settlement view in 76; live settlement tab in 77; harbour weather at its own pace with blending in 79). Live at https://beermarkus-tech.github.io/Ports/. 136 tests pass. Working
 branch of the last chat: `ccr-e09247f0-shm8l1`; everything is merged into `main` (main deploys).
 The owner plays the 1650 game (mostly the Chinese house) on an Android device.
 
@@ -57,7 +57,7 @@ links (https://github.com/settings/tokens/new?scopes=gist&description=Deadweight
 **Known facts worth remembering:** captain posts = 2 + net-worth milestones (1M, 5M, 25M, 100M);
 captains carry freight only (no own-account trade) and four in one region share the same
 boards, so spreading them over regions/lanes earns more; a settlement's port opens at 400
-people + customs house; weather is deterministic per port and day.
+people + customs house; harbour weather is visual only: climate by port and game month, spells by a real-time clock (WEATHER_SECONDS_PER_DAY in main.ts; build 79), storms at your settlement from its news.
 
 ## 1. What this is
 
@@ -551,6 +551,7 @@ Check `vite-plugin-pwa` precache size limits after adding it.
 | 75 | Harbour life step 2 (1650): dockers carry sacks and casks over a gangway when you load, sell or unload; scaffolding and builders at the settlement's project; visiting merchants (junks in East Asia) warp in to a free berth and leave, also at your open settlement port; a ferry boat at an anchorage; rowing boats crossing. Hold shows own goods too. src/ui/harbour-life.ts |
 | 76 | Look at your settlement from anywhere: "Look at …" button in the settlement tab opens its harbour picture, with or without a ship of yours there |
 | 77 | The settlement tab refreshes as the days pass (people, stores, building progress; it was only redrawn on leaving and coming back); "1 day left" |
+| 79 | Harbour weather keeps its own pace: spells follow a real-time clock (WEATHER_SECONDS_PER_DAY = 4 in main.ts, so about 12 s a spell) whatever the game speed, and go on while the clock waits; the season still follows the game date. Changes of weather or light cross-fade over 4 s (PortScene fadeFrom), rain and snow fade in and out |
 
 ## 10. Proposals and artifacts (claude.ai, owner's account)
 
