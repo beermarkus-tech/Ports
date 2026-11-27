@@ -6,7 +6,7 @@ build log and move items in "Now and next" as work lands.
 
 ## 0. Now and next (read this first)
 
-**State at build 74** (the game is as of build 73; 74 is this handover update). Live at https://beermarkus-tech.github.io/Ports/. 136 tests pass. Working
+**State at build 75** (harbour life step 2 landed in build 75). Live at https://beermarkus-tech.github.io/Ports/. 136 tests pass. Working
 branch of the last chat: `ccr-e09247f0-shm8l1`; everything is merged into `main` (main deploys).
 The owner plays the 1650 game (mostly the Chinese house) on an Android device.
 
@@ -16,20 +16,23 @@ workshops, own goods, dues; guide chapters 4–7), the Journal tab, fairer own-a
 prices, sound pausing in the background, realistic harbour weather and harbour sound, the
 rename to Here Be Dragons, readable buttons. Another chat added cloud saves (builds 68–69).
 
+Build 75 (chat on branch `ccr-bfa84763-vakviw`): **harbour life step 2** in the 1650 harbour
+view (src/ui/harbour-life.ts): dockers over a gangway when what's aboard changes (loading,
+selling, unloading on arrival), scaffolding and builders at the settlement's project, other
+merchants' ships warping in to a free edge berth and leaving (also at your settlement once it
+is an open port; junks in East Asia and for the Chinese house), a ferry boat at an anchorage
+(no jetty yet), and now and then a rowing boat crossing. The hold now also shows your own goods.
+
 **Next, in the owner's order:**
-1. **Harbour life, step 2**: dockers carrying cargo while you load or sell, builders and
-   scaffolding at the settlement's building under way, other ships coming and going (also at
-   the opened settlement port), rowing boats where there is no wharf. 1650 harbour view
-   (port-scene-sail.ts); keep it light on Android (animate over the kept picture like the rain).
-2. **The passage** (step 3): a "Watch her sail" button while a ship is at sea (button only, never
+1. **The passage** (step 3): a "Watch her sail" button while a ship is at sea (button only, never
    automatic): side view under sail, heel with the real wind (wind.ts), sky by the hour, moon
    phase, coasts on the horizon near known land, squalls/storms when voyage incidents happen,
    landfall; plus a daily ship's log from the real voyage (wind, miles, places passed, incidents),
    in the Voyage tab and the arrival report; captains' logs in their own voice.
-3. **Festivals** (step 4): Chinese New Year, Lantern, Mid-Autumn; Dutch kermis, St Nicholas.
-4. **Settlement pace**: founding → port should take about four game years; nobody has
+2. **Festivals** (step 4): Chinese New Year, Lantern, Mid-Autumn; Dutch kermis, St Nicholas.
+3. **Settlement pace**: founding → port should take about four game years; nobody has
    measured it yet. Tune willingStart/willingPerDay/growth/people needed in SETTLEMENT_TUNING.
-5. Then (agreed ideas): commissions (orders for the settlement's goods), chart workshop,
+4. Then (agreed ideas): commissions (orders for the settlement's goods), chart workshop,
    cabinet of curiosities, shipyard (late), family house over generations (with a timeline).
 
 **Open offers (the owner hasn't answered; don't build without a yes):** own-account trade for
@@ -142,6 +145,7 @@ src/ui/
   map-globe.ts   the optional globe (build 60): sphere shader, 3D lines, view maths
   map.ts         types shared by the map and main.ts (LonLat, PortMarker, ShipMarker, WeatherCell)
   port-scene.ts / port-scene-sail.ts  harbour views (modern / 1650)
+  harbour-life.ts what moves in the 1650 harbour (dockers, builders, visiting ships, boats)
   goods-icons.ts drawn icons for all 55 goods (engraved 1650, line-style modern)
   art.ts ship art (incl. junks); music.ts the music engine (Web Audio, all synthesised: lute,
   recorder, viol, pipa, zheng, xiao, wooden fish, gong) and the Dutch sarabande;
@@ -452,13 +456,20 @@ Check `vite-plugin-pwa` precache size limits after adding it.
   (https://claude.ai/artifact/UNKCq9i6J38QcA8mqUosgb). Weather realistic (true to season),
   background sound on by default, the view at sea only by button, harbour first. Builds:
   1 weather + sound (done, build 71); 2 life in the harbour (dockers when loading, builders at the
-  settlement, other ships, rowing boats); 3 the passage ("Watch her sail" view + daily ship's log);
+  settlement, other ships, rowing boats; done, build 75); 3 the passage ("Watch her sail" view + daily ship's log);
   4 festivals (Chinese New Year, Lantern, Mid-Autumn; Dutch kermis, St Nicholas).
   Weather: weatherAt(port, day, month) is deterministic (3-day spells, storms by 2-day blocks);
   your settlement's storms come from its news (main.ts weatherHere). Sound: Ambience in
   ambience.ts (surf, wind, rain, gulls, creaks, temple/church bell via townBell, crickets on warm
   nights, hammering while building), under SoundBoard (setAmbience, ambientOn in localStorage
   deadweight.ambient). Thunder follows the scene's lightning.
+  Harbour life (build 75): drawSailScene returns a LifeLayout (positions, the zoom transform,
+  free edge berths, scaffold spot); PortScene keeps the still picture (`base`) and one loop draws
+  base + HarbourLife + rain/snow. The loop runs only while something moves (50 ms with rain,
+  70 ms for dockers/ships/boats, 160 ms for builders alone, none at night) and otherwise sleeps
+  until the next visitor or boat is due; the visiting ship is drawn once into a sprite. Off with
+  prefers-reduced-motion. Dockers start in HarbourLife.observe when the hold's tons change
+  (same port: load/sell; arriving lighter: unloading). Purely visual (Math.random, not the sim).
 - **The second loop (decided Nov 2026; steps A, B and C built in builds 58–65):**
   ideas page "After the Big Fleet" (https://claude.ai/artifact/5FTKiw5m84rwXHRWTmcncJ) and the
   proposal "A Settlement of Your Own" (https://claude.ai/artifact/HGquN7ATN8ctKYPCS2bRLo).
@@ -529,6 +540,7 @@ Check `vite-plugin-pwa` precache size limits after adding it.
 | 72 | Renamed Here Be Dragons (was Deadweight): title, header, PWA name, README; storage keys stay `deadweight.*` and the gist file `deadweight-saves.json` (the old gist description is still found) so no save is lost |
 | 73 | Readable buttons on the start screen: Rename/Delete on the parchment game cards in dark mode, and light text on the brown main buttons in the light 1650 theme |
 | 74 | Handover brought up to date: section 0 (now and next), build table repaired, artifacts listed |
+| 75 | Harbour life step 2 (1650): dockers carry sacks and casks over a gangway when you load, sell or unload; scaffolding and builders at the settlement's project; visiting merchants (junks in East Asia) warp in to a free berth and leave, also at your open settlement port; a ferry boat at an anchorage; rowing boats crossing. Hold shows own goods too. src/ui/harbour-life.ts |
 
 ## 10. Proposals and artifacts (claude.ai, owner's account)
 

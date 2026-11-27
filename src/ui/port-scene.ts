@@ -7,6 +7,7 @@ import type { World } from '../sim/world';
 import type { ShipFamily } from './art';
 import { MiniMap, type MiniRoutes } from './minimap';
 import { drawSailScene } from './port-scene-sail';
+import { HarbourLife, type LifeLayout } from './harbour-life';
 import { weatherWords, type Weather } from '../sim/weather';
 
 export type TimeOfDay = 'day' | 'dusk' | 'night';
@@ -39,7 +40,7 @@ export interface SceneInput {
   /** The weather there (1650 harbours). */
   weather?: Weather;
   /** At your own settlement (1650): what stands there, to draw it. */
-  settlement?: { people: number; buildings: Record<string, number>; house: 'dutch' | 'chinese'; forest: boolean };
+  settlement?: { people: number; buildings: Record<string, number>; house: 'dutch' | 'chinese'; forest: boolean; stage?: string; project?: string };
 }
 
 interface Dims { L: number; D: number; d0: number; d1: number; sup: number }
@@ -131,6 +132,11 @@ export class PortScene {
   private base: HTMLCanvasElement | null = null;
   private drops: { x: number; y: number; v: number; l: number }[] = [];
   private weatherTimer = 0;
+  private period = 0;
+  private wakeTimer = 0;
+  /** The harbour's life, and where things are in the picture for it. */
+  private life = new HarbourLife();
+  private lay: LifeLayout | null = null;
   private flash = 0;
   /** Called when lightning strikes (for the thunder). */
   onLightning: (() => void) | null = null;
@@ -179,7 +185,10 @@ export class PortScene {
     if (this.input?.ship.id !== input.ship.id) this.zoomed = false;
     this.input = input;
     this.el.hidden = false;
+    if (input.ship.family === 'sail') this.life.observe(input, performance.now());
     this.draw();
+    // Dockers just started: the loop picks them up.
+    if (this.base && this.lay) this.pace();
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (input.place === 'dock' && !reduce && !this.sparkTimer) {
       this.sparkTimer = window.setInterval(() => { this.lastKey = ''; this.draw(); }, 140);
@@ -194,58 +203,94 @@ export class PortScene {
   }
 
   private stopWeather(): void {
-    if (this.weatherTimer) { clearInterval(this.weatherTimer); this.weatherTimer = 0; }
+    if (this.weatherTimer) { clearInterval(this.weatherTimer); this.weatherTimer = 0; this.period = 0; }
+    if (this.wakeTimer) { clearTimeout(this.wakeTimer); this.wakeTimer = 0; }
   }
 
-  /** Falling rain or snow, and lightning in a storm, over the kept picture. */
+  /**
+   * What moves over the kept picture: falling rain or snow and lightning, and the harbour's life
+   * (dockers, builders, ships and boats). One frame now; a loop only while something moves, and a
+   * wake-up for the next ship or boat when all is still.
+   */
   private animateWeather(): void {
     const input = this.input;
     const kind = input?.weather?.kind;
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const falls = kind === 'rain' || kind === 'storm' || kind === 'snow';
-    if (!falls || reduce || !this.base || this.el.hidden) { this.stopWeather(); return; }
-    const w = this.el.clientWidth, h = this.el.clientHeight;
-    const snow = kind === 'snow';
-    const n = Math.round((w * h) / (kind === 'storm' ? 900 : snow ? 2600 : 1600));
-    if (this.drops.length !== n) {
-      this.drops = Array.from({ length: n }, () => ({ x: Math.random() * w, y: Math.random() * h, v: snow ? 0.6 + Math.random() * 0.8 : 9 + Math.random() * 6, l: snow ? 1 + Math.random() * 1.6 : 8 + Math.random() * 10 }));
-    }
-    if (this.weatherTimer) return;
-    const slant = () => (this.input?.weather?.wind ?? 0.3) * (snow ? 1.4 : 0.55);
-    this.weatherTimer = window.setInterval(() => {
-      if (!this.base || this.el.hidden) { this.stopWeather(); return; }
-      const c = this.ctx;
-      const dpr = this.canvas.width / Math.max(1, this.el.clientWidth);
-      c.setTransform(1, 0, 0, 1, 0, 0);
-      c.drawImage(this.base, 0, 0);
-      c.setTransform(dpr, 0, 0, dpr, 0, 0);
-      const ww = this.el.clientWidth, hh = this.el.clientHeight, k = slant();
-      const night = this.input?.time === 'night';
-      if (snow) {
-        c.fillStyle = night ? 'rgba(220,226,235,0.7)' : 'rgba(255,255,255,0.9)';
-        for (const d of this.drops) {
-          d.y += d.v; d.x += k * d.v + Math.sin((d.y + d.l * 40) / 30) * 0.4;
-          if (d.y > hh) { d.y = -4; d.x = Math.random() * ww; }
-          if (d.x > ww) d.x -= ww;
-          c.beginPath(); c.arc(d.x, d.y, d.l, 0, Math.PI * 2); c.fill();
-        }
-      } else {
-        c.strokeStyle = night ? 'rgba(170,185,205,0.35)' : 'rgba(225,232,240,0.5)';
-        c.lineWidth = 1;
-        c.beginPath();
-        for (const d of this.drops) {
-          d.y += d.v; d.x += d.v * k;
-          if (d.y > hh) { d.y = -d.l; d.x = Math.random() * (ww + 60) - 60; }
-          if (d.x > ww) d.x -= ww + 60;
-          c.moveTo(d.x, d.y); c.lineTo(d.x - d.l * k, d.y - d.l);
-        }
-        c.stroke();
-        if (kind === 'storm') {
-          if (this.flash <= 0 && Math.random() < 0.006) { this.flash = 1; this.onLightning?.(); }
-          if (this.flash > 0) { c.fillStyle = `rgba(235,240,255,${(this.flash * 0.55).toFixed(2)})`; c.fillRect(0, 0, ww, hh); this.flash -= 0.18; }
-        }
+    if (reduce || !this.base || this.el.hidden || (!falls && !this.lay)) { this.stopWeather(); return; }
+    this.frame();
+    this.pace();
+  }
+
+  /** Run the loop at the pace what's moving needs, or stop it and wake for the next arrival. */
+  private pace(): void {
+    const kind = this.input?.weather?.kind;
+    const falls = kind === 'rain' || kind === 'storm' || kind === 'snow';
+    const now = performance.now();
+    const lp = this.lay ? this.life.period(this.lay, now) : 0;
+    const want = falls ? 50 : lp;
+    if (want !== this.period) {
+      if (this.weatherTimer) clearInterval(this.weatherTimer);
+      this.weatherTimer = 0; this.period = want;
+      if (want) {
+        this.weatherTimer = window.setInterval(() => {
+          if (!this.base || this.el.hidden) { this.stopWeather(); return; }
+          if (document.hidden) return;
+          this.frame();
+          this.pace();
+        }, want);
       }
-    }, 50);
+    }
+    if (this.wakeTimer) { clearTimeout(this.wakeTimer); this.wakeTimer = 0; }
+    if (!want && this.lay) {
+      const wait = Math.max(500, this.life.nextAt(now) - now);
+      this.wakeTimer = window.setTimeout(() => { this.wakeTimer = 0; if (this.base && !this.el.hidden) { this.frame(); this.pace(); } }, wait);
+    }
+  }
+
+  private frame(): void {
+    if (!this.base) return;
+    const kind = this.input?.weather?.kind;
+    const falls = kind === 'rain' || kind === 'storm' || kind === 'snow';
+    const c = this.ctx;
+    const dpr = this.canvas.width / Math.max(1, this.el.clientWidth);
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.drawImage(this.base, 0, 0);
+    if (this.lay) { c.save(); this.life.draw(c, this.lay, performance.now()); c.restore(); }
+    if (!falls) return;
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const ww = this.el.clientWidth, hh = this.el.clientHeight;
+    const snow = kind === 'snow';
+    const n = Math.round((ww * hh) / (kind === 'storm' ? 900 : snow ? 2600 : 1600));
+    if (this.drops.length !== n) {
+      this.drops = Array.from({ length: n }, () => ({ x: Math.random() * ww, y: Math.random() * hh, v: snow ? 0.6 + Math.random() * 0.8 : 9 + Math.random() * 6, l: snow ? 1 + Math.random() * 1.6 : 8 + Math.random() * 10 }));
+    }
+    const k = (this.input?.weather?.wind ?? 0.3) * (snow ? 1.4 : 0.55);
+    const night = this.input?.time === 'night';
+    if (snow) {
+      c.fillStyle = night ? 'rgba(220,226,235,0.7)' : 'rgba(255,255,255,0.9)';
+      for (const d of this.drops) {
+        d.y += d.v; d.x += k * d.v + Math.sin((d.y + d.l * 40) / 30) * 0.4;
+        if (d.y > hh) { d.y = -4; d.x = Math.random() * ww; }
+        if (d.x > ww) d.x -= ww;
+        c.beginPath(); c.arc(d.x, d.y, d.l, 0, Math.PI * 2); c.fill();
+      }
+    } else {
+      c.strokeStyle = night ? 'rgba(170,185,205,0.35)' : 'rgba(225,232,240,0.5)';
+      c.lineWidth = 1;
+      c.beginPath();
+      for (const d of this.drops) {
+        d.y += d.v; d.x += d.v * k;
+        if (d.y > hh) { d.y = -d.l; d.x = Math.random() * (ww + 60) - 60; }
+        if (d.x > ww) d.x -= ww + 60;
+        c.moveTo(d.x, d.y); c.lineTo(d.x - d.l * k, d.y - d.l);
+      }
+      c.stroke();
+      if (kind === 'storm') {
+        if (this.flash <= 0 && Math.random() < 0.006) { this.flash = 1; this.onLightning?.(); }
+        if (this.flash > 0) { c.fillStyle = `rgba(235,240,255,${(this.flash * 0.55).toFixed(2)})`; c.fillRect(0, 0, ww, hh); this.flash -= 0.18; }
+      }
+    }
   }
 
   private stopSparks(): void {
@@ -274,14 +319,17 @@ export class PortScene {
     const c = this.ctx;
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
 
+    this.lay = null;
     // The Age of Sail has its own harbour (wooden quay, sailing ships, careening on the beach).
     if (input.ship.family === 'sail') {
       const drawn = drawSailScene(c, input, w, h, this.zoomed);
       this.renderSailHud(input, drawn);
       (this.el.querySelector('[data-ps=zoom]') as HTMLElement).textContent = this.zoomed ? 'Whole quay' : 'Zoom';
-      // Keep the still picture for the rain or snow to fall over.
+      // Keep the still picture for the harbour's life and the rain or snow to move over.
       const kind = input.weather?.kind;
-      if (kind === 'rain' || kind === 'storm' || kind === 'snow') {
+      const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      this.lay = reduce ? null : drawn.life ?? null;
+      if (kind === 'rain' || kind === 'storm' || kind === 'snow' || this.lay) {
         this.base ??= document.createElement('canvas');
         this.base.width = this.canvas.width; this.base.height = this.canvas.height;
         this.base.getContext('2d')!.drawImage(this.canvas, 0, 0);

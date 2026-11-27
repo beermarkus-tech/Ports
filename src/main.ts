@@ -1008,6 +1008,7 @@ class App {
         settlement: this.g.settlement?.site === port.id ? {
           people: this.g.settlement.people, buildings: this.g.settlement.buildings,
           house: world.era.house?.id === 'chinese' ? 'chinese' : 'dutch', forest: SITES[port.id].forest > 0,
+          stage: this.g.settlement.stage, project: this.g.settlement.project?.id,
         } : undefined,
       });
       if (!this.portScene.visible || !this.miniShown) { this.miniShown = true; this.renderRoutes(); }
@@ -1025,7 +1026,8 @@ class App {
     return {
       id: s.id, name: s.name, typeId: type.id, family: shipFamily(type),
       capacity: type.capacity, bunkerCapacity: type.bunkerCapacity,
-      cargo: s.cargo.map((c) => ({ good: c.good, cls: world.goods[c.good].cargoClass, tons: c.tons })),
+      // What's in the hold: the cargo carried for others and goods on your own account.
+      cargo: [...s.cargo, ...(s.goods ?? [])].map((c) => ({ good: c.good, cls: world.goods[c.good].cargoClass, tons: c.tons })),
       fuel: s.fuel, condition: s.condition,
     };
   }

@@ -6,6 +6,7 @@
 // propped on shores, with fires under the hull to burn off the weed.
 
 import type { SceneInput, SceneShip, TimeOfDay } from './port-scene';
+import type { LifeLayout } from './harbour-life';
 
 type Town = 'dutch' | 'iberian' | 'colonial' | 'northamerica' | 'tropic' | 'desert' | 'eastasia';
 
@@ -75,7 +76,7 @@ function shade(hex: string, k: number): string {
   return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`;
 }
 
-export interface SailDrawn { L: number; draft: number | null; d1: number }
+export interface SailDrawn { L: number; draft: number | null; d1: number; life?: LifeLayout }
 
 /** Draw the whole 1650 harbour scene. Returns what the info chips need. */
 export function drawSailScene(c: CanvasRenderingContext2D, input: SceneInput, w: number, h: number, zoomed: boolean): SailDrawn {
@@ -111,10 +112,14 @@ export function drawSailScene(c: CanvasRenderingContext2D, input: SceneInput, w:
     c.scale(k, k);
     c.translate(-cx, -yW);
   }
+  const matrix = c.getTransform();
   const top = yW - QUAY_M * m;
   const settle = input.settlement;
-  if (settle) settlementTown(c, settle, input.portId, w, top, yW, m, t);
-  else town(c, TOWN[input.portId] ?? 'dutch', input.portId, w, top, m, t);
+  let build: LifeLayout['build'];
+  if (settle) {
+    settlementTown(c, settle, input.portId, w, top, yW, m, t);
+    if (settle.project) { build = projectSpot(settle, settle.project, w, top, m, shipX + d.L * m); scaffold(c, build, m, t); }
+  } else town(c, TOWN[input.portId] ?? 'dutch', input.portId, w, top, m, t);
   // Fog, rain and snow hide the town behind: a haze between it and the quay.
   const haze = ({ fog: 0.62, rain: 0.22, storm: 0.3, snow: 0.25, cloudy: 0.05 } as Record<string, number>)[wx] ?? 0;
   if (haze) {
@@ -133,7 +138,8 @@ export function drawSailScene(c: CanvasRenderingContext2D, input: SceneInput, w:
     fires(c, d, shipX, keelY, m);
   } else {
     // A settlement without its jetty: the ship lies at anchor off the shore.
-    if (!settle || settle.buildings.jetty) quay(c, w, yW, top, m, t);
+    const atQuay = !settle || !!settle.buildings.jetty;
+    if (atQuay) quay(c, w, yW, top, m, t);
     const sides = [-1, 1];
     input.neighbours.slice(0, 2).forEach((n, i) => {
       const nd = dimsFor(n);
@@ -170,7 +176,79 @@ export function drawSailScene(c: CanvasRenderingContext2D, input: SceneInput, w:
     c.setLineDash([]);
   }
   c.restore();
-  return { L: d.L, draft: careen ? null : draft(ship, d), d1: d.d1 };
+  if (careen) return { L: d.L, draft: null, d1: d.d1 };
+  const atQuay = !settle || !!settle.buildings.jetty;
+  // Other merchants call at a town's quay, and at your settlement once it is an open port.
+  const free: (-1 | 1)[] = !atQuay || (settle && settle.stage !== 'port') ? [] : ([[-1, 1], [1], []] as (-1 | 1)[][])[Math.min(2, input.neighbours.length)];
+  const chinese = TOWN[input.portId] === 'eastasia' || settle?.house === 'chinese';
+  const visitor = chinese ? (Math.random() < 0.5 ? 'oceanjunk' : 'nanyangjunk') : (Math.random() < 0.6 ? 'fluyt' : 'pinas');
+  return {
+    L: d.L, draft: draft(ship, d), d1: d.d1,
+    life: {
+      m, w, h, yW, top, shipX, L: d.L, deck: yW + draft(ship, d) * m - d.D * m, quay: atQuay, free, visitor,
+      stacks: [11 * m, 92 * m], build, matrix, t, wind: input.weather?.wind ?? 0.3,
+    },
+  };
+}
+
+/** A visiting ship drawn once, faded and with the water over her below the waterline, to slide in and out. */
+export interface ShipSprite { canvas: HTMLCanvasElement; dx: number; dy: number; w: number; h: number; L: number }
+export function shipSprite(typeId: string, m: number, scale: number, t: TimeOfDay): ShipSprite {
+  const s: SceneShip = { id: -1, name: '', typeId, family: 'sail', capacity: 300, bunkerCapacity: 0, cargo: [], fuel: 0, condition: 75 };
+  const d = dimsFor(s);
+  const pad = 8 * m, keelY = (d.H + d.D + 6) * m, dr = (d.d0 + d.d1) / 2;
+  const sw = d.L * m + pad * 2, sh = keelY + m;
+  const cv = document.createElement('canvas');
+  cv.width = Math.ceil(sw * scale); cv.height = Math.ceil(sh * scale);
+  const c = cv.getContext('2d')!;
+  c.scale(scale, scale);
+  drawShip(c, s, d, pad, keelY, m, t, { faded: true, cutaway: false });
+  c.globalCompositeOperation = 'source-atop';
+  c.fillStyle = WATER[t]; c.globalAlpha = 0.84;
+  c.fillRect(0, keelY - dr * m, sw, sh);
+  return { canvas: cv, dx: -pad, dy: -(keelY - dr * m), w: sw, h: sh, L: d.L };
+}
+
+/** Where the settlement's building under way stands (its scaffolding's bottom left corner and size). */
+function projectSpot(s: NonNullable<SceneInput['settlement']>, id: string, w: number, base: number, m: number, shipEnd: number):
+  { x: number; y: number; w: number; h: number } {
+  const n = (k: string) => s.buildings[k] ?? 0;
+  const shops = ['pepper', 'tinmine', 'saltpans', 'deerskins', 'curing', 'tobacco', 'indigo'];
+  const at = (x: number, bw: number, bh: number, y = base) => ({ x, y, w: bw * m, h: bh * m });
+  if (id === 'houses') return at((6 + Math.min(11, n('houses')) * 8.5) * m, 6, 5);
+  if (id === 'storehouse') return at(w - (34 + Math.min(1, n('storehouse')) * 16) * m, 14, 7);
+  if (id === 'well') return at(w * 0.46 - 0.5 * m, 3.6, 4);
+  if (id === 'sawmill') return at(w - 15 * m, 9, 6);
+  if (id === 'market') return at(w * 0.3, 16, 5.5);
+  if (id === 'customs') return at(w * 0.5, 9, 9);
+  if (id === 'jetty' || id === 'wharf') return at(Math.min(w - 12 * m, shipEnd + 4 * m), 8, 3);
+  if (id === 'fishery') return at(w * 0.04, 7, 3);
+  if (shops.includes(id)) { const i = Math.min(5, shops.reduce((k, x) => k + n(x), 0)); return at(w * 0.7 - i * 11 * m, 8, 4.5, base - (12 + (i % 2) * 3) * m); }
+  return at(w * 0.38, 8, 5);
+}
+
+/** Scaffolding: poles, ledgers and planks, a half-raised frame inside. */
+function scaffold(c: CanvasRenderingContext2D, b: { x: number; y: number; w: number; h: number }, m: number, t: TimeOfDay): void {
+  const night = t === 'night';
+  const pole = night ? '#2a2018' : '#6e5434', frame = night ? '#3a2e22' : '#a07a4c';
+  // The frame of the new building, its posts and a beam.
+  c.strokeStyle = frame; c.lineWidth = Math.max(1, 0.3 * m);
+  c.beginPath();
+  for (let k = 0; k <= 3; k++) { const x = b.x + 0.8 * m + (k * (b.w - 1.6 * m)) / 3; c.moveTo(x, b.y); c.lineTo(x, b.y - b.h * 0.78); }
+  c.moveTo(b.x + 0.8 * m, b.y - b.h * 0.78); c.lineTo(b.x + b.w * 0.6, b.y - b.h * 0.78);
+  c.moveTo(b.x + 0.8 * m, b.y - b.h * 0.3); c.lineTo(b.x + b.w - 0.8 * m, b.y - b.h * 0.3);
+  c.stroke();
+  // The poles lashed round it, and the planks the men stand on.
+  c.strokeStyle = pole; c.lineWidth = Math.max(0.8, 0.18 * m);
+  c.beginPath();
+  for (const x of [b.x, b.x + b.w]) { c.moveTo(x, b.y); c.lineTo(x, b.y - b.h); }
+  for (const f of [0.5, 0.95]) { c.moveTo(b.x - 0.4 * m, b.y - b.h * f); c.lineTo(b.x + b.w + 0.4 * m, b.y - b.h * f); }
+  c.moveTo(b.x, b.y); c.lineTo(b.x + b.w, b.y - b.h * 0.5);
+  c.stroke();
+  c.fillStyle = pole; c.fillRect(b.x - 0.4 * m, b.y - b.h * 0.5, b.w + 0.8 * m, 0.25 * m);
+  // Timber stacked by the site.
+  c.fillStyle = night ? '#3a2e22' : '#9a7444';
+  for (let k = 0; k < 3; k++) c.fillRect(b.x - 4.6 * m, b.y - (k + 1) * 0.35 * m, 3.6 * m, 0.3 * m);
 }
 
 /** Draft from what's aboard: cargo plus victuals against what she can carry. */
