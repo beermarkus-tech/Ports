@@ -1,8 +1,52 @@
 # Here Be Dragons: handover and progress log
 
 The single document to read before continuing work, in any chat or account.
-Last updated at **build 60** (22 Nov 2026). Keep this file current: add to the
-build log and move items in "Next" as work lands.
+Last updated at **build 74** (27 Nov 2026). Keep this file current: add to the
+build log and move items in "Now and next" as work lands.
+
+## 0. Now and next (read this first)
+
+**State at build 74** (the game is as of build 73; 74 is this handover update). Live at https://beermarkus-tech.github.io/Ports/. 136 tests pass. Working
+branch of the last chat: `ccr-e09247f0-shm8l1`; everything is merged into `main` (main deploys).
+The owner plays the 1650 game (mostly the Chinese house) on an Android device.
+
+Done in the last chat (builds 61–73, details in sections 5 and 9): the settlement (charter,
+sites, settlers, stores and yard, buildings, camp → outpost → village → town → open port,
+workshops, own goods, dues; guide chapters 4–7), the Journal tab, fairer own-account trade
+prices, sound pausing in the background, realistic harbour weather and harbour sound, the
+rename to Here Be Dragons, readable buttons. Another chat added cloud saves (builds 68–69).
+
+**Next, in the owner's order:**
+1. **Harbour life, step 2**: dockers carrying cargo while you load or sell, builders and
+   scaffolding at the settlement's building under way, other ships coming and going (also at
+   the opened settlement port), rowing boats where there is no wharf. 1650 harbour view
+   (port-scene-sail.ts); keep it light on Android (animate over the kept picture like the rain).
+2. **The passage** (step 3): a "Watch her sail" button while a ship is at sea (button only, never
+   automatic): side view under sail, heel with the real wind (wind.ts), sky by the hour, moon
+   phase, coasts on the horizon near known land, squalls/storms when voyage incidents happen,
+   landfall; plus a daily ship's log from the real voyage (wind, miles, places passed, incidents),
+   in the Voyage tab and the arrival report; captains' logs in their own voice.
+3. **Festivals** (step 4): Chinese New Year, Lantern, Mid-Autumn; Dutch kermis, St Nicholas.
+4. **Settlement pace**: founding → port should take about four game years; nobody has
+   measured it yet. Tune willingStart/willingPerDay/growth/people needed in SETTLEMENT_TUNING.
+5. Then (agreed ideas): commissions (orders for the settlement's goods), chart workshop,
+   cabinet of curiosities, shipyard (late), family house over generations (with a timeline).
+
+**Open offers (the owner hasn't answered; don't build without a yes):** own-account trade for
+★★★ captains; a new app icon to match the name (old chart corner, sea serpent, compass rose);
+a shorter home-screen name if the launcher cuts "Here Be Dragons"; named people and letters at
+the settlement plus small choices (ideas 1–2 of the immersion list); a year's chronicle; an
+ageing chart with sea monsters. Supply runs for the settlement were dropped as less needed once
+it feeds itself (offer again only if asked).
+
+**Cloud saves:** built and live, but not yet tried with a real token. The owner was given the
+links (https://github.com/settings/tokens/new?scopes=gist&description=Deadweight) and steps
+(☰ Your games → Cloud saves, same token on each device). If it fails, ask for the exact message.
+
+**Known facts worth remembering:** captain posts = 2 + net-worth milestones (1M, 5M, 25M, 100M);
+captains carry freight only (no own-account trade) and four in one region share the same
+boards, so spreading them over regions/lanes earns more; a settlement's port opens at 400
+people + customs house; weather is deterministic per port and day.
 
 ## 1. What this is
 
@@ -11,8 +55,10 @@ as an installable offline PWA (Vite + TypeScript, no framework).
 
 - Repository: `beermarkus-tech/Ports` (GitHub). Live: https://beermarkus-tech.github.io/Ports/
 - Two eras, each in its own saved game: **Modern** (from 2000, steel and diesel) and
-  **Age of Sail** (from 1650, the Dutch: fluyts, monsoons, spice, fog of war).
-- The owner plays on desktop and phone and reviews every build by playing it.
+  **Age of Sail** (from 1650: the Dutch house from Amsterdam or the Chinese house from Amoy;
+  monsoons, spice, fog of war, own-account trade, a settlement of your own).
+- The owner plays on an Android device (and sometimes desktop) and reviews every build by
+  playing it.
 
 ## 2. Working rules (the owner's standing instructions)
 
@@ -26,6 +72,11 @@ as an installable offline PWA (Vite + TypeScript, no framework).
   programming", do not change the app: write the proposal (often as a claude.ai
   Artifact page with mock-ups) and wait for approval.
 - **Push back when something seems wrong**; the owner explicitly welcomes it.
+- "Don't change code now" / "make a proposal" = no app changes. When the owner says "leave it as
+  it was", undo uncommitted work at once (git checkout) and don't argue.
+- **Before pushing to main, fetch it**: another chat may have pushed (cloud saves came that
+  way). If main has commits you lack, merge (`git merge origin/main`), resolve, test, then push.
+  Never force-push main.
 - Keep the in-app **reload button** and the **build number**. No "skip to next
   arrival" button. The clock **pauses whenever a ship needs a decision**, and
   restarts by itself after dry dock / waiting / laying up.
@@ -46,7 +97,7 @@ as an installable offline PWA (Vite + TypeScript, no framework).
 ```
 npm install
 npm run dev          # local dev server
-npm test             # vitest, 128 tests, all must pass
+npm test             # vitest, 136 tests, all must pass
 npm run build        # tsc + vite build into dist/
 npx vite preview --port 4173 --strictPort   # serve dist/ (base is './', open http://localhost:4173/)
 ERA=sail [HOUSE=chinese] npx tsx scripts/balance.ts 10 100 greedy   # balance bots (also: casual)
@@ -77,6 +128,9 @@ src/sim/   pure, deterministic simulation (seeded mulberry32 RNG in the state; a
   contracts.ts  boards and pay; economy.ts prices, events; ships.ts values, market, loans
   charts.ts     fog of war (Age of Sail): charted nodes, discovery, charts for sale
   guide.ts      the guide: chapters of steps (conditions on the game), updateGuide marks and reports
+  settlement.ts the settlement: sites, buildings, stages, the daily rules (settlementDay),
+                syncSettlementPort (puts the opened port into the world)
+  weather.ts    deterministic harbour weather from climate (latitude, region, month)
   trade.ts      own-account trade and slow news (prices by the latest letter)
   wind.ts       prevailing winds and monsoon; captains.ts; save.ts (slots, migrations)
 src/data/  modern world JSON; src/data/sail/ the 1650 world (generated by
@@ -91,10 +145,11 @@ src/ui/
   goods-icons.ts drawn icons for all 55 goods (engraved 1650, line-style modern)
   art.ts ship art (incl. junks); music.ts the music engine (Web Audio, all synthesised: lute,
   recorder, viol, pipa, zheng, xiao, wooden fish, gong) and the Dutch sarabande;
-  music-nanyang.ts the Chinese house's piece; sound.ts effects (picks the piece per house)
+  music-nanyang.ts the Chinese house's piece; sound.ts effects (picks the piece per house),
+  ambience.ts harbour background sound (synthesised), driven by sound.ts setAmbience
   docking-game.ts, minimap.ts, charts.ts (books), format.ts, update.ts, style.css
-tests/     vitest suites (sim, economy, ships, orders, captains, docking, slots,
-           sail, fog, trade, jettison, onway)
+tests/     vitest suites (sim, economy, ships, orders, captains, docking, slots, sail, fog,
+           trade, jettison, onway, guide, house, settlement, weather, cloud)
 ```
 
 Saves live in localStorage (`deadweight.slots`, `deadweight.save.<id>`,
@@ -230,7 +285,11 @@ The Dutch details:
   plague quarantines, guilders.
 - Fog of war: Dutch knowledge of 1650; voyages of discovery; discovery boom;
   charts for sale (Goa, Manila, Portobelo); captains never sail uncharted.
-- Own-account trade with slow news; dated prices.
+- Own-account trade with slow news; dated prices. Since build 66: buying 300 t raises the price
+  ~15% on average and selling a full hold of a costly good lowers it ~20–25% (TRADE_TUNING
+  buyImpactLots 20, saleSoftening 5; saleFactor() integrates the fall down to the floor); the
+  trade card and voyage plan show "≈ X/t for N t" for the whole lot; price news is sampled daily
+  for 30 days, weekly before (hist).
 - Parchment theme (light/dark), sail ship art, harbour view with region-specific
   towns and careening, background music with a ♪ toggle.
 
@@ -389,7 +448,6 @@ Check `vite-plugin-pwa` precache size limits after adding it.
   sea ban 1661–1683), time moving on (Cape colony 1652,
   Canton 1757, Cook 1770, clippers and steam), wars and privateers, a warping mini game.
 - Decision events (storms: go round or push through; distress calls; pirates; strikes).
-- Goals: a career with milestones and unlocks.
 - **Immersion (owner's choices, Nov 2026):** proposal "Harbour life and the passage"
   (https://claude.ai/artifact/UNKCq9i6J38QcA8mqUosgb). Weather realistic (true to season),
   background sound on by default, the view at sea only by button, harbour first. Builds:
@@ -401,7 +459,7 @@ Check `vite-plugin-pwa` precache size limits after adding it.
   ambience.ts (surf, wind, rain, gulls, creaks, temple/church bell via townBell, crickets on warm
   nights, hammering while building), under SoundBoard (setAmbience, ambientOn in localStorage
   deadweight.ambient). Thunder follows the scene's lightning.
-- **The second loop (decided direction, Nov 2026; proposal awaiting answers):**
+- **The second loop (decided Nov 2026; steps A, B and C built in builds 58–65):**
   ideas page "After the Big Fleet" (https://claude.ai/artifact/5FTKiw5m84rwXHRWTmcncJ) and the
   proposal "A Settlement of Your Own" (https://claude.ai/artifact/HGquN7ATN8ctKYPCS2bRLo).
   Owner's verdicts: ONE settlement at a few chosen sites (not anywhere), fed by the own fleet until
@@ -449,13 +507,6 @@ Check `vite-plugin-pwa` precache size limits after adding it.
 | 47 | Handover document and CLAUDE.md |
 | 48 | The WebGL map (PixiJS): one renderer, exact zoom every frame, screen-width lines, distance-field shallows, fading names, inertia; zoom to 12x; old map as fallback |
 | 49 | Old SVG map removed (map.ts keeps the shared types); stops on the way get their amber ring on the new map |
-
-## 10. Proposals and artifacts (claude.ai, owner's account)
-
-- Port view proposal, Age of Sail proposal, cargo icons proposal
-  (https://claude.ai/artifact/L62SyJugjfc5nfkDvTr3RZ), stops on the way mock-up
-  (https://claude.ai/artifact/VSjBRS64dw8J6dW5BiNLxE). These are private to the owner's
-  account; the decisions they led to are recorded above.
 | 50 | The Chinese house: pick a house for a 1650 game; Amoy, junks (art for side view, harbour and map), taels, Chinese charts and fog names, Patani and Macassar added; market cards in 1650 no longer show $ |
 | 51 | Music for the Chinese house: an original pentatonic piece for pipa, zheng, xiao, wooden fish and gong (the Dutch house keeps the sarabande) |
 | 52 | Every 1650 good sells somewhere (tin, ivory, gold had no buyer); more Asian buyers for the Chinese house (ivory, tin, saltpetre, nutmeg, cinnamon) |
@@ -477,3 +528,16 @@ Check `vite-plugin-pwa` precache size limits after adding it.
 | 71 | Harbour life step 1: realistic weather in 1650 harbours (climate by place and month: monsoons, typhoons, cyclones, hurricanes, European winters; src/sim/weather.ts), rain/snow/lightning animated over a kept picture, and background sound for each harbour (src/ui/ambience.ts) with a Sound button in the port view |
 | 72 | Renamed Here Be Dragons (was Deadweight): title, header, PWA name, README; storage keys stay `deadweight.*` and the gist file `deadweight-saves.json` (the old gist description is still found) so no save is lost |
 | 73 | Readable buttons on the start screen: Rename/Delete on the parchment game cards in dark mode, and light text on the brown main buttons in the light 1650 theme |
+| 74 | Handover brought up to date: section 0 (now and next), build table repaired, artifacts listed |
+
+## 10. Proposals and artifacts (claude.ai, owner's account)
+
+Private to the owner's account; the decisions they led to are recorded above.
+- Port view proposal, Age of Sail proposal, cargo icons proposal
+  (https://claude.ai/artifact/L62SyJugjfc5nfkDvTr3RZ), stops on the way mock-up
+  (https://claude.ai/artifact/VSjBRS64dw8J6dW5BiNLxE).
+- "After the Big Fleet" ideas for a second loop (https://claude.ai/artifact/5FTKiw5m84rwXHRWTmcncJ).
+- "A Settlement of Your Own" proposal (https://claude.ai/artifact/HGquN7ATN8ctKYPCS2bRLo); note the
+  Dutch sites became Mauritius, St Helena and Berbice (St Helena in place of the Cape).
+- "Harbour Life and Passage" proposal (https://claude.ai/artifact/UNKCq9i6J38QcA8mqUosgb): weather,
+  people, other ships, festivals, harbour sound; the view at sea and the ship's log.
