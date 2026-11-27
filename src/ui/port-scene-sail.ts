@@ -21,6 +21,12 @@ const TOWN: Record<string, Town> = {
   hoian: 'eastasia', canton: 'eastasia', amoy: 'eastasia', dejima: 'eastasia',
 };
 
+/** The bell a port's harbour hears: a temple bell in China and Japan, a church bell in European towns. */
+export function townBell(portId: string): 'temple' | 'church' | 'none' {
+  const t = TOWN[portId];
+  return t === 'eastasia' ? 'temple' : t === 'dutch' || t === 'iberian' || t === 'colonial' || t === 'northamerica' ? 'church' : 'none';
+}
+
 /** Length, depth amidships, light and laden draft, mainmast height above the deck: metres. */
 interface Dims { L: number; D: number; d0: number; d1: number; H: number; masts: number; guns: number; junk?: boolean }
 const DIMS: Record<string, Dims> = {
@@ -83,7 +89,15 @@ export function drawSailScene(c: CanvasRenderingContext2D, input: SceneInput, w:
   const sky = c.createLinearGradient(0, 0, 0, yW);
   sky.addColorStop(0, SKY[t][0]); sky.addColorStop(1, SKY[t][1]);
   c.fillStyle = sky; c.fillRect(0, 0, w, h);
-  if (t === 'night') {
+  const wx = input.weather?.kind ?? 'clear';
+  if (wx !== 'clear') {
+    // A grey sky: overcast, rain, a storm, fog or snow.
+    const [g, a] = ({ cloudy: [150, 0.4], rain: [118, 0.62], storm: [72, 0.8], fog: [208, 0.6], snow: [196, 0.6] } as Record<string, [number, number]>)[wx];
+    const k = t === 'night' ? 0.25 : t === 'dusk' ? 0.6 : 1;
+    c.fillStyle = `rgba(${Math.round(g * k)},${Math.round((g + 6) * k)},${Math.round((g + 14) * k)},${a})`;
+    c.fillRect(0, 0, w, h);
+    cloudDeck(c, w, yW, t, wx);
+  } else if (t === 'night') {
     const r = rnd(7);
     c.fillStyle = 'rgba(255,250,235,0.8)';
     for (let i = 0; i < 90; i++) c.fillRect(r() * w, r() * yW * 0.7, 1.2, 1.2);
@@ -101,6 +115,14 @@ export function drawSailScene(c: CanvasRenderingContext2D, input: SceneInput, w:
   const settle = input.settlement;
   if (settle) settlementTown(c, settle, input.portId, w, top, yW, m, t);
   else town(c, TOWN[input.portId] ?? 'dutch', input.portId, w, top, m, t);
+  // Fog, rain and snow hide the town behind: a haze between it and the quay.
+  const haze = ({ fog: 0.62, rain: 0.22, storm: 0.3, snow: 0.25, cloudy: 0.05 } as Record<string, number>)[wx] ?? 0;
+  if (haze) {
+    const k = t === 'night' ? 0.3 : t === 'dusk' ? 0.65 : 1;
+    const v = wx === 'fog' || wx === 'snow' ? 222 : 150;
+    c.fillStyle = `rgba(${Math.round(v * k)},${Math.round((v + 4) * k)},${Math.round((v + 8) * k)},${haze})`;
+    c.fillRect(-w, 0, w * 3, top + QUAY_M * m * 0.5);
+  }
 
   if (careen) {
     beach(c, w, h, yW, m, t);
@@ -131,6 +153,14 @@ export function drawSailScene(c: CanvasRenderingContext2D, input: SceneInput, w:
       const y = yW + 3 + r() * (h - yW - 6), x = r() * w, l = 8 + r() * 26;
       c.beginPath(); c.moveTo(x, y); c.quadraticCurveTo(x + l / 2, y - 1.5, x + l, y); c.stroke();
     }
+    // Rough water: darker under a grey sky, white caps with the wind.
+    if (wx === 'rain' || wx === 'storm') { c.fillStyle = 'rgba(15,25,35,0.22)'; c.fillRect(-w, yW, w * 3, h); }
+    const caps = Math.round(Math.max(0, (input.weather?.wind ?? 0) - 0.3) * 90);
+    c.strokeStyle = t === 'night' ? 'rgba(200,210,225,0.25)' : 'rgba(255,255,255,0.6)'; c.lineWidth = 1.4;
+    for (let i = 0; i < caps; i++) {
+      const y = yW + 2 + r() * (h - yW - 4), x = r() * w, l = 4 + r() * 10;
+      c.beginPath(); c.moveTo(x, y); c.quadraticCurveTo(x + l / 2, y - 2.5, x + l, y + 0.5); c.stroke();
+    }
     c.save();
     c.clip(hullPath(d, shipX, keelY, m));
     hold(c, ship, d, shipX, keelY, m);
@@ -158,6 +188,21 @@ function clouds(c: CanvasRenderingContext2D, w: number, yW: number, t: TimeOfDay
   for (let i = 0; i < 6; i++) {
     const x = r() * w, y = yW * (0.12 + r() * 0.35), s = 20 + r() * 40;
     for (let k = 0; k < 4; k++) { c.beginPath(); c.ellipse(x + k * s * 0.5, y - (k % 2) * s * 0.18, s * 0.6, s * 0.28, 0, 0, Math.PI * 2); c.fill(); }
+  }
+}
+
+/** A grey sky's clouds: a broken layer when overcast, a low dark deck in rain and storms. */
+function cloudDeck(c: CanvasRenderingContext2D, w: number, yW: number, t: TimeOfDay, kind: string): void {
+  if (kind === 'fog') return;
+  const r = rnd(33);
+  const dark = kind === 'storm' ? 0.75 : kind === 'rain' ? 0.55 : kind === 'snow' ? 0.3 : 0.2;
+  const k = t === 'night' ? 0.25 : t === 'dusk' ? 0.6 : 1;
+  const v = Math.round((215 - dark * 150) * k);
+  c.fillStyle = `rgba(${v},${v + 3},${v + 8},0.75)`;
+  const n = kind === 'cloudy' ? 12 : 22;
+  for (let i = 0; i < n; i++) {
+    const x = r() * w * 1.2 - w * 0.1, y = yW * (kind === 'cloudy' ? 0.08 + r() * 0.45 : r() * 0.3), sz = 30 + r() * 50;
+    for (let j = 0; j < 4; j++) { c.beginPath(); c.ellipse(x + j * sz * 0.55, y - (j % 2) * sz * 0.15, sz * 0.7, sz * 0.3, 0, 0, Math.PI * 2); c.fill(); }
   }
 }
 

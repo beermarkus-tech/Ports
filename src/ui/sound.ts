@@ -2,12 +2,14 @@
 // so they work offline). Off until the first tap, as browsers require; the
 // mute setting is remembered on the device.
 
+import { Ambience, type AmbientScene } from './ambience';
 import { Music, type Piece } from './music';
 
 export type SoundName = 'horn' | 'sails' | 'bell' | 'coins' | 'thunder' | 'clank' | 'fanfare' | 'click';
 
 const KEY = 'deadweight.sound';
 const MUSIC_KEY = 'deadweight.music';
+const AMBIENT_KEY = 'deadweight.ambient';
 
 class SoundBoard {
   private ctx: AudioContext | null = null;
@@ -18,12 +20,17 @@ class SoundBoard {
   /** Whether the current game has music (the Age of Sail does). */
   private musicWanted = false;
   private music = new Music();
+  /** The harbour's own sound (the player's choice, on unless turned off), and the harbour shown. */
+  ambientOn: boolean;
+  private ambience = new Ambience();
+  private ambientScene: AmbientScene | null = null;
 
   constructor() {
-    let saved: string | null = null, music: string | null = null;
-    try { saved = localStorage.getItem(KEY); music = localStorage.getItem(MUSIC_KEY); } catch { /* private mode */ }
+    let saved: string | null = null, music: string | null = null, ambient: string | null = null;
+    try { saved = localStorage.getItem(KEY); music = localStorage.getItem(MUSIC_KEY); ambient = localStorage.getItem(AMBIENT_KEY); } catch { /* private mode */ }
     this.enabled = saved !== 'off';
     this.musicOn = music !== 'off';
+    this.ambientOn = ambient !== 'off';
   }
 
   /** Play or stop the background music to match the settings and the game. */
@@ -31,6 +38,23 @@ class SoundBoard {
     const ctx = this.ctx;
     if (ctx && this.master && ctx.state === 'running' && this.enabled && this.musicOn && this.musicWanted) this.music.start(ctx, this.master);
     else this.music.stop();
+    if (ctx && this.master && ctx.state === 'running' && this.enabled && this.ambientOn && this.ambientScene) {
+      this.ambience.start(ctx, this.master);
+      this.ambience.set(this.ambientScene);
+    } else if (this.ambience.running) this.ambience.stop();
+  }
+
+  /** The harbour being shown (its sound plays), or null (the map: no harbour sound). */
+  setAmbience(scene: AmbientScene | null): void {
+    const same = JSON.stringify(scene) === JSON.stringify(this.ambientScene);
+    this.ambientScene = scene;
+    if (!same) this.syncMusic();
+  }
+
+  setAmbientOn(on: boolean): void {
+    this.ambientOn = on;
+    try { localStorage.setItem(AMBIENT_KEY, on ? 'on' : 'off'); } catch { /* ignore */ }
+    this.syncMusic();
   }
 
   /** Whether the game has music, and which piece (the Age of Sail: one per merchant house). */

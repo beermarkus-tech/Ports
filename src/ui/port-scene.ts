@@ -7,6 +7,7 @@ import type { World } from '../sim/world';
 import type { ShipFamily } from './art';
 import { MiniMap, type MiniRoutes } from './minimap';
 import { drawSailScene } from './port-scene-sail';
+import { weatherWords, type Weather } from '../sim/weather';
 
 export type TimeOfDay = 'day' | 'dusk' | 'night';
 type Region = 'europe' | 'med' | 'desert' | 'tropic' | 'city' | 'mountain';
@@ -35,6 +36,8 @@ export interface SceneInput {
   neighbours: SceneShip[];
   /** Days left in dry dock, if docked. */
   dockDays?: number;
+  /** The weather there (1650 harbours). */
+  weather?: Weather;
   /** At your own settlement (1650): what stands there, to draw it. */
   settlement?: { people: number; buildings: Record<string, number>; house: 'dutch' | 'chinese'; forest: boolean };
 }
@@ -124,6 +127,20 @@ export class PortScene {
   private sparkTimer = 0;
   private lastKey = '';
   private mini: MiniMap;
+  /** Rain and snow: the still picture, kept, with the falling drops drawn over it each frame. */
+  private base: HTMLCanvasElement | null = null;
+  private drops: { x: number; y: number; v: number; l: number }[] = [];
+  private weatherTimer = 0;
+  private flash = 0;
+  /** Called when lightning strikes (for the thunder). */
+  onLightning: (() => void) | null = null;
+  /** The harbour sound button: tapped, and whether it's on (null: no button). */
+  onAmbient: (() => void) | null = null;
+  setAmbientButton(on: boolean | null): void {
+    const b = this.el.querySelector<HTMLElement>('[data-ps=ambient]')!;
+    b.hidden = on === null;
+    b.textContent = on ? 'Sound: on' : 'Sound: off';
+  }
 
   constructor(container: HTMLElement, world: World, onMap: () => void) {
     this.el = document.createElement('div');
@@ -133,6 +150,7 @@ export class PortScene {
       <canvas aria-label="Side view of the ship in port"></canvas>
       <div class="ps-hud"></div>
       <div class="ps-tools">
+        <button class="ps-btn" data-ps="ambient" title="The harbour's own sound, on or off" hidden></button>
         <button class="ps-btn" data-ps="zoom" title="Zoom to the ship">Zoom</button>
         <button class="ps-btn" data-ps="map" title="Back to the world map">Map</button>
       </div>`;
@@ -144,6 +162,7 @@ export class PortScene {
     this.el.addEventListener('click', (ev) => {
       const btn = (ev.target as HTMLElement).closest<HTMLElement>('[data-ps]');
       if (btn?.dataset.ps === 'map') { onMap(); return; }
+      if (btn?.dataset.ps === 'ambient') { this.onAmbient?.(); return; }
       if (btn?.dataset.ps === 'zoom' || ev.target === this.canvas) this.toggleZoom();
     });
     new ResizeObserver(() => { this.lastKey = ''; this.draw(); }).observe(this.el);
@@ -169,7 +188,64 @@ export class PortScene {
 
   hide(): void {
     this.el.hidden = true;
+    this.lastKey = '';
     this.stopSparks();
+    this.stopWeather();
+  }
+
+  private stopWeather(): void {
+    if (this.weatherTimer) { clearInterval(this.weatherTimer); this.weatherTimer = 0; }
+  }
+
+  /** Falling rain or snow, and lightning in a storm, over the kept picture. */
+  private animateWeather(): void {
+    const input = this.input;
+    const kind = input?.weather?.kind;
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const falls = kind === 'rain' || kind === 'storm' || kind === 'snow';
+    if (!falls || reduce || !this.base || this.el.hidden) { this.stopWeather(); return; }
+    const w = this.el.clientWidth, h = this.el.clientHeight;
+    const snow = kind === 'snow';
+    const n = Math.round((w * h) / (kind === 'storm' ? 900 : snow ? 2600 : 1600));
+    if (this.drops.length !== n) {
+      this.drops = Array.from({ length: n }, () => ({ x: Math.random() * w, y: Math.random() * h, v: snow ? 0.6 + Math.random() * 0.8 : 9 + Math.random() * 6, l: snow ? 1 + Math.random() * 1.6 : 8 + Math.random() * 10 }));
+    }
+    if (this.weatherTimer) return;
+    const slant = () => (this.input?.weather?.wind ?? 0.3) * (snow ? 1.4 : 0.55);
+    this.weatherTimer = window.setInterval(() => {
+      if (!this.base || this.el.hidden) { this.stopWeather(); return; }
+      const c = this.ctx;
+      const dpr = this.canvas.width / Math.max(1, this.el.clientWidth);
+      c.setTransform(1, 0, 0, 1, 0, 0);
+      c.drawImage(this.base, 0, 0);
+      c.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const ww = this.el.clientWidth, hh = this.el.clientHeight, k = slant();
+      const night = this.input?.time === 'night';
+      if (snow) {
+        c.fillStyle = night ? 'rgba(220,226,235,0.7)' : 'rgba(255,255,255,0.9)';
+        for (const d of this.drops) {
+          d.y += d.v; d.x += k * d.v + Math.sin((d.y + d.l * 40) / 30) * 0.4;
+          if (d.y > hh) { d.y = -4; d.x = Math.random() * ww; }
+          if (d.x > ww) d.x -= ww;
+          c.beginPath(); c.arc(d.x, d.y, d.l, 0, Math.PI * 2); c.fill();
+        }
+      } else {
+        c.strokeStyle = night ? 'rgba(170,185,205,0.35)' : 'rgba(225,232,240,0.5)';
+        c.lineWidth = 1;
+        c.beginPath();
+        for (const d of this.drops) {
+          d.y += d.v; d.x += d.v * k;
+          if (d.y > hh) { d.y = -d.l; d.x = Math.random() * (ww + 60) - 60; }
+          if (d.x > ww) d.x -= ww + 60;
+          c.moveTo(d.x, d.y); c.lineTo(d.x - d.l * k, d.y - d.l);
+        }
+        c.stroke();
+        if (kind === 'storm') {
+          if (this.flash <= 0 && Math.random() < 0.006) { this.flash = 1; this.onLightning?.(); }
+          if (this.flash > 0) { c.fillStyle = `rgba(235,240,255,${(this.flash * 0.55).toFixed(2)})`; c.fillRect(0, 0, ww, hh); this.flash -= 0.18; }
+        }
+      }
+    }, 50);
   }
 
   private stopSparks(): void {
@@ -203,6 +279,14 @@ export class PortScene {
       const drawn = drawSailScene(c, input, w, h, this.zoomed);
       this.renderSailHud(input, drawn);
       (this.el.querySelector('[data-ps=zoom]') as HTMLElement).textContent = this.zoomed ? 'Whole quay' : 'Zoom';
+      // Keep the still picture for the rain or snow to fall over.
+      const kind = input.weather?.kind;
+      if (kind === 'rain' || kind === 'storm' || kind === 'snow') {
+        this.base ??= document.createElement('canvas');
+        this.base.width = this.canvas.width; this.base.height = this.canvas.height;
+        this.base.getContext('2d')!.drawImage(this.canvas, 0, 0);
+      } else this.base = null;
+      this.animateWeather();
       return;
     }
 
@@ -293,6 +377,7 @@ export class PortScene {
       chip(`Hold ${cargo.toLocaleString('en-US')} / ${s.capacity.toLocaleString('en-US')} t`),
       chip(`Victuals ${Math.round(s.fuel)} / ${s.bunkerCapacity} casks`, share < 0.15 ? 'bad' : share < 0.3 ? 'warn' : ''),
       chip(`Condition ${Math.round(s.condition)}%`, s.condition < 45 ? 'bad' : s.condition < 65 ? 'warn' : ''),
+      input.weather ? chip(weatherWords(input.weather), input.weather.kind === 'storm' ? 'bad' : 'opt') : '',
     ].join('');
   }
 

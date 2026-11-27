@@ -44,7 +44,7 @@ as an installable offline PWA (Vite + TypeScript, no framework).
 ```
 npm install
 npm run dev          # local dev server
-npm test             # vitest, 124 tests, all must pass
+npm test             # vitest, 128 tests, all must pass
 npm run build        # tsc + vite build into dist/
 npx vite preview --port 4173 --strictPort   # serve dist/ (base is './', open http://localhost:4173/)
 ERA=sail [HOUSE=chinese] npx tsx scripts/balance.ts 10 100 greedy   # balance bots (also: casual)
@@ -376,6 +376,17 @@ Check `vite-plugin-pwa` precache size limits after adding it.
   Canton 1757, Cook 1770, clippers and steam), wars and privateers, a warping mini game.
 - Decision events (storms: go round or push through; distress calls; pirates; strikes).
 - Goals: a career with milestones and unlocks.
+- **Immersion (owner's choices, Nov 2026):** proposal "Harbour life and the passage"
+  (https://claude.ai/artifact/UNKCq9i6J38QcA8mqUosgb). Weather realistic (true to season),
+  background sound on by default, the view at sea only by button, harbour first. Builds:
+  1 weather + sound (done, build 68); 2 life in the harbour (dockers when loading, builders at the
+  settlement, other ships, rowing boats); 3 the passage ("Watch her sail" view + daily ship's log);
+  4 festivals (Chinese New Year, Lantern, Mid-Autumn; Dutch kermis, St Nicholas).
+  Weather: weatherAt(port, day, month) is deterministic (3-day spells, storms by 2-day blocks);
+  your settlement's storms come from its news (main.ts weatherHere). Sound: Ambience in
+  ambience.ts (surf, wind, rain, gulls, creaks, temple/church bell via townBell, crickets on warm
+  nights, hammering while building), under SoundBoard (setAmbience, ambientOn in localStorage
+  deadweight.ambient). Thunder follows the scene's lightning.
 - **The second loop (decided direction, Nov 2026; proposal awaiting answers):**
   ideas page "After the Big Fleet" (https://claude.ai/artifact/5FTKiw5m84rwXHRWTmcncJ) and the
   proposal "A Settlement of Your Own" (https://claude.ai/artifact/HGquN7ATN8ctKYPCS2bRLo).
@@ -448,3 +459,4 @@ Check `vite-plugin-pwa` precache size limits after adding it.
 | 65 | Step C: workshops, town and port stages, the settlement opens as a real port (board, market, dues), own goods loaded for nothing, guide chapters 6–7 |
 | 66 | Own-account trade: gentler market impact (buyImpactLots 20, sales 5× softer than freight, a correct average down to the floor via saleFactor), outlooks show the average for the whole lot, daily price news for the last month |
 | 67 | Sound and music pause when the app goes to the background or the screen turns off (AudioContext suspended on visibilitychange/pagehide), and resume on return |
+| 68 | Harbour life step 1: realistic weather in 1650 harbours (climate by place and month: monsoons, typhoons, cyclones, hurricanes, European winters; src/sim/weather.ts), rain/snow/lightning animated over a kept picture, and background sound for each harbour (src/ui/ambience.ts) with a Sound button in the port view |

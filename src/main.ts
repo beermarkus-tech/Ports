@@ -31,6 +31,8 @@ import { barChart, lineChart, miniBars, type ChartPoint } from './ui/charts';
 import { captainSlots } from './sim/captains';
 import { areaName, areaPorts, region, regionOf, regions } from './sim/regions';
 import { sound } from './ui/sound';
+import { townBell } from './ui/port-scene-sail';
+import { weatherAt, type Weather } from './sim/weather';
 import { SARABANDE } from './ui/music';
 import { NANYANG } from './ui/music-nanyang';
 import { BUILD, consumeUpdatedFrom, initServiceWorker, isNewer, justUpdated, latestBuild, reloadApp } from './ui/update';
@@ -162,6 +164,9 @@ class App {
       (id) => this.selectShip(id),
     );
     this.portScene = new PortScene($('#map'), world, () => { this.view = 'map'; this.renderView(); });
+    // Thunder follows the lightning by a moment.
+    this.portScene.onLightning = () => setTimeout(() => sound.play('thunder'), 400 + Math.random() * 1400);
+    this.portScene.onAmbient = () => { sound.setAmbientOn(!sound.ambientOn); this.portScene.setAmbientButton(sound.ambientOn); };
     this.portBtn = document.createElement('button');
     this.portBtn.className = 'port-open';
     this.portBtn.textContent = '⚓ Port view';
@@ -748,12 +753,24 @@ class App {
     if (this.view === 'port' && inPort) {
       const docked = inDryDock(this.g, ship);
       const port = world.ports[ship.location];
+      const time = this.timeOfDay(port.lon);
+      const weather = isSail() ? this.weatherHere(port.id) : undefined;
+      const settle = this.g.settlement?.site === port.id ? this.g.settlement : undefined;
+      if (weather) {
+        sound.setAmbience({
+          bell: settle ? (['village', 'town', 'port'].includes(settle.stage) ? (world.era.house?.id === 'chinese' ? 'temple' : 'church') : 'none') : townBell(port.id),
+          time, weather: { kind: weather.kind, wind: Math.round(weather.wind * 20) / 20 }, warm: Math.abs(port.lat) < 35,
+          building: !!settle?.project,
+        });
+        this.portScene.setAmbientButton(sound.ambientOn);
+      } else { sound.setAmbience(null); this.portScene.setAmbientButton(null); }
       this.portScene.show({
+        weather,
         ship: this.sceneShip(ship),
         place: docked ? 'dock' : 'quay',
         portId: port.id,
         portName: port.name,
-        time: this.timeOfDay(port.lon),
+        time,
         neighbours: this.g.fleet.filter((s) => s.id !== ship.id && !atSea(s) && !inDryDock(this.g, s) && s.location === ship.location)
           .map((s) => this.sceneShip(s)),
         dockDays: docked ? ship.busyUntil! - this.g.day : undefined,
@@ -766,6 +783,7 @@ class App {
       this.portBtn.hidden = true;
     } else {
       this.portScene.hide();
+      sound.setAmbience(null);
       this.miniShown = false;
       this.portBtn.hidden = !inPort || !world.era.portView;
     }
@@ -779,6 +797,20 @@ class App {
       cargo: s.cargo.map((c) => ({ good: c.good, cls: world.goods[c.good].cargoClass, tons: c.tons })),
       fuel: s.fuel, condition: s.condition,
     };
+  }
+
+  /** The weather in a port today. At your settlement, storms are the ones its news reports. */
+  private weatherHere(portId: string): Weather {
+    const p = world.ports[portId];
+    const day = Math.floor(this.g.day);
+    const month = new Date(Date.UTC(world.era.startYear, 0, 1) + day * 86_400_000).getUTCMonth();
+    const s = this.g.settlement;
+    if (s?.site === portId) {
+      const storm = s.news.some((n) => /storm struck/i.test(n.text) && day - n.day >= 0 && day - n.day <= 1);
+      if (storm) return { kind: 'storm', wind: 0.95, storm: weatherAt(p, day, month).storm };
+      return weatherAt(p, day, month, false);
+    }
+    return weatherAt(p, day, month);
   }
 
   /** Local time of day at a port, from where the map's sun is right now. */

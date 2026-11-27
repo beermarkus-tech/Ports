@@ -976,3 +976,4 @@ button.era-card:hover { border-color: var(--accent); }
 .ach-worth { margin-top: 10px; }
 .o-good { color: var(--good); font-size: 13px; margin: 8px 0; }
 .avg { color: var(--text); white-space: nowrap; }
+.ps-btn[hidden] { display: none; }
