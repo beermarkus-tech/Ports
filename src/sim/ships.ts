@@ -89,8 +89,8 @@ export function netWorth(g: GameState, world: World): number {
 
 // ---------------------------------------------------------------- market
 
-export function shipName(g: GameState, avoid: string[] = []): string {
-  const free = NAMES.filter((n) => !avoid.includes(n));
+export function shipName(g: GameState, avoid: string[] = [], world?: World): string {
+  const free = (world?.era.house?.shipNames ?? NAMES).filter((n) => !avoid.includes(n));
   return free[Math.floor(rand(g) * free.length)] ?? `Ship ${g.nextId}`;
 }
 
@@ -98,7 +98,9 @@ export function shipName(g: GameState, avoid: string[] = []): string {
 export function regenerateMarket(world: World, g: GameState, portId: string): void {
   const T = SHIP_TUNING;
   const offers: ShipOffer[] = [];
-  const types = Object.values(world.shipTypes);
+  // A merchant house's brokers and yards deal in its own kind of ship.
+  const own = world.era.house?.ships;
+  const types = Object.values(world.shipTypes).filter((t) => !own || own.includes(t.id));
   const n = randInt(g, T.usedOffersMin, T.usedOffersMax);
   const taken = g.fleet.map((s) => s.name);
   for (let i = 0; i < n; i++) {
@@ -106,13 +108,13 @@ export function regenerateMarket(world: World, g: GameState, portId: string): vo
     const age = Math.round(3 + 27 * rand(g) ** 0.8);
     const condition = Math.round(Math.max(30, Math.min(97, 100 - age * 1.6 + randRange(g, -10, 10))));
     const price = Math.round((shipValue(type, age, condition) * randRange(g, 0.95, 1.12)) / 1000) * 1000;
-    const name = shipName(g, taken);
+    const name = shipName(g, taken, world);
     taken.push(name);
     offers.push({ id: g.nextId++, typeId: type.id, name, age, condition, price });
   }
   if (world.ports[portId].shipyard) {
     for (const type of types) {
-      const name = shipName(g, taken);
+      const name = shipName(g, taken, world);
       taken.push(name);
       offers.push({ id: g.nextId++, typeId: type.id, name, age: 0, condition: 100, price: type.newPrice });
     }
@@ -151,7 +153,7 @@ export function quotePurchase(g: GameState, offer: ShipOffer, world: World): Pur
   let blocked: string | null = null;
   if (loanAfter > loanLimit) {
     blocked = `The bank lends at most ${Math.round(SHIP_TUNING.loanToValue * 100)}% of your fleet's value. You're ${
-      '$' + (loanAfter - loanLimit).toLocaleString('en-US')} short.`;
+      world.era.currency + (loanAfter - loanLimit).toLocaleString('en-US')} short.`;
   }
   return { offer, type, price: offer.price, fromCash, borrow, loanAfter, loanLimit, blocked };
 }

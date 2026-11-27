@@ -5,8 +5,8 @@ import { BOT_OPTIONS, botStep, casualStep, evaluateOptions } from '../src/sim/bo
 import { RULES, newGame } from '../src/sim/game';
 import { getWorld, setEra } from '../src/sim/world';
 
-// ERA=sail runs the Age of Sail world.
-if (process.env.ERA === 'sail') setEra('sail');
+// ERA=sail runs the Age of Sail world (HOUSE=chinese for the Chinese house).
+if (process.env.ERA === 'sail') setEra('sail', process.env.HOUSE === 'chinese' ? 'chinese' : 'dutch');
 
 const legs = Number(process.argv[2] ?? 10);
 const seeds = Number(process.argv[3] ?? 50);

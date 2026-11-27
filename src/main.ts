@@ -1,12 +1,12 @@
 import './ui/style.css';
 import { activeEvents, closedCanals, priceLevel, routeFor } from './sim/economy';
 import { CHART_TUNING, chartOffers, fogFor, isCharted, unchartedShare, wantedGoods } from './sim/charts';
-import { bestKnownMarkets, buyPrice, goodsBuyQuote, goodsSaleQuote, hasTrade, priceNews, type PriceNews } from './sim/trade';
+import { bestKnownMarkets, buyPrice, goodsBuyQuote, goodsSaleQuote, hasTrade, priceNews, saleFactor, type PriceNews } from './sim/trade';
 import {
   ActionError, LAID_UP, RULES, acceptContract, advance, atSea, borrow, buyFuel, buyShip, canCarry, cargoTons, clearOrders,
   assignCaptain, buyChart, callsOnTheWay, detour, onTheWay, setPlannedDest, type CallOnTheWay, buyGoods, sellGoods, captainOf, fireCaptain, hireCaptain, monthOf, monthProfit, onOrders, resumeOrders,
   dailyUpkeep, daysUntilNextShip, fuelPrice, getShip, inDryDock, isReady, isWaiting, needsDecision, newGame,
-  dockByHand, nextMilestone, planVoyage, portFee, repair, repairQuote, repayLoan, sail, saleQuote, sellShip,
+  dockByHand, planVoyage, foundSettlement, hasCharter, recruitSettlers, startBuilding, unloadAtSettlement, loadFromSettlement, portFee, repair, repairQuote, repayLoan, sail, saleQuote, sellShip,
   shipsNeedingDecision, takeReport, typeOf, unloadContract, jettisonClaim, jettisonContract, jettisonGoods, voyageProgress, waitInPort, type VoyagePlan,
 } from './sim/game';
 import {
@@ -17,34 +17,39 @@ import {
   stateValue,
 } from './sim/ships';
 import type { Captain, Contract, GameState, PremiumKind, ShipOffer, ShipState, ShipTypeDef, VoyageReport } from './sim/types';
-import { currentEra, getWorld, setEra } from './sim/world';
+import { currentEra, currentHouse, getWorld, setEra } from './sim/world';
+import { currentChapter, guideChapters, updateGuide, type GuideChapter } from './sim/guide';
+import { BUILDINGS, SETTLEMENT_TUNING, SITES, STAGE_NAMES, buildDays, cannotBuild, count as bcount, eats, foodDays, grows, housing, nextStageNeeds, siteOf, roomFor, storeRoom, stored, willing, yardStored, fish, STAGES, dues, jobs, making as makingNow, products, staffed } from './sim/settlement';
 import { compactMoney, currency, days, esc, gameDate, money, setEraFormat, startYear, tons } from './ui/format';
 import { mapIconPath, shipFamily, shipSideView } from './ui/art';
 import { applyCheck, changedSinceSync, checkCloud, clearConfig, CloudError, defaultDeviceName, findOrCreateGist, loadConfig, saveConfig, type Check, type CloudGame, type SyncedSlot } from './cloud';
 import { CLASS_LABEL, goodIcon } from './ui/goods-icons';
-import { MapView, type LonLat, type PortMarker, type ShipMarker, type WeatherCell } from './ui/map';
+import { GlMapView as MapView } from './ui/map-gl';
+import { type LonLat, type PortMarker, type ShipMarker, type WeatherCell } from './ui/map';
 import { PortScene, shipLength, type SceneShip, type TimeOfDay } from './ui/port-scene';
 import { DockingGame } from './ui/docking-game';
 import { barChart, lineChart, miniBars, type ChartPoint } from './ui/charts';
 import { captainSlots } from './sim/captains';
 import { areaName, areaPorts, region, regionOf, regions } from './sim/regions';
 import { sound } from './ui/sound';
+import { SARABANDE } from './ui/music';
+import { NANYANG } from './ui/music-nanyang';
 import { BUILD, consumeUpdatedFrom, initServiceWorker, isNewer, justUpdated, latestBuild, reloadApp } from './ui/update';
 
-type Tab = 'contracts' | 'voyage' | 'ship' | 'market' | 'fleet' | 'log';
+type Tab = 'contracts' | 'voyage' | 'ship' | 'market' | 'fleet' | 'settlement' | 'log';
 /** Why the clock is stopped: the player paused it, or a ship (or an arrival report) needs the player. */
 type PauseReason = 'user' | 'arrival' | 'decision';
 
 let world = getWorld();
 
 /** Set the engine, the formats and the look for a game's era. */
-function applyEra(era: 'modern' | 'sail'): void {
-  setEra(era);
+function applyEra(era: 'modern' | 'sail', house?: 'dutch' | 'chinese'): void {
+  setEra(era, house);
   world = getWorld();
   setEraFormat(world.era.startYear, world.era.currency);
   document.documentElement.classList.toggle('era-sail', era === 'sail');
   // The Age of Sail has its own music (it starts with the first tap, as browsers require).
-  sound.setMusicWanted(era === 'sail');
+  sound.setMusicWanted(era === 'sail', house === 'chinese' ? NANYANG : SARABANDE);
 }
 
 /** Words that differ between the eras. */
@@ -162,7 +167,7 @@ class App {
 
   constructor(opts: { showStart: boolean } = { showStart: false }) {
     const loaded = loadGame();
-    applyEra(loaded?.era ?? 'modern');
+    applyEra(loaded?.era ?? 'modern', loaded?.house);
     this.g = loaded ?? newGame();
     saveGame(this.g);
     this.activeId = (this.g.fleet.find((s) => isReady(this.g, s)) ?? this.g.fleet[0]).id;
@@ -394,7 +399,7 @@ class App {
             removeSlotByUid(blank.uid!);
             this.toast(`Connected. Opening ${newest.name} from the cloud.`, 'good');
             const g = loadSlot(newest.id);
-            if (g && (g.era ?? 'modern') !== currentEra()) { reloadForEra(); return; }
+            if (g && ((g.era ?? 'modern') !== currentEra() || (g.era === 'sail' ? g.house ?? 'dutch' : undefined) !== currentHouse())) { reloadForEra(); return; }
             if (g) this.loadInto(g);
             return;
           }
@@ -747,6 +752,21 @@ class App {
       case 'sell-goods':
         this.act((g) => sellGoods(g, this.activeId, data.good!));
         break;
+      case 'found':
+        if (this.act((g) => foundSettlement(g, data.id!))) { this.toast(`The charter is signed: ${world.ports[data.id!].name} is yours to settle.`, 'good'); sound.play('coins'); }
+        break;
+      case 'recruit':
+        if (this.act((g) => recruitSettlers(g, ship.id, Number(data.n)))) this.toast(`${data.n} settlers aboard the ${ship.name}.`, 'good');
+        break;
+      case 'unload-settlement':
+        this.act((g) => unloadAtSettlement(g, ship.id, data.good || undefined));
+        break;
+      case 'load-settlement':
+        this.act((g) => loadFromSettlement(g, ship.id, data.good ?? ''));
+        break;
+      case 'build':
+        if (this.act((g) => startBuilding(g, data.id!))) this.toast('Work begins.', 'good');
+        break;
       case 'buy-chart':
         if (this.act((g) => buyChart(g, data.id!))) this.toast('The chart is yours: new waters open on the map.', 'good');
         break;
@@ -799,6 +819,7 @@ class App {
         if (this.g.reports.length) { this.showNextReport(); return; }
         break;
       case 'games': this.showGames(); return;
+      case 'guide': this.showGuide(); return;
       case 'cloud-connect': void this.cloudConnect(); return;
       case 'cloud-sync': void this.cloudSync('manual'); return;
       case 'cloud-off':
@@ -841,17 +862,18 @@ class App {
       }
       case 'slot-new': {
         const era = data.era === 'sail' ? 'sail' : 'modern';
+        const house = era === 'sail' ? (data.house === 'chinese' ? 'chinese' : 'dutch') : undefined;
         const input = document.getElementById('new-name') as HTMLInputElement | null;
         const name = input?.value.trim() || 'My shipping company';
         saveGame(this.g);
-        const before = currentEra();
-        setEra(era);
+        const before = currentEra(), beforeHouse = currentHouse();
+        setEra(era, house);
         const g = newGame();
         g.era = era;
         g.company = name;
         createSlot(g, name);
-        setEra(before);
-        if (era !== before) { reloadForEra(); return; }
+        setEra(before, beforeHouse);
+        if (era !== before || house !== beforeHouse) { reloadForEra(); return; }
         this.loadInto(g);
         this.toast(`${name} is founded. Good luck!`, 'good');
         return;
@@ -860,6 +882,7 @@ class App {
         if (!this.g.gameOver && !confirm('Start this company over? Its current game will be lost.')) return;
         clearSave();
         this.g = { ...newGame(), era: this.g.era ?? 'modern', company: this.g.company };
+        if (this.g.era === 'sail') this.g.house = currentHouse();
         this.activeId = this.g.fleet[0].id;
         this.dest = null;
         this.marketPort = null;
@@ -965,6 +988,10 @@ class App {
         neighbours: this.g.fleet.filter((s) => s.id !== ship.id && !atSea(s) && !inDryDock(this.g, s) && s.location === ship.location)
           .map((s) => this.sceneShip(s)),
         dockDays: docked ? ship.busyUntil! - this.g.day : undefined,
+        settlement: this.g.settlement?.site === port.id ? {
+          people: this.g.settlement.people, buildings: this.g.settlement.buildings,
+          house: world.era.house?.id === 'chinese' ? 'chinese' : 'dutch', forest: SITES[port.id].forest > 0,
+        } : undefined,
       });
       if (!this.portScene.visible || !this.miniShown) { this.miniShown = true; this.renderRoutes(); }
       this.portBtn.hidden = true;
@@ -1053,16 +1080,64 @@ class App {
     if (tag) tag.textContent = g.company ?? 'shipping company';
     this.animateCash(g.cash);
     const worth = netWorth(g, world);
-    const next = nextMilestone(g);
-    const prev = [...g.milestones].sort((a, b) => b.amount - a.amount)[0]?.amount ?? 0;
-    const progress = next ? Math.max(0, Math.min(1, (worth - prev) / (next - prev))) : 1;
-    $('#goal-bar').style.width = `${progress * 100}%`;
+    // The guide: the chapter being played and how far along it is (tap for the steps).
+    this.announceGuide();
+    this.announceSettlement();
+    const ch = currentChapter(world, g);
+    const done = ch ? ch.steps.filter((x) => x.done).length : 1, total = ch ? ch.steps.length : 1;
+    $('#goal-bar').style.width = `${(done / total) * 100}%`;
     $('#goal-text').textContent = g.cash < 0
       ? `Overdraft · limit ${compactMoney(RULES.overdraftLimit)} · 18%/yr`
-      : next
-        ? `Worth ${compactMoney(worth)} → ${compactMoney(next)}`
-        : `Worth ${compactMoney(worth)} · all goals reached`;
-    $('#goal-text').title = 'Net worth: cash + fleet value − loan';
+      : ch ? `${ch.n}. ${ch.title} · ${done}/${total}` : `Worth ${compactMoney(worth)}`;
+    $('.goal').title = `The guide: your next steps. Net worth ${compactMoney(worth)} (cash + fleet value − loan).`;
+  }
+
+  private seenNews = '';
+  /** News from the settlement since last time, as messages (two at most at once). */
+  private announceSettlement(): void {
+    const news = this.g.settlement?.news ?? [];
+    const key = news.length ? `${news[0].day}|${news[0].text}` : '';
+    if (!this.seenNews) { this.seenNews = key || '-'; return; }
+    if (key === this.seenNews || !key) return;
+    const fresh: typeof news = [];
+    for (const n of news) { if (`${n.day}|${n.text}` === this.seenNews) break; fresh.push(n); }
+    this.seenNews = key;
+    for (const n of fresh.slice(0, 2).reverse()) this.toast(n.text, n.kind === 'bad' ? 'bad' : 'good');
+  }
+
+  /** Steps and chapters of the guide finished since last time: a message, and the chapter's end in a dialog. */
+  private announceGuide(): void {
+    // A brand-new game opens with the guide's first steps.
+    const fresh = !this.g.guide && this.g.day < 1 && this.g.stats.voyages === 0;
+    const news = updateGuide(world, this.g);
+    if (fresh && $('#modal').hidden) { this.showGuide(); return; }
+    for (const st of news.steps) {
+      this.toast(`✓ ${st.title}`, 'good');
+      this.g.log.unshift({ day: this.g.day, text: `Guide: ${st.title} — done.` });
+    }
+    const ch = news.chapters[news.chapters.length - 1];
+    if (ch && $('#modal').hidden) this.showGuide(ch);
+  }
+
+  /** The guide: the chapter being played, its steps and how to do them; or a finished chapter's end. */
+  private showGuide(finished?: GuideChapter): void {
+    const g = this.g;
+    const chapters = guideChapters(world, g);
+    const cur = currentChapter(world, g);
+    const steps = (c: GuideChapter) => `<ol class="guide-steps">${c.steps.map((st) => `
+      <li class="${st.done ? 'done' : ''}"><span class="gs-tick" aria-hidden="true">${st.done ? '✓' : ''}</span>
+        <div><strong>${esc(st.title)}</strong>${st.done ? '' : `<span class="hint">${esc(st.hint)}</span>`}
+        ${st.progress && !st.done ? `<div class="gs-bar"><i style="width:${(st.progress[0] / st.progress[1]) * 100}%"></i></div><span class="gs-num">${st.progress[0].toLocaleString('en-US')} / ${st.progress[1].toLocaleString('en-US')}</span>` : ''}</div></li>`).join('')}</ol>`;
+    const past = chapters.filter((c) => c.steps.every((st) => st.done) && c !== finished);
+    $('#modal').classList.remove('wide');
+    $('#modal-body').innerHTML = `
+      ${finished ? `<p class="new-ship-kicker">Chapter ${finished.n} complete</p><h2>${esc(finished.title)}</h2><p class="guide-epilogue">${esc(finished.epilogue)}</p>` : ''}
+      ${cur ? `<p class="lbl">${finished ? 'Next' : `Chapter ${cur.n} of ${chapters.length}`}</p><h2>${esc(cur.title)}</h2>${steps(cur)}`
+        : `<h2>The guide</h2><p>Every chapter so far is done. The next ones arrive with coming builds.</p>`}
+      <p class="sub">Your ${isSail() ? 'house' : 'company'} is worth ${money(netWorth(g, world))} (cash and ships, less the loan).</p>
+      ${past.length && !finished ? `<details class="guide-past"><summary>Chapters done (${past.length})</summary><ul>${past.map((c) => `<li>${c.n}. ${esc(c.title)}</li>`).join('')}</ul></details>` : ''}
+      <button class="btn primary wide" data-action="close-games">${finished ? 'On we go' : 'Close'}</button>`;
+    $('#modal').hidden = false;
   }
 
   /** The cash figure counts towards its new value instead of jumping; big changes flash. */
@@ -1182,7 +1257,7 @@ class App {
     const viaPorts = new Set(this.calls().map((c) => c.port));
     const events = activeEvents(g);
     const here = ship.voyage ? null : ship.location;
-    const markers: PortMarker[] = world.portList.map((p) => ({
+    const markers: PortMarker[] = [...world.portList, ...(g.settlement && !world.portList.includes(world.ports[g.settlement.site]) ? [world.ports[g.settlement.site]] : [])].map((p) => ({
       id: p.id,
       name: p.name,
       fuelPrice: fuelPrice(g, p.id),
@@ -1249,7 +1324,8 @@ class App {
       ['ship', 'Ship'],
       ['market', 'Market'],
       ['fleet', 'Company'],
-      ['log', 'Log'],
+      ...(g.settlement || hasCharter(g) ? [['settlement', g.settlement ? world.ports[g.settlement.site].name : 'Charter', g.settlement?.hungry ? '!' : undefined] as [Tab, string, string?]] : []),
+      ['log', 'Journal'],
     ];
     $('#tabs').innerHTML = tabs.map(([id, label, badge]) =>
       `<button class="tab ${this.tab === id ? 'active' : ''}" data-action="tab" data-tab="${id}" role="tab" aria-selected="${this.tab === id}">
@@ -1260,7 +1336,7 @@ class App {
     const open = new Set([...body.querySelectorAll<HTMLDetailsElement>('details[open][data-key]')].map((d) => d.dataset.key));
     body.innerHTML = {
       contracts: () => this.contractsTab(), voyage: () => this.voyageTab(), ship: () => this.shipTab(),
-      market: () => this.marketTab(), fleet: () => this.fleetTab(), log: () => this.logTab(),
+      market: () => this.marketTab(), fleet: () => this.fleetTab(), settlement: () => this.settlementTab(), log: () => this.logTab(),
     }[this.tab]();
     body.querySelectorAll<HTMLDetailsElement>('details[data-key]').forEach((d) => { if (open.has(d.dataset.key)) d.open = true; });
     if (this.renderedTab !== this.tab || this.renderedShip !== ship.id) {
@@ -1272,6 +1348,106 @@ class App {
     }
     this.renderPorts();
     this.renderRoutes();
+  }
+
+  /** The settlement: choose a site under the charter; then its people, stores, buildings and news. */
+  private settlementTab(): string {
+    const g = this.g;
+    const ship = this.ship();
+    const s = g.settlement;
+    if (!s) {
+      const cards = world.siteList.map((p) => {
+        const site = SITES[p.id];
+        const can = g.cash >= site.charter;
+        return `<div class="site-card">
+          <div class="port-head"><div><h3 class="site-name">${esc(p.name)}</h3><span class="sub">${esc(p.country)} · ${Math.round(routeFor(world, g, world.era.start.port, p.id)?.nm ?? 0).toLocaleString('en-US')} nm from ${esc(world.ports[world.era.start.port].name)}</span></div></div>
+          <p>${esc(site.blurb)}</p>
+          <div class="chips">${site.plus.map((x) => `<span class="chip plus">${esc(x)}</span>`).join('')}${site.minus.map((x) => `<span class="chip minus">${esc(x)}</span>`).join('')}</div>
+          <p class="sub">Charter ${money(site.charter)} · rent ${money(Math.round(site.charter * SETTLEMENT_TUNING.rent))} a year · up to ${site.fields} field${site.fields === 1 ? '' : 's'} and ${site.fishing} fishing boat${site.fishing === 1 ? '' : 's'}${site.forest ? ' · forest for a sawmill' : ''}</p>
+          <button class="btn primary wide" data-action="found" data-id="${p.id}" ${can ? '' : 'disabled'}>Found the settlement at ${esc(p.name)}</button>
+        </div>`;
+      }).join('');
+      return `<h2>A settlement of your own</h2>
+        <p class="hint">The charter lets your house found one settlement, at one of these three sites, leased from the local ruler. Settlers come by your ships from ${esc(world.ports[world.era.start.port].name)}; they need food every day, and timber and iron and tools to build. With care it grows from a camp to an outpost, a village and a town, and at last opens as a port the world trades with.</p>
+        <div class="site-cards">${cards}</div>`;
+    }
+    const site = siteOf(s);
+    const name = world.ports[s.site].name;
+    const days = foodDays(s, g.day);
+    const daysText = s.people < 1 ? 'nobody there yet' : days === Infinity ? 'feeds itself' : `${Math.floor(days)} days`;
+    const need = nextStageNeeds(s, g.day);
+    const tons = (n: number) => `${(Math.round(n * 10) / 10).toLocaleString('en-US')} t`;
+    const goodsHere = [...new Set(['rice', 'grain', 'timber', 'tools', ...Object.keys(s.stores)])];
+    const store = goodsHere.filter((k) => (s.stores[k] ?? 0) > 0.05 || k === 'timber' || k === 'tools' || k === site.crop)
+      .map((k) => `<div class="kv"><span>${esc(world.goods[k].name)}</span><strong>${tons(s.stores[k] ?? 0)}</strong></div>`).join('');
+    const made = makingNow(s);
+    const making = [grows(s, g.day) ? `${tons(grows(s, g.day))} of ${site.crop} a day from the fields` : '', fish(s) ? `${tons(fish(s))} of fish a day from the boats, eaten fresh` : '', bcount(s, 'sawmill') ? `${tons(site.forest)} of timber a day from the sawmill` : '',
+      ...Object.entries(made).map(([good, t]) => `${tons(t)} of ${world.goods[good].name.toLowerCase()} a day from the workshops`)].filter(Boolean);
+    const hands = jobs(s) ? `<p class="sub">Workshops need ${jobs(s)} hands; ${Math.round(staffed(s) * 100)}% at work (the first ${SETTLEMENT_TUNING.homeHands} people farm, fish and keep house).</p>` : '';
+    // Its own goods, to load aboard a ship lying there (they cost nothing).
+    const sellable = goodsHere.filter((k) => !['tools'].includes(k) && (s.stores[k] ?? 0) >= 1 && (products(s).includes(k) || k === 'timber' || k === site.crop));
+    const loadBox = isReady(g, ship) && ship.location === s.site && sellable.length && s.stage !== 'camp'
+      ? `<div class="settler-box"><p><strong>Load aboard the ${esc(ship.name)}</strong> (room for ${tons(Math.max(0, typeOf(ship).capacity - cargoTons(ship)))}): your own goods cost nothing; sell them anywhere they are wanted.</p>
+        <div class="btn-row">${sellable.map((k) => `<button class="btn small primary" data-action="load-settlement" data-good="${k}">Load ${esc(world.goods[k].name.toLowerCase())} (${tons(s.stores[k]!)})</button>`).join('')}</div>
+        ${sellable.some((k) => k === 'rice' || k === 'grain') ? `<p class="hint">Leave food enough in store: they eat ${tons(eats(s))} a day.</p>` : ''}</div>` : '';
+    const portLine = s.stage === 'port' ? `<p class="o-good">${esc(name)} is an open port: other merchants call, its market trades with the world. Harbour dues ${money(Math.round(dues(s) * 30))} a month (${money(Math.round(s.dues ?? 0))} so far).</p>` : '';
+    const project = s.project ? (() => {
+      const b = BUILDINGS.find((x) => x.id === s.project!.id)!;
+      const left = Math.max(0, (b.work - s.project!.done) / Math.max(1, s.people * SETTLEMENT_TUNING.workShare));
+      return `<div class="building-now"><span class="lbl">Building now</span><strong>${esc(b.name)}</strong>
+        <div class="gs-bar"><i style="width:${Math.min(100, (s.project!.done / b.work) * 100).toFixed(0)}%"></i></div><span class="sub">about ${Math.ceil(left)} days left</span></div>`;
+    })() : '';
+    const builds = BUILDINGS.filter((b) => b.max(site, { ...s, stage: 'port' }) > 0).map((b) => {
+      const why = cannotBuild(g, s, b.id);
+      const have = bcount(s, b.id);
+      const locked = STAGES.indexOf(b.stage) > STAGES.indexOf(s.stage);
+      const most = b.max(site, s);
+      return `<li class="${locked ? 'locked' : ''}"><div class="b-main"><strong>${esc(b.name)}${have ? ` <span class="sub">· ${have}${most > 1 ? ` of ${most}` : ''}</span>` : ''}</strong>
+          <span class="hint">${esc(b.blurb)}</span>
+          <span class="b-cost">${money(b.cost)} · ${b.timber} t timber · ${b.tools} t tools · ${s.people >= 1 ? `about ${Math.ceil(buildDays(s, b.id))} days` : `${b.work} days of work`}</span>
+          ${why && !s.project ? `<span class="b-why">${esc(why)}</span>` : ''}</div>
+        <button class="btn small ${why ? 'ghost' : 'primary'}" data-action="build" data-id="${b.id}" ${why ? 'disabled' : ''}>Build</button></li>`;
+    }).join('');
+    // Settlers sign on at home; supplies come in the hold.
+    const home = world.era.start.port;
+    let settlers = '';
+    if (isReady(g, ship) && ship.location === home) {
+      const room = Math.floor((typeOf(ship).capacity - cargoTons(ship)) / SETTLEMENT_TUNING.settlerTons);
+      const can = Math.min(room, willing(s));
+      const opts = [10, 20, 30].filter((n) => n <= can);
+      if (can > 0 && !opts.includes(can)) opts.push(can);
+      settlers = `<div class="settler-box"><p><strong>Settlers for ${esc(name)}</strong> sign on here at ${money(SETTLEMENT_TUNING.settlerCost)} each, and take ${SETTLEMENT_TUNING.settlerTons} t of hold room apiece. ${willing(s)} are willing to go just now (more come forward every week); the ${esc(ship.name)} has room for ${room}.</p>
+        <div class="btn-row">${opts.map((n) => `<button class="btn small primary" data-action="recruit" data-n="${n}">${n} settlers · ${money(n * SETTLEMENT_TUNING.settlerCost)}</button>`).join('') || `<span class="hint">${room ? 'Nobody else is willing just now.' : 'No room in her hold.'}</span>`}</div></div>`;
+    } else settlers = `<p class="hint">Settlers sign on at ${esc(world.ports[home].name)}: open this tab with a ship in port there. ${willing(s)} are willing to go just now.${ship.settlers ? ` The ${esc(ship.name)} carries ${ship.settlers}.` : ''}</p>`;
+    const supplies = SETTLEMENT_TUNING.supplies;
+    const aboard = (ship.goods ?? []).filter((l) => supplies.includes(l.good));
+    const lots = [...(ship.settlers ? [{ good: 'settlers', label: `${ship.settlers} settlers`, fits: true }] : []),
+      ...aboard.map((l) => ({ good: l.good, label: `${tons(l.tons)} ${world.goods[l.good].name.toLowerCase()}`, fits: roomFor(s, l.good) > 0.05 }))];
+    const unload = isReady(g, ship) && ship.location === s.site && lots.length
+      ? `<div class="settler-box"><p><strong>Aboard the ${esc(ship.name)}</strong>: land what you choose. Timber and tools go to the yard, food to the store.</p>
+        <div class="btn-row">${lots.map((l) => `<button class="btn small ${l.fits ? 'primary' : 'ghost'}" data-action="unload-settlement" data-good="${l.good}" ${l.fits ? '' : 'disabled title="No room"'}>Land ${esc(l.label)}</button>`).join('')}
+        ${lots.length > 1 ? `<button class="btn small" data-action="unload-settlement" data-good="">Land all that fits</button>` : ''}</div></div>` : '';
+    const news = s.news.slice(0, 8).map((n) => `<li class="${n.kind}"><span class="sub">${gameDate(n.day)}</span> ${esc(n.text)}</li>`).join('');
+    return `<div class="port-head"><div><h2>${esc(name)}</h2><span class="sub">${STAGE_NAMES[s.stage]} · founded ${gameDate(s.founded)} · ${esc(world.ports[s.site].country)}</span></div></div>
+      ${s.hungry ? `<p class="o-warn">${esc(name)} has no food: people are leaving. Bring rice or grain.</p>` : s.people >= 1 && days < 15 ? `<p class="o-warn">Food for only ${Math.floor(days)} days. Bring rice or grain.</p>` : ''}
+      <div class="kvs settle-kv">
+        <div class="kv"><span>People</span><strong>${Math.floor(s.people)}</strong><em>${s.people > housing(s) ? `crowded: room for ${housing(s)}` : `room for ${housing(s)}`}</em></div>
+        <div class="kv"><span>Food</span><strong>${daysText}</strong><em>they eat ${tons(eats(s))} a day</em></div>
+        <div class="kv"><span>Store</span><strong>${tons(stored(s))}</strong><em>of ${storeRoom(s)} t · food</em></div>
+        <div class="kv"><span>Yard</span><strong>${tons(yardStored(s))}</strong><em>of ${SETTLEMENT_TUNING.yard} t · timber, tools</em></div>
+      </div>
+      ${need ? `<h3>To become ${need.stage === 'outpost' ? 'an outpost' : need.stage === 'port' ? 'an open port' : `a ${need.stage}`}</h3><ul class="needs">${need.needs.map((n) => `<li class="${n.done ? 'done' : ''}">${n.done ? '✓' : '○'} ${esc(n.text)}</li>`).join('')}</ul>` : ''}
+      <h3>Stores</h3><div class="kvs">${store}</div>
+      ${making.length ? `<p class="sub">${making.map(esc).join(' · ')}</p>` : ''}
+      ${hands}
+      ${portLine}
+      ${loadBox}
+      ${unload}
+      ${project}
+      <h3>Build</h3><ul class="build-list">${builds}</ul>
+      <h3>Settlers</h3>${settlers}
+      <p class="hint">Supplies: buy rice${site.crop === 'grain' ? ' or grain' : ''}, timber, and iron and tools on your own account (Market tab) and sail them here; on arrival settlers go ashore and supplies are landed (timber and tools in the yard, food in the store). Rent to the local ruler: ${money(Math.round(site.charter * SETTLEMENT_TUNING.rent))} a year.</p>
+      ${news ? `<h3>News</h3><ul class="settle-news">${news}</ul>` : ''}`;
   }
 
   /** Shown in the Cargo and Voyage tabs while the selected ship can't take orders. */
@@ -1549,6 +1725,7 @@ class App {
           ${row(FUEL(), (b) => b.fuel, -1)}
           ${row('Port fees & canals', (b) => b.fees, -1)}
           ${row('Upkeep', (b) => b.upkeep, -1)}
+          ${g.settlement || (g.books ?? []).some((b) => b.settlement) ? row('Settlement', (b) => b.settlement ?? 0, -1) : ''}
           ${row('Interest', (b) => b.interest, -1)}
           ${row('Repairs', (b) => b.repairs, -1)}
           ${row('Breakdowns & emergencies', (b) => b.incidents, -1)}
@@ -1902,7 +2079,7 @@ class App {
           </div>
         </details>
         ${q.blocked ? `<p class="o-warn bad">${esc(q.blocked)}</p>` : ''}
-        ${tight ? `<p class="o-warn">You'd keep ${money(afterCash)}, but a full tank and a month's upkeep for this ship cost about ${money(running)}.</p>` : ''}
+        ${tight ? `<p class="o-warn">You'd keep ${money(afterCash)}, but ${isSail() ? 'a full stock of victuals' : 'a full tank'} and a month's upkeep for this ship cost about ${money(running)}.</p>` : ''}
         <button class="btn ${tight ? '' : 'primary'} wide" data-action="buy-ship" data-port="${portId}" data-id="${offer.id}" ${q.blocked ? 'disabled' : ''}>Buy the ${esc(offer.name)}</button>
       </li>`;
   }
@@ -1913,7 +2090,8 @@ class App {
     if (this.areaDraft?.shipId === ship.id) return this.areaEditor();
     if (!isReady(g, ship) || onOrders(ship)) return this.newsCard() + this.captainCard() + this.busyCard();
     const here = ship.location;
-    const rows = world.portList.filter((p) => p.id !== here).map((p) => ({ p, plan: planVoyage(g, ship.id, p.id)! }))
+    const settlementPort = g.settlement && !world.portList.includes(world.ports[g.settlement.site]) ? [world.ports[g.settlement.site]] : [];
+    const rows = [...world.portList, ...settlementPort].filter((p) => p.id !== here).map((p) => ({ p, plan: planVoyage(g, ship.id, p.id)! }))
       .sort((a, b) => a.plan.route.nm - b.plan.route.nm);
     const type = typeOf(ship);
     const list = rows.map(({ p, plan }) => {
@@ -1943,10 +2121,14 @@ class App {
     return `${money(n.price)}${unit} <span class="asof" title="The latest letter from there">as of ${gameDate(n.asOf)}</span>`;
   }
 
-  /** Where a good sells best, by the news you have. */
-  private bestMarkets(good: string, except: string, n = 2): string {
+  /**
+   * Where a good sells best, by the news you have; with `lot`, what selling that many tons there
+   * would fetch on average (the price falls as you sell).
+   */
+  private bestMarkets(good: string, except: string, n = 2, lot = 0): string {
     const best = bestKnownMarkets(world, this.g, good, except).slice(0, n);
-    return best.length ? best.map((b) => `${esc(world.ports[b.port].name)} ${this.newsText(b)}`).join(' · ') : 'no buyer you know of';
+    const avg = (price: number) => (lot >= 1 ? ` <span class="avg">(≈ ${money(Math.round(price * saleFactor(world, good, lot)))}/t for ${tons(lot)})</span>` : '');
+    return best.length ? best.map((b) => `${esc(world.ports[b.port].name)} ${this.newsText(b)}${avg(b.price)}`).join(' · ') : 'no buyer you know of';
   }
 
   /** Goods on your own account aboard a ship (shown at sea too). */
@@ -1957,8 +2139,8 @@ class App {
     return `<h3>Own goods aboard</h3><ul class="own-goods">${lots.map((l) => {
       const q = here ? goodsSaleQuote(world, this.g, here, l.good, l.tons) : null;
       const profit = q ? q.total - l.cost : 0;
-      return `<li><div class="og-main">${goodIcon(l.good, 28)}<strong>${esc(world.goods[l.good].name)}</strong> · ${tons(l.tons)} <span class="hint">bought at ${money(Math.round(l.cost / l.tons))}/t in ${esc(world.ports[l.from].name)}</span></div>
-        <div class="og-where hint">Best known: ${this.bestMarkets(l.good, here ?? '')}</div>
+      return `<li><div class="og-main">${goodIcon(l.good, 28)}<strong>${esc(world.goods[l.good].name)}</strong> · ${tons(l.tons)} <span class="hint">${l.cost === 0 && this.g.settlement?.site === l.from ? `your own, from ${esc(world.ports[l.from].name)}` : `bought at ${money(Math.round(l.cost / l.tons))}/t in ${esc(world.ports[l.from].name)}`}</span></div>
+        <div class="og-where hint">Best known: ${this.bestMarkets(l.good, here ?? '', 2, l.tons)}</div>
         <div class="btn-row">${here ? (q ? `<button class="btn small ${profit >= 0 ? 'primary' : 'loss'}" data-action="sell-goods" data-good="${l.good}">Sell all here<span>${money(q.total)} · ${money(profit, true)}</span></button>`
           : `<span class="hint">Nobody here buys it.</span>`) : ''}
           <button class="btn small ghost jettison" data-action="jettison-goods" data-good="${l.good}" title="Throw it overboard: you lose what it cost">Jettison</button></div>
@@ -1976,8 +2158,8 @@ class App {
       const wanted = world.ports[dest].demands.some((d) => d.good === l.good);
       const good = esc(world.goods[l.good].name.toLowerCase());
       if (!wanted || !n) return `<li>${goodIcon(l.good, 18)} ${tons(l.tons)} of ${good}: nobody in ${esc(name)} buys it.</li>`;
-      const value = n.price * l.tons;
-      return `<li>${goodIcon(l.good, 18)} ${tons(l.tons)} of ${good}: ${esc(name)} paid ${this.newsText(n, '/t')}, ≈ ${compactMoney(value)} (${money(value - l.cost, true)} on cost).</li>`;
+      const value = n.price * l.tons * saleFactor(world, l.good, l.tons, n.live ? (this.g.ports[dest].prices?.[l.good] ?? 1) : 1);
+      return `<li>${goodIcon(l.good, 18)} ${tons(l.tons)} of ${good}: ${esc(name)} paid ${this.newsText(n, '/t')} for the first ton; all of it ≈ ${compactMoney(value)} (${money(Math.round(value / l.tons))}/t, ${money(value - l.cost, true)} on cost).</li>`;
     }).join('');
     return `<div class="goods-outlook"><span class="lbl">Your own goods</span><ul>${rows}</ul></div>`;
   }
@@ -1998,13 +2180,13 @@ class App {
     };
     const rows = forSale.map((good) => `<li>
         <div class="tg-main">${goodIcon(good, 28)}<strong>${esc(world.goods[good].name)}</strong> <b>${money(buyPrice(world, g, port.id, good)!)}/t</b></div>
-        <div class="hint">Sells best in: ${this.bestMarkets(good, port.id)}</div>
+        <div class="hint">Sells best in: ${this.bestMarkets(good, port.id, 2, Math.min(room, 300))}</div>
         <div class="btn-row">${room > 10 ? buyBtn(good, 10, '+10 t') : ''}${room > 50 ? buyBtn(good, 50, '+50 t') : ''}${buyBtn(good, 'max', room > 0 ? `Fill ${tons(room)}` : 'Hold full')}</div>
       </li>`).join('');
     const wants = wanted.map((good) => `<span class="gchip">${goodIcon(good, 18)}${esc(world.goods[good].name.toLowerCase())} ${money(priceNews(world, g, port.id, good)!.price)}</span>`).join(' ');
     return `<section class="card trade-card">
       <h3>⚖ Trade on your own account</h3>
-      <p class="hint">Buy goods here and sell them where they're wanted. Prices elsewhere are as of the latest letter from there: news travels by ship.</p>
+      <p class="hint">Buy goods here and sell them where they're wanted. Prices elsewhere are as of the latest letter from there: news travels by ship. A price is for the first ton: the more you buy, the dearer it gets, and the more you sell, the less each ton fetches (≈ shows the average for a whole lot).</p>
       ${this.ownGoods(ship)}
       ${rows ? `<h4>For sale in ${esc(port.name)}</h4><ul class="trade-goods">${rows}</ul>` : `<p class="hint">${esc(port.name)} sells nothing your ${esc(type.name.toLowerCase())} can carry.</p>`}
       ${wants ? `<p class="hint"><strong>${esc(port.name)} buys:</strong> ${wants}</p>` : ''}
@@ -2133,7 +2315,35 @@ class App {
   private logTab(): string {
     const g = this.g;
     const s = g.stats;
+    const chapters = guideChapters(world, g);
+    const cur = currentChapter(world, g);
+    const when = g.guide?.when ?? {};
+    const chapterBlock = (c: GuideChapter) => {
+      const done = c.steps.filter((st) => st.done).length;
+      return `<details class="ach-chapter" data-key="ach-${c.n}" ${c.n === cur?.n ? 'open' : ''}>
+        <summary><span>${c.n}. ${esc(c.title)}</span><span class="ach-count ${done === c.steps.length ? 'good' : ''}">${done === c.steps.length ? '✓' : `${done}/${c.steps.length}`}</span></summary>
+        <ul class="ach-steps">${c.steps.map((st) => `<li class="${st.done ? 'done' : ''}"><span class="gs-tick" aria-hidden="true">${st.done ? '✓' : ''}</span>
+          <span class="ach-title">${esc(st.title)}${st.done ? '' : `<span class="hint">${esc(st.hint)}</span>`}</span>
+          <span class="ach-when">${st.done ? (when[st.id] !== undefined ? gameDate(when[st.id]) : 'done') : st.progress ? `${st.progress[0].toLocaleString('en-US')} / ${st.progress[1].toLocaleString('en-US')}` : ''}</span></li>`).join('')}</ul>
+      </details>`;
+    };
+    const stepsDone = chapters.reduce((n, c) => n + c.steps.filter((st) => st.done).length, 0);
+    const stepsAll = chapters.reduce((n, c) => n + c.steps.length, 0);
+    const discovered = isSail() && g.charted ? g.charted.filter((id) => world.ports[id] && !world.isSite(id)).length : 0;
     return `
+      <div class="journal-guide">
+        <p class="lbl">The guide${cur ? ` · chapter ${cur.n} of ${chapters.length}` : ''}</p>
+        <h3>${cur ? esc(cur.title) : 'Every chapter so far is done'}</h3>
+        <p class="hint">${cur ? `${cur.steps.filter((st) => st.done).length} of ${cur.steps.length} steps done.` : 'The next chapters arrive with coming builds.'} Tap the bar under your cash for the guide at any time.</p>
+        <button class="btn small primary" data-action="guide">Open the guide</button>
+      </div>
+      <h3 class="section-h">Achievements <span class="ach-count">${stepsDone} of ${stepsAll}</span></h3>
+      ${chapters.map(chapterBlock).join('')}
+      <ul class="ach-steps ach-worth">${RULES.milestones.map((m) => {
+        const got = g.milestones.find((x) => x.amount === m);
+        return `<li class="${got ? 'done' : ''}"><span class="gs-tick" aria-hidden="true">${got ? '✓' : ''}</span><span class="ach-title">Worth ${money(m)}</span><span class="ach-when">${got ? gameDate(got.day) : ''}</span></li>`;
+      }).join('')}</ul>
+      <h3 class="section-h">Your record</h3>
       <div class="stats">
         <div><strong>${g.fleet.length}</strong><span>ships</span></div>
         <div><strong>${s.voyages}</strong><span>voyages</span></div>
@@ -2141,7 +2351,11 @@ class App {
         <div><strong>${compactMoney(s.fuelSpent)}</strong><span>fuel bought</span></div>
         <div><strong>${compactMoney(s.upkeepPaid)}</strong><span>upkeep paid</span></div>
         <div><strong>${compactMoney(s.interestPaid)}</strong><span>interest paid</span></div>
+        <div><strong>${Math.round(s.delivered).toLocaleString('en-US')} t</strong><span>cargo delivered</span></div>
+        <div><strong>${s.shipsOwned ?? g.fleet.length}</strong><span>ships owned, all told</span></div>
+        ${isSail() ? `<div><strong>${discovered}</strong><span>ports charted</span></div>` : ''}
       </div>
+      <h3 class="section-h">Log</h3>
       <ul class="log">${g.log.map((e) => `
         <li><span class="l-day">${gameDate(e.day)}</span><span class="l-text">${esc(e.text)}</span>
         ${e.amount !== undefined ? `<span class="l-amt ${e.amount >= 0 ? 'good' : 'bad'}">${money(e.amount, true)}</span>` : ''}</li>`).join('')}
@@ -2178,7 +2392,7 @@ class App {
     saveGame(this.g);
     const current = activeSlot();
     const slots = listSlots();
-    const era = (x: SlotInfo) => (x.era === 'sail' ? 'Age of Sail · from 1650' : 'Modern · from 2000');
+    const era = (x: SlotInfo) => (x.era === 'sail' ? `Age of Sail · ${x.house === 'chinese' ? 'Chinese' : 'Dutch'} house · from 1650` : 'Modern · from 2000');
     const ago = (t: number) => {
       const d = Math.floor((Date.now() - t) / 86_400_000);
       return d <= 0 ? 'played today' : d === 1 ? 'played yesterday' : `played ${new Date(t).toLocaleDateString()}`;
@@ -2207,8 +2421,10 @@ class App {
       <div class="era-cards">
         <button class="era-card modern" data-action="slot-new" data-era="modern">
           <strong>Modern · from 2000</strong><span>Steel, diesel and containers: start with an old coaster and $150,000.</span><em>Start</em></button>
-        <button class="era-card sail" data-action="slot-new" data-era="sail">
-          <strong>Age of Sail · from 1650</strong><span>Fluyts, monsoons and spice: found a merchant house in Amsterdam with a little jacht and ƒ150,000.</span><em>Start</em></button>
+        <button class="era-card sail" data-action="slot-new" data-era="sail" data-house="dutch">
+          <strong>Age of Sail · Dutch house · from 1650</strong><span>Fluyts, monsoons and spice: found a merchant house in Amsterdam with a little jacht and ƒ150,000. You know the way round the Cape to the Indies.</span><em>Start</em></button>
+        <button class="era-card sail chinese" data-action="slot-new" data-era="sail" data-house="chinese">
+          <strong>Age of Sail · Chinese house · from 1650</strong><span>Junks, silk and silver: found a trading house in Amoy with a small Fujian junk and Tls 150,000. You know the China seas, Japan and the Nanyang; India and Europe are blank.</span><em>Start</em></button>
       </div>
       ${this.cloudCard()}
       <button class="btn ghost wide" data-action="close-games">Close</button>`;
@@ -2226,7 +2442,7 @@ class App {
     const g = loadSlot(id);
     if (!g) { this.toast('That game could not be read.', 'bad'); return; }
     setActiveSlot(id);
-    if ((g.era ?? 'modern') !== currentEra()) { reloadForEra(); return; }
+    if ((g.era ?? 'modern') !== currentEra() || (g.era === 'sail' ? g.house ?? 'dutch' : undefined) !== currentHouse()) { reloadForEra(); return; }
     this.loadInto(g);
     this.toast(`Opened ${listSlots().find((x) => x.id === id)?.name ?? 'the game'}.`, 'good');
   }
@@ -2435,9 +2651,9 @@ function statBoxes(s: ShipSpec, base?: ShipSpec): string {
     { label: 'Hold', key: 'cap', val: kTons(s.cap), higherIsBetter: true, diff: (d) => `${sign(d)}${kTons(d)}` },
     { label: 'Speed', key: 'speed', val: `${s.speed.toFixed(1)} kn`, higherIsBetter: true, diff: (d) => `${sign(d)}${Math.abs(d).toFixed(1)} kn` },
     { label: 'Burn', key: 'burn', val: `${s.burn.toFixed(s.burn < 10 ? 1 : 0)} ${isSail() ? 'casks' : 't'}/day`, higherIsBetter: false,
-      diff: (d) => `${sign(d)}${Math.abs(d).toFixed(Math.abs(d) < 10 ? 1 : 0)} t` },
-    { label: 'Upkeep', key: 'upkeep', val: `$${(s.upkeep / 1000).toFixed(1)}k/d`, higherIsBetter: false,
-      diff: (d) => `${sign(d)}$${(Math.abs(d) / 1000).toFixed(1)}k` },
+      diff: (d) => `${sign(d)}${Math.abs(d).toFixed(Math.abs(d) < 10 ? 1 : 0)} ${isSail() ? 'casks' : 't'}` },
+    { label: 'Upkeep', key: 'upkeep', val: `${currency()}${(s.upkeep / 1000).toFixed(1)}k/d`, higherIsBetter: false,
+      diff: (d) => `${sign(d)}${currency()}${(Math.abs(d) / 1000).toFixed(1)}k` },
     { label: 'Range', key: 'range', val: `${(s.range / 1000).toFixed(1)}k nm`, higherIsBetter: true,
       diff: (d) => `${sign(d)}${(Math.abs(d) / 1000).toFixed(1)}k nm` },
   ];
@@ -2487,8 +2703,13 @@ reloadBtn.addEventListener('click', async () => {
 });
 
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') void checkForUpdate();
+  const hidden = document.visibilityState === 'hidden';
+  sound.setHidden(hidden);
+  if (!hidden) void checkForUpdate();
 });
+// Some Android browsers fire only these when the app is put away or comes back.
+window.addEventListener('pagehide', () => sound.setHidden(true));
+window.addEventListener('pageshow', () => { if (document.visibilityState === 'visible') sound.setHidden(false); });
 
 initServiceWorker();
 new App({ showStart: !justUpdated() && !eraSwitched() });

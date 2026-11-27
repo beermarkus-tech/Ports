@@ -106,5 +106,81 @@
    "general"
   ],
   "family": "sail"
+ },
+ {
+  "id": "smalljunk",
+  "name": "Fujian junk",
+  "description": "A small coasting junk from Fujian: two masts of battened sails, a hold in watertight compartments. Takes small lots anywhere.",
+  "capacity": 100,
+  "speedKn": 6.5,
+  "fuelPerDay": 1.6,
+  "bunkerCapacity": 320,
+  "dailyCost": 700,
+  "sizeFactor": 0.55,
+  "repairCostPerPoint": 1400,
+  "newPrice": 650000,
+  "cargoClasses": [
+   "bulk",
+   "general"
+  ],
+  "family": "sail",
+  "rig": "junk"
+ },
+ {
+  "id": "oceanjunk",
+  "name": "Ocean junk",
+  "description": "The trading junk of the Nanyang: three masts, a deep hold, and merchants aboard who each rent a compartment.",
+  "capacity": 320,
+  "speedKn": 6.5,
+  "fuelPerDay": 2.4,
+  "bunkerCapacity": 560,
+  "dailyCost": 1150,
+  "sizeFactor": 0.85,
+  "repairCostPerPoint": 2100,
+  "newPrice": 1750000,
+  "cargoClasses": [
+   "bulk",
+   "general"
+  ],
+  "family": "sail",
+  "rig": "junk"
+ },
+ {
+  "id": "nanyangjunk",
+  "name": "Large ocean junk",
+  "description": "A bigger ocean junk for the long runs to Batavia, Siam and Manila.",
+  "capacity": 550,
+  "speedKn": 6.2,
+  "fuelPerDay": 4,
+  "bunkerCapacity": 1000,
+  "dailyCost": 1900,
+  "sizeFactor": 1.1,
+  "repairCostPerPoint": 2900,
+  "newPrice": 3000000,
+  "cargoClasses": [
+   "bulk",
+   "general"
+  ],
+  "family": "sail",
+  "rig": "junk"
+ },
+ {
+  "id": "greatjunk",
+  "name": "Great junk",
+  "description": "The largest of the trading junks: a floating market of several hundred merchants and crew.",
+  "capacity": 900,
+  "speedKn": 6,
+  "fuelPerDay": 11,
+  "bunkerCapacity": 2600,
+  "dailyCost": 4600,
+  "sizeFactor": 1.7,
+  "repairCostPerPoint": 4600,
+  "newPrice": 7000000,
+  "cargoClasses": [
+   "bulk",
+   "general"
+  ],
+  "family": "sail",
+  "rig": "junk"
  }
 ]

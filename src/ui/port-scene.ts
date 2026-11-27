@@ -35,6 +35,8 @@ export interface SceneInput {
   neighbours: SceneShip[];
   /** Days left in dry dock, if docked. */
   dockDays?: number;
+  /** At your own settlement (1650): what stands there, to draw it. */
+  settlement?: { people: number; buildings: Record<string, number>; house: 'dutch' | 'chinese'; forest: boolean };
 }
 
 interface Dims { L: number; D: number; d0: number; d1: number; sup: number }
@@ -285,7 +287,7 @@ export class PortScene {
     const chip = (text: string, cls = '') => `<span class="${cls}">${text}</span>`;
     const days = Math.max(1, Math.ceil(input.dockDays ?? 1));
     this.hud.innerHTML = [
-      chip(`<strong>${esc(s.name)}</strong> · ${input.place === 'dock' ? 'careening' : 'at the quay'}, ${esc(input.portName)}`),
+      chip(`<strong>${esc(s.name)}</strong> · ${input.place === 'dock' ? 'careening' : input.settlement && !input.settlement.buildings.jetty ? 'at anchor' : 'at the quay'}, ${esc(input.portName)}`),
       chip(`${d.L} m`, 'opt'),
       d.draft !== null ? chip(`Draft ${d.draft.toFixed(1)} of ${d.d1} m`) : chip(`Afloat again in ${days} day${days === 1 ? '' : 's'}`),
       chip(`Hold ${cargo.toLocaleString('en-US')} / ${s.capacity.toLocaleString('en-US')} t`),

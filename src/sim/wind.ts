@@ -32,10 +32,14 @@ export function windAt(lon: number, lat: number, month: number): Wind {
   return { toward: 0, strength: 0.75 };                                // westerlies
 }
 
-/** Speed factor on a course (radians) in a wind: 1 running before it, 0.4 beating against it, slow in calms. */
-export function windFactor(course: number, w: Wind): number {
+/**
+ * Speed factor on a course (radians) in a wind: 1 running before it, 0.4 beating against it, slow
+ * in calms. A junk's battened sails point higher: against the wind she loses only half as much.
+ */
+export function windFactor(course: number, w: Wind, rig?: 'junk'): number {
   const cos = Math.cos(course - w.toward);
-  const f = 0.6 + w.strength * (0.1 + 0.3 * cos);
+  const into = rig === 'junk' && cos < 0 ? 0.5 : 1;
+  const f = 0.6 + w.strength * (0.1 + 0.3 * cos * into);
   return w.strength < 0.2 ? f * 0.75 : f;
 }
 
@@ -48,7 +52,7 @@ export function monthOf(world: World, day: number): number {
  * The average speed factor along a route at the time of sailing (time-weighted),
  * or 1 where ships don't depend on the wind.
  */
-export function routeWind(world: World, path: string[], day: number): number {
+export function routeWind(world: World, path: string[], day: number, rig?: 'junk'): number {
   if (!world.era.wind || path.length < 2) return 1;
   const month = monthOf(world, day);
   let nm = 0, hours = 0;
@@ -63,7 +67,7 @@ export function routeWind(world: World, path: string[], day: number): number {
     const course = Math.atan2(dy, dx);
     const w = windAt(a.lon + dLon / 2, midLat, month);
     nm += len;
-    hours += len / windFactor(course, w);
+    hours += len / windFactor(course, w, rig);
   }
   return hours > 0 ? nm / hours : 1;
 }

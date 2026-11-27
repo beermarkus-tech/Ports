@@ -99,7 +99,11 @@ h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 .money { margin-left: auto; align-items: flex-end; }
 #cash { font-size: 22px; font-weight: 750; color: var(--good); transition: color 0.3s; }
 #cash.negative { color: var(--bad); }
-.goal { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); }
+.goal { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); font-family: inherit; background: none; border: none; padding: 2px 0; cursor: pointer; }
+.goal:hover #goal-text { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
+.goal:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.goal-track { display: block; }
+#goal-bar { display: block; }
 .goal-track { width: 90px; height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
 #goal-bar { height: 100%; background: var(--accent-2); transition: width 0.6s; }
 
@@ -124,35 +128,7 @@ h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 }
 
 /* ---------------------------------------------------------------- map */
-.map { width: 100%; height: 100%; max-height: 100%; display: block; }
-.sphere { stroke: var(--line); }
-.graticule { fill: none; stroke: var(--text); stroke-opacity: 0.05; stroke-width: 0.6; }
-.land { fill: var(--land); stroke: var(--land-edge); stroke-width: 0.6; }
-.lane { fill: none; stroke: var(--accent); stroke-opacity: 0.14; stroke-width: 0.8; stroke-dasharray: 2 3; }
-.lane.canal { stroke: var(--accent-2); stroke-opacity: 0.7; stroke-width: 1.6; stroke-dasharray: none; }
-.route { fill: none; stroke-linecap: round; stroke-linejoin: round; }
-.route.primary { stroke: var(--accent); stroke-width: 2.2; stroke-dasharray: 6 5; animation: dash 1s linear infinite; }
-.route.primary-glow { stroke: var(--accent); stroke-width: 7; stroke-opacity: 0.18; }
-.route.secondary { stroke: var(--text); stroke-opacity: 0.45; stroke-width: 1.4; stroke-dasharray: 3 4; }
-@keyframes dash { to { stroke-dashoffset: -11; } }
 
-.port { cursor: pointer; outline: none; }
-.port .hit { fill: transparent; }
-.port .dot { fill: var(--text); stroke: var(--bg); stroke-width: 1.5; }
-.port .halo { fill: var(--accent); fill-opacity: 0; transition: fill-opacity 0.2s; }
-.port:hover .halo, .port:focus-visible .halo { fill-opacity: 0.25; }
-.port .label { fill: var(--text); font-size: 12px; font-weight: 600; paint-order: stroke; stroke: var(--halo); stroke-width: 3px; }
-.port .fuel { fill: var(--muted); font-size: 9.5px; paint-order: stroke; stroke: var(--halo); stroke-width: 3px; }
-.port.here .dot { fill: var(--good); }
-.port.here .halo { fill: var(--good); fill-opacity: 0.25; }
-.port.dest .dot { fill: var(--accent); }
-.port.dest .halo { fill-opacity: 0.35; }
-.port.cargo .dot { fill: var(--accent-2); }
-.flash { font-size: 13px; font-weight: 700; paint-order: stroke; stroke: var(--bg); stroke-width: 3px; animation: rise 2.2s ease-out forwards; pointer-events: none; }
-.flash.good { fill: var(--good); }
-.flash.bad { fill: var(--bad); }
-.flash.info { fill: var(--text); }
-@keyframes rise { from { opacity: 0; transform: translateY(4px); } 15% { opacity: 1; } to { opacity: 0; transform: translateY(-18px); } }
 
 /* ---------------------------------------------------------------- ship strip */
 .ship-strip {
@@ -382,9 +358,6 @@ h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 .d-exports.none { color: var(--bad); opacity: 0.85; }
 
 /* ---------------------------------------------------------------- dynamic economy */
-.lane.canal.closed { stroke: var(--bad); stroke-dasharray: 3 3; stroke-width: 2.2; stroke-opacity: 1; }
-.port.strike .halo { fill: var(--bad); fill-opacity: 0.3; }
-.port.boom .halo { fill: var(--good); fill-opacity: 0.25; }
 .price-hints { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; margin: 0 0 10px; }
 .price-hints .up { color: var(--good); }
 .price-hints .down { color: var(--warn); }
@@ -450,14 +423,6 @@ h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   .clock-state { display: none; }
 }
 
-.ships .ship { cursor: pointer; transition: transform 0.1s linear; }
-.ship-hit { fill: transparent; }
-.ship .ship-hull { fill: var(--accent-2); stroke: var(--bg); stroke-width: 1; }
-.ship .ship-halo { fill: var(--accent-2); fill-opacity: 0.15; }
-.ship.ready .ship-hull { fill: var(--accent); }
-.ship.ready .ship-halo { fill: var(--accent); fill-opacity: 0.25; }
-.ship.busy .ship-hull { fill: var(--muted); }
-.ship.selected .ship-halo { fill-opacity: 0.45; stroke: var(--text); stroke-width: 1.2; }
 .port-pick { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); margin: 8px 0; }
 .port-pick select { font: inherit; color: var(--text); background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; flex: 1; }
 .card.underway h3 { color: var(--text); font-size: 16px; text-transform: none; letter-spacing: 0; }
@@ -480,38 +445,8 @@ h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 .waves { opacity: 0.09; pointer-events: none; }
 .wave-mark { fill: none; stroke: var(--text); stroke-width: 1; stroke-linecap: round; }
 .shallow { fill: none; stroke: var(--shallow); stroke-width: 7; stroke-opacity: 0.55; pointer-events: none; }
-.land { stroke: var(--land-edge); stroke-width: 0.6; }
-.night { pointer-events: none; }
-.night-shade { fill: var(--night); fill-opacity: var(--night-alpha); }
 .weather { pointer-events: none; }
-.cloud ellipse { fill: #f4f8fb; fill-opacity: 0.22; }
-.cloud.storm ellipse { fill: #5b6675; fill-opacity: 0.75; }
-.cloud.storm .cloud-inner { animation: swirl 9s linear infinite; transform-box: fill-box; transform-origin: center; }
-.cloud .bolt { fill: #ffd34d; opacity: 0; animation: bolt 2.3s steps(1) infinite; }
-@keyframes swirl { to { transform: rotate(360deg); } }
-@keyframes bolt { 0%, 70%, 100% { opacity: 0; } 72%, 76% { opacity: 1; } }
-.port .lights { fill: #ffd27a; fill-opacity: 0; transition: fill-opacity 0.8s; }
-.port.night .lights { fill-opacity: 0.35; }
-.port.night .dot-core { fill: #ffe39b; }
-.port .dot-core { fill: var(--bg); transition: fill 0.8s; }
-.wake { fill: none; stroke: #e8f4ff; stroke-opacity: 0.45; stroke-width: 1.6; stroke-linecap: round; stroke-dasharray: 2 3; pointer-events: none; }
-.pulse { fill: none; stroke-width: 2.5; animation: pulse-ring 1.5s ease-out forwards; pointer-events: none; }
-.pulse.good { stroke: var(--good); }
-.pulse.info { stroke: var(--accent); }
-@keyframes pulse-ring { from { r: 6; stroke-opacity: 1; } to { r: 42; stroke-opacity: 0; } }
 
-/* ships on the map, coloured by family */
-.ship .ship-hull { stroke: var(--bg); stroke-width: 0.8; }
-.ship .ship-deck { fill: var(--super); opacity: 0.9; }
-.ship.general .ship-hull { fill: var(--accent-2); }
-.ship.bulk .ship-hull { fill: #9aa4b2; }
-.ship.tanker .ship-hull { fill: #d0625a; }
-.ship.container .ship-hull { fill: #4f9fe0; }
-.ship.reefer .ship-hull { fill: #f2f6fa; }
-.ship.reefer .ship-deck { fill: #4f9fe0; }
-.ship.ready .ship-halo { fill: var(--accent); fill-opacity: 0.28; animation: halo-pulse 1.8s ease-in-out infinite; }
-.ship.busy { opacity: 0.6; }
-@keyframes halo-pulse { 50% { fill-opacity: 0.08; } }
 
 /* ---------------------------------------------------------------- graphics: ship art */
 .ship-art { display: block; overflow: visible; }
@@ -790,6 +725,7 @@ button.era-card:hover { border-color: var(--accent); }
 .era-card em { font-style: normal; font-weight: 700; font-size: 13px; color: var(--accent); }
 .era-card.sail { background: #efe3c4; color: #2b1d0e; border-color: #c9b68a; font-family: "EB Garamond", Georgia, serif; }
 .era-card.sail span { color: #5a4630; font-size: 14.5px; }
+.era-card.sail.chinese { border-left: 4px solid #a8382b; }
 .era-card.sail em { color: #7b2d26; }
 
 /* ---------- Age of Sail: a chart drawn on parchment ---------- */
@@ -855,28 +791,23 @@ button.era-card:hover { border-color: var(--accent); }
 }
 :root.era-sail body { font-family: "EB Garamond", Georgia, "Times New Roman", serif; font-size: 15px; }
 :root.era-sail h1, :root.era-sail h2, :root.era-sail h3, :root.era-sail .brand { font-family: "IM Fell English", "EB Garamond", Georgia, serif; font-weight: 400; letter-spacing: 0.01em; }
-:root.era-sail .land { stroke-width: 0.9; }
-:root.era-sail .graticule { stroke-opacity: 0.12; stroke-dasharray: 1 2; }
-:root.era-sail .lane { stroke-opacity: 0.22; }
 .ship-art .hull.wood { fill: var(--wood, #6b4a2b); }
 .ship-art .wale { fill: var(--wale, #b8862e); }
 .ship-art .sail { fill: var(--sail-cloth, #efe3c4); stroke: #8f7a52; stroke-width: 0.4; }
 .ship-art .spar { stroke: #5d3f22; stroke-width: 0.9; stroke-linecap: round; }
 .ship-art .rigging { stroke: #5d3f22; stroke-width: 0.35; opacity: 0.7; }
 .ship-art .pennant { fill: #d9822b; }
+/* Junks (the Chinese house): dark lacquered hull, red paint, matting sails with battens. */
+.ship-art .hull.junk { fill: #4a3324; }
+.ship-art .junk-red { fill: #a8382b; }
+.ship-art .junk-sail { fill: #b8673a; stroke: #6a3418; stroke-width: 0.4; }
+.ship-art .batten { stroke: #5a2c14; stroke-width: 0.45; opacity: 0.85; }
+.ship-art .junk-flag { fill: #c8322a; }
+.ship-art .eye { fill: #f4ead2; }
+.ship-art .pupil { fill: #1d140c; }
 .ship-art.sail .mast { stroke: #5d3f22; stroke-width: 1.2; }
-.ship.sail .ship-hull { fill: #8a5d33; }
-.ship.sail .ship-deck { fill: var(--sail-cloth, #efe3c4); opacity: 1; }
 
 /* ---------- fog of war ---------- */
-.fog { pointer-events: none; }
-.fog-text { fill: var(--fog-ink, #7a6a50); font-family: "IM Fell English", Georgia, serif; font-style: italic; opacity: 0.85; }
-.lane.uncharted { display: none; }
-.port.rumour .dot { fill: none; stroke: var(--muted); stroke-dasharray: 2 2; }
-.port.rumour .dot-core, .port.rumour .lights, .port.rumour .halo { display: none; }
-.port.rumour .label { font-style: italic; opacity: 0.8; }
-.port.rumour .fuel { font-style: italic; }
-.port.rumour.dest .dot { stroke: var(--accent); stroke-dasharray: none; stroke-width: 1.6; }
 :root.era-sail { --fog: #2c2216; --fog-ink: #8f7a55; }
 @media (prefers-color-scheme: light) {
   :root.era-sail:not([data-theme='dark']) { --fog: #d6cdb4; --fog-ink: #7a6a50; }
@@ -905,7 +836,6 @@ button.era-card:hover { border-color: var(--accent); }
 .goods-outlook { margin: 8px 0; padding: 8px 10px; border-left: 3px solid var(--accent); background: var(--surface); border-radius: 4px; }
 .goods-outlook .lbl { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
 .goods-outlook li { margin-top: 3px; }
-:root.era-sail .port .label { font-size: 11px; letter-spacing: -0.01em; }
 #music.off { opacity: 0.45; text-decoration: line-through; }
 #music[hidden] { display: none; }
 
@@ -963,14 +893,8 @@ button.era-card:hover { border-color: var(--accent); }
   border-radius: var(--radius); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
 .planned .k { display: block; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
 .via-note { font-size: 13.5px; }
-.port.via .dot { fill: var(--accent-2); }
-.port.via .halo { fill: none; stroke: var(--accent-2); stroke-width: 2.5; fill-opacity: 0; }
 
 /* ---------- map zoom ---------- */
-.map { touch-action: none; }
-.viewport .sphere, .viewport .land, .viewport .graticule, .viewport .lane, .viewport .route, .viewport .wake { vector-effect: non-scaling-stroke; }
-.map.zoomed { cursor: grab; }
-.map.zoomed:active { cursor: grabbing; }
 .map-zoom { position: absolute; right: 10px; bottom: 10px; z-index: 4; display: flex; flex-direction: column; gap: 4px; }
 .map-zoom button { min-width: 38px; height: 34px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--text);
   font: 600 16px/1 system-ui, sans-serif; cursor: pointer; box-shadow: 0 1px 4px rgb(0 0 0 / 0.18); }
@@ -978,18 +902,80 @@ button.era-card:hover { border-color: var(--accent); }
 .map-zoom button:hover { border-color: var(--accent); }
 .map-zoom button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .map-stack { position: relative; width: 100%; aspect-ratio: 1000 / 470; max-height: 100%; margin: auto; }
-.map-stack > .map { position: absolute; inset: 0; width: 100%; height: 100%; }
-.map-base { pointer-events: none; }
-/* Both map layers move as images during a zoom gesture: let the graphics chip do it. */
-.map-stack > .map { will-change: transform; }
-/* Zoomed in, the route is long on screen: its marching dashes would be redrawn every frame. Keep them still. */
-.map.zoomed .route.primary { animation: none; }
 @media (max-width: 700px) {
   .map-zoom { flex-direction: row; right: 6px; bottom: 6px; gap: 3px; }
   .map-zoom button { min-width: 30px; height: 28px; font-size: 14px; padding: 0 6px; }
   .map-zoom button[data-z="world"] { font-size: 11px; }
 }
-.map-stack.zoomed { background: var(--ocean-2); border-radius: 4px; }
+
+/* ---------- the WebGL map (src/ui/map-gl.ts) ---------- */
+.map-stack.gl > canvas.map-gl { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; -webkit-user-select: none; user-select: none; }
+.map-a11y { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.map-port-btn { position: absolute; left: 0; top: 0; width: 28px; height: 28px; padding: 0; border: none; border-radius: 50%; background: transparent; opacity: 0; pointer-events: none; }
+.map-port-btn:focus-visible { opacity: 1; outline: 2px solid var(--accent); outline-offset: 0; }
+.map-failed { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; padding: 16px; text-align: center; color: var(--muted); }
+
+/* ---------- the guide (src/sim/guide.ts) ---------- */
+.guide-steps { list-style: none; padding: 0; margin: 10px 0 14px; display: grid; gap: 10px; }
+.guide-steps li { display: grid; grid-template-columns: 22px 1fr; gap: 10px; align-items: start; }
+.guide-steps li > div { min-width: 0; display: grid; gap: 2px; }
+.guide-steps .hint { margin: 0; }
+.gs-tick { width: 20px; height: 20px; border: 1.5px solid var(--muted); border-radius: 4px; display: grid; place-items: center; font-size: 13px; font-weight: 700; margin-top: 1px; }
+.guide-steps li.done .gs-tick { background: var(--good); border-color: var(--good); color: var(--surface); }
+.guide-steps li.done strong { color: var(--muted); font-weight: 500; }
+.gs-bar { height: 5px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 4px; }
+.gs-bar i { display: block; height: 100%; background: var(--accent-2); }
+.gs-num { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.guide-epilogue { font-style: italic; margin: 6px 0 16px; }
+.guide-past { margin: 8px 0 12px; font-size: 13px; color: var(--muted); }
+.guide-past ul { margin: 6px 0 0; padding-left: 18px; }
+
+/* ---------- the settlement (src/sim/settlement.ts) ---------- */
+.site-cards { display: grid; gap: 12px; margin-top: 10px; }
+.site-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; background: var(--surface); display: grid; gap: 6px; }
+.site-card p { margin: 0; }
+.site-name { margin: 0; font-size: 18px; text-transform: none; letter-spacing: 0; color: var(--text); }
+.site-card .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.site-card .chip { font-size: 12px; border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; background: var(--surface-2); }
+.site-card .chip.plus { color: var(--good); }
+.site-card .chip.minus { color: var(--bad); }
+.settle-kv { margin: 10px 0; }
+.needs { list-style: none; padding: 0; margin: 4px 0 8px; display: grid; gap: 3px; font-size: 14px; }
+.needs li { color: var(--muted); }
+.needs li.done { color: var(--good); }
+.build-list { list-style: none; padding: 0; margin: 4px 0; display: grid; gap: 8px; }
+.build-list li { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.build-list li.locked { opacity: 0.55; }
+.b-main { display: grid; gap: 2px; min-width: 0; }
+.b-main .hint { margin: 0; }
+.b-cost { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.b-why { font-size: 12.5px; color: var(--warn); }
+.building-now { display: grid; gap: 3px; margin: 12px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.settler-box { padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.settler-box p { margin: 0 0 8px; }
+.settle-news { list-style: none; padding: 0; margin: 4px 0; display: grid; gap: 4px; font-size: 13.5px; }
+.settle-news li.bad { color: var(--bad); }
+.settle-news li.good { color: var(--text); }
+
+/* Journal: the guide, achievements, record, log. */
+.journal-guide { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; display: grid; gap: 4px; justify-items: start; }
+.journal-guide h3 { margin: 0; }
+.journal-guide .hint { margin: 0 0 6px; }
+.section-h { display: flex; justify-content: space-between; align-items: baseline; margin: 16px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+.ach-count { font-size: 12px; color: var(--muted); text-transform: none; letter-spacing: 0; font-weight: 500; }
+.ach-count.good { color: var(--good); font-weight: 700; }
+.ach-chapter { border-bottom: 1px solid var(--line); }
+.ach-chapter summary { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; cursor: pointer; font-weight: 600; }
+.ach-steps { list-style: none; padding: 0; margin: 4px 0 10px; display: grid; gap: 8px; }
+.ach-steps li { display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items: start; font-size: 14px; }
+.ach-steps .ach-title { display: grid; gap: 2px; min-width: 0; }
+.ach-steps .hint { margin: 0; font-size: 12px; }
+.ach-steps .ach-when { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.ach-steps li.done .gs-tick { background: var(--good); border-color: var(--good); color: var(--surface); }
+.ach-steps li.done .ach-title { color: var(--muted); }
+.ach-worth { margin-top: 10px; }
+.o-good { color: var(--good); font-size: 13px; margin: 8px 0; }
+.avg { color: var(--text); white-space: nowrap; }
 
 /* ---------- cloud saves ---------- */
 .cloud-card { margin: 14px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-2); display: grid; gap: 8px; }

@@ -12,7 +12,7 @@ import sailPorts from '../data/sail/ports.json';
 import sailRegions from '../data/sail/regions.json';
 import sailShips from '../data/sail/ships.json';
 import sailLanes from '../data/sail/sealanes.json';
-import { ERAS, type EraConfig, type EraId } from './era';
+import { ERAS, eraConfig, type EraConfig, type EraId, type House } from './era';
 import type { Region } from './regions';
 import type { GoodDef, PortDef, ShipTypeDef } from './types';
 
@@ -39,6 +39,10 @@ export class World {
   readonly goods: Record<string, GoodDef> = {};
   readonly ports: Record<string, PortDef> = {};
   readonly portList: PortDef[];
+  /** Settlement sites of this world's house (in `ports` by id, but not in `portList`). */
+  readonly siteList: PortDef[];
+  /** Every house's settlement sites: routes may end at one, but never pass through. */
+  private siteIds = new Set<string>();
   readonly shipTypes: Record<string, ShipTypeDef> = {};
   readonly points: Record<string, GeoPoint> = {};
   readonly edges: Edge[] = [];
@@ -47,6 +51,10 @@ export class World {
   readonly regions: Region[];
   private adjacency: Record<string, Edge[]> = {};
   private routeCache = new Map<string, Route | null>();
+  /** The house's settlement once it has opened as a port (the game being played decides it). */
+  private opened: { id: string; site: PortDef; region?: Region } | null = null;
+  /** Bumped whenever the port list changes, for caches kept outside the world. */
+  epoch = 0;
 
   constructor(
     goods: GoodDef[] = goodsData as GoodDef[],
@@ -61,14 +69,19 @@ export class World {
     regions: Region[] = regionsData as Region[],
   ) {
     this.era = era;
-    this.regions = regions;
+    this.regions = regions.map((r) => ({ ...r, ports: [...r.ports] }));
     this.canals = lanes.canals;
     for (const g of goods) this.goods[g.id] = g;
+    // A house's settlement sites are known by id (routes, names, ships lying there) but stay out of
+    // the port list, so boards, markets and prices pass them by. Other houses' sites are just points.
+    const house = era.house?.id ?? 'dutch';
     for (const p of ports) {
-      this.ports[p.id] = p;
+      if (!p.site || p.site === house) this.ports[p.id] = p;
       this.points[p.id] = { id: p.id, lat: p.lat, lon: p.lon };
     }
-    this.portList = ports;
+    this.portList = ports.filter((p) => !p.site);
+    this.siteList = ports.filter((p) => p.site === house);
+    for (const p of ports) if (p.site) this.siteIds.add(p.id);
     for (const s of ships) this.shipTypes[s.id] = s;
     for (const n of lanes.nodes) this.points[n.id] = n;
 
@@ -82,6 +95,48 @@ export class World {
       (this.adjacency[e.a] ??= []).push(edge);
       (this.adjacency[e.b] ??= []).push(edge);
     }
+  }
+
+  /**
+   * The settlement opens as a port: it joins the port list (boards, markets, prices, routes through
+   * it) with the goods it trades, in the nearest region. One at a time; `null` closes it again
+   * (another game of the same house loaded). The site stays in siteList, with the new definition.
+   */
+  setOpenPort(open: { id: string; produces: PortDef['produces']; demands: PortDef['demands']; portFee: number } | null): void {
+    if (open && this.opened?.id === open.id) return;
+    if (!open && !this.opened) return;
+    if (this.opened) {
+      const { id, site, region } = this.opened;
+      this.ports[id] = site;
+      this.siteList[this.siteList.findIndex((p) => p.id === id)] = site;
+      this.portList.splice(this.portList.findIndex((p) => p.id === id), 1);
+      if (region) region.ports.splice(region.ports.indexOf(id), 1);
+      this.siteIds.add(id);
+      this.opened = null;
+    }
+    if (open) {
+      const site = this.ports[open.id];
+      const port: PortDef = { ...site, produces: open.produces, demands: open.demands, portFee: open.portFee };
+      this.ports[open.id] = port;
+      this.siteList[this.siteList.findIndex((p) => p.id === open.id)] = port;
+      this.portList.push(port);
+      this.siteIds.delete(open.id);
+      // The nearest region by its nearest port.
+      let region: Region | undefined, best = Infinity;
+      for (const r of this.regions) for (const id of r.ports) {
+        const d = this.points[id] ? haversineNm(this.points[id], port) : Infinity;
+        if (d < best) { best = d; region = r; }
+      }
+      region?.ports.push(open.id);
+      this.opened = { id: open.id, site, region };
+    }
+    this.routeCache.clear();
+    this.epoch++;
+  }
+
+  /** Is this point a settlement site (of any house)? */
+  isSite(id: string): boolean {
+    return this.siteIds.has(id);
   }
 
   /** Straight-line length of a leg between two nodes, nautical miles. */
@@ -113,6 +168,7 @@ export class World {
       }
       if (current === null) break;
       done.add(current);
+      if (current !== from && this.siteIds.has(current)) continue;
       for (const edge of this.adjacency[current] ?? []) {
         if (edge.canal && closedCanals.includes(edge.canal)) continue;
         const next = edge.a === current ? edge.b : edge.a;
@@ -154,27 +210,45 @@ export class World {
   }
 }
 
-const worlds: Partial<Record<EraId, World>> = {};
+const worlds: Record<string, World> = {};
 
-/** The world of an era (built once). */
-export function worldFor(era: EraId): World {
-  return (worlds[era] ??= era === 'sail'
-    ? new World(sailGoods as GoodDef[], sailPorts as PortDef[], sailShips as ShipTypeDef[], sailLanes as never, ERAS.sail, sailRegions as Region[])
-    : new World());
+/**
+ * The world of an era (built once), and in the Age of Sail of a merchant house: the same seas
+ * and ports for every house, but its own shipyards and names for some ports.
+ */
+export function worldFor(era: EraId, house?: House): World {
+  const key = era === 'sail' ? `sail:${house ?? 'dutch'}` : era;
+  if (worlds[key]) return worlds[key];
+  if (era !== 'sail') return (worlds[key] = new World());
+  const cfg = eraConfig('sail', house);
+  const h = cfg.house;
+  const ports = (sailPorts as PortDef[]).map((p) => ({
+    ...p,
+    name: h?.portNames?.[p.id] ?? p.name,
+    shipyard: h?.shipyards ? h.shipyards.includes(p.id) : p.shipyard,
+  }));
+  return (worlds[key] = new World(sailGoods as GoodDef[], ports, sailShips as ShipTypeDef[], sailLanes as never, cfg, sailRegions as Region[]));
 }
 
 let current: EraId = 'modern';
+let currentH: House | undefined;
 
-/** Make an era's world the current one (the game being played decides it). */
-export function setEra(era: EraId): void {
+/** Make an era's (and house's) world the current one (the game being played decides it). */
+export function setEra(era: EraId, house?: House): void {
   current = era;
+  currentH = era === 'sail' ? house ?? 'dutch' : undefined;
 }
 
 export function currentEra(): EraId {
   return current;
 }
 
+/** The merchant house of the game being played (Age of Sail only). */
+export function currentHouse(): House | undefined {
+  return currentH;
+}
+
 /** The current world: the one of the game being played. */
 export function getWorld(): World {
-  return worldFor(current);
+  return worldFor(current, currentH);
 }

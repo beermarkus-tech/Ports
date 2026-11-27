@@ -2,7 +2,7 @@
 // so they work offline). Off until the first tap, as browsers require; the
 // mute setting is remembered on the device.
 
-import { Music } from './music';
+import { Music, type Piece } from './music';
 
 export type SoundName = 'horn' | 'sails' | 'bell' | 'coins' | 'thunder' | 'clank' | 'fanfare' | 'click';
 
@@ -33,8 +33,10 @@ class SoundBoard {
     else this.music.stop();
   }
 
-  setMusicWanted(on: boolean): void {
+  /** Whether the game has music, and which piece (the Age of Sail: one per merchant house). */
+  setMusicWanted(on: boolean, piece?: Piece): void {
     this.musicWanted = on;
+    if (piece) this.music.setPiece(piece);
     this.syncMusic();
   }
 
@@ -59,6 +61,17 @@ class SoundBoard {
     this.master.connect(this.ctx.destination);
     if (this.ctx.state === 'running') this.syncMusic();
     else void this.ctx.resume().then(() => this.syncMusic());
+  }
+
+  /**
+   * The app went to the background (another app, the screen off) or came back: all sound is
+   * suspended while it's hidden, and the music picks up where it was on return.
+   */
+  setHidden(hidden: boolean): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (hidden) { if (ctx.state === 'running') void ctx.suspend(); }
+    else if (ctx.state === 'suspended') void ctx.resume().then(() => this.syncMusic()).catch(() => { /* needs a tap: unlock() */ });
   }
 
   setEnabled(on: boolean): void {

@@ -232,5 +232,14 @@
   "lotMin": 30,
   "lotMax": 250,
   "bigLotMax": 800
+ },
+ {
+  "id": "tools",
+  "name": "Iron and tools",
+  "cargoClass": "general",
+  "freightRate": 88,
+  "lotMin": 5,
+  "lotMax": 60,
+  "bigLotMax": 150
  }
 ]

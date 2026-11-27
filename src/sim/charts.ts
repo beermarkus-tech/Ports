@@ -46,7 +46,8 @@ export function hasFog(world: World): boolean {
 
 /** Nodes inside any of the boxes. */
 function nodesIn(world: World, boxes: Box[]): string[] {
-  return Object.values(world.points).filter((p) => boxes.some((b) => inBox(p.lon, p.lat, b))).map((p) => p.id);
+  // (Settlement sites stay off the charts until the house founds one there.)
+  return Object.values(world.points).filter((p) => !world.isSite(p.id) && boxes.some((b) => inBox(p.lon, p.lat, b))).map((p) => p.id);
 }
 
 /** Give a game in a foggy world its starting charts (no-op if it has them, or the world has no fog). */
@@ -58,6 +59,32 @@ export function ensureCharts(g: GameState, world: World): void {
   // Boards of an old save can't offer charters to places nobody has charted.
   // (And the empty lots an early build put up.)
   for (const p of Object.values(g.ports)) p.board = p.board.filter((c) => g.charted!.includes(c.dest) && c.tons > 0);
+}
+
+/** Chart these ports or waypoints if they lie in the waters the house knew from the start. */
+export function chartKnownWaters(world: World, g: GameState, ids: string[]): void {
+  if (!world.era.charts || !g.charted) return;
+  const known = new Set(nodesIn(world, world.era.charts.known));
+  const add = ids.filter((id) => known.has(id) && !g.charted!.includes(id));
+  if (add.length) g.charted = [...g.charted, ...add];
+}
+
+/**
+ * Sea-lane waypoints added to the world after a game began: chart those in the waters the house
+ * knew from the start, and those whose every neighbouring point is charted already (a new point
+ * between two the house knows).
+ */
+export function chartNewWaypoints(world: World, g: GameState): void {
+  if (!world.era.charts || !g.charted) return;
+  const charted = new Set(g.charted);
+  const known = new Set(nodesIn(world, world.era.charts.known));
+  const add: string[] = [];
+  for (const id of Object.keys(world.points)) {
+    if (charted.has(id) || world.ports[id] || world.isSite(id)) continue;
+    const near = world.edges.filter((e) => e.a === id || e.b === id).map((e) => (e.a === id ? e.b : e.a));
+    if (known.has(id) || (near.length && near.every((n) => charted.has(n)))) add.push(id);
+  }
+  if (add.length) g.charted = [...g.charted, ...add];
 }
 
 /** Is this port or waypoint charted? Everything is, in a world without fog. */
@@ -102,7 +129,7 @@ export function chartPath(world: World, g: GameState, path: string[]): string[] 
   for (const id of path) {
     if (g.charted.includes(id)) continue;
     g.charted = [...g.charted, id];
-    if (world.ports[id]) found.push(id);
+    if (world.ports[id] && !world.ports[id].site) found.push(id);
   }
   for (const id of found) discoveryBoom(world, g, id);
   return found;

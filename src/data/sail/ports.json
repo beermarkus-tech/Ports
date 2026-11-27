@@ -24,6 +24,10 @@
    {
     "good": "wine",
     "weight": 1
+   },
+   {
+    "good": "tools",
+    "weight": 1
    }
   ],
   "demands": [
@@ -86,6 +90,14 @@
    {
     "good": "cod",
     "strength": 1.0
+   },
+   {
+    "good": "ivory",
+    "strength": 1.0
+   },
+   {
+    "good": "gold",
+    "strength": 1.0
    }
   ]
  },
@@ -105,6 +117,10 @@
    },
    {
     "good": "grain",
+    "weight": 1
+   },
+   {
+    "good": "tools",
     "weight": 1
    }
   ],
@@ -263,6 +279,10 @@
    },
    {
     "good": "timber",
+    "strength": 1.1
+   },
+   {
+    "good": "ivory",
     "strength": 1.1
    }
   ]
@@ -611,6 +631,18 @@
    {
     "good": "nutmeg",
     "strength": 1.1
+   },
+   {
+    "good": "tin",
+    "strength": 1.1
+   },
+   {
+    "good": "ivory",
+    "strength": 1.3
+   },
+   {
+    "good": "gold",
+    "strength": 1.2
    }
   ]
  },
@@ -644,6 +676,14 @@
    },
    {
     "good": "copper",
+    "strength": 1.1
+   },
+   {
+    "good": "ivory",
+    "strength": 1.2
+   },
+   {
+    "good": "gold",
     "strength": 1.1
    }
   ]
@@ -749,6 +789,10 @@
    {
     "good": "cloves",
     "strength": 1.1
+   },
+   {
+    "good": "gold",
+    "strength": 1.2
    }
   ]
  },
@@ -868,6 +912,14 @@
    {
     "good": "wine",
     "strength": 1.2
+   },
+   {
+    "good": "cinnamon",
+    "strength": 1.1
+   },
+   {
+    "good": "tools",
+    "strength": 1.2
    }
   ]
  },
@@ -901,6 +953,82 @@
   ]
  },
  {
+  "id": "patani",
+  "name": "Patani",
+  "country": "Malay Peninsula",
+  "lat": 6.87,
+  "lon": 101.25,
+  "fuelPrice": 190,
+  "portFee": 1800,
+  "label": "left",
+  "produces": [
+   {
+    "good": "pepper",
+    "weight": 2
+   },
+   {
+    "good": "gold",
+    "weight": 1
+   }
+  ],
+  "demands": [
+   {
+    "good": "silk",
+    "strength": 1.2
+   },
+   {
+    "good": "porcelain",
+    "strength": 1.2
+   },
+   {
+    "good": "textiles",
+    "strength": 1.2
+   },
+   {
+    "good": "copper",
+    "strength": 1.1
+   }
+  ]
+ },
+ {
+  "id": "macassar",
+  "name": "Macassar",
+  "country": "Celebes",
+  "lat": -5.13,
+  "lon": 119.41,
+  "fuelPrice": 200,
+  "portFee": 1800,
+  "label": "left",
+  "produces": [
+   {
+    "good": "cloves",
+    "weight": 2
+   },
+   {
+    "good": "rice",
+    "weight": 2
+   }
+  ],
+  "demands": [
+   {
+    "good": "textiles",
+    "strength": 1.3
+   },
+   {
+    "good": "silver",
+    "strength": 1.2
+   },
+   {
+    "good": "porcelain",
+    "strength": 1.2
+   },
+   {
+    "good": "silk",
+    "strength": 1.1
+   }
+  ]
+ },
+ {
   "id": "ayutthaya",
   "name": "Ayutthaya",
   "country": "Siam",
@@ -920,6 +1048,10 @@
    },
    {
     "good": "furs",
+    "weight": 1
+   },
+   {
+    "good": "timber",
     "weight": 1
    }
   ],
@@ -1002,6 +1134,10 @@
    {
     "good": "textiles",
     "strength": 1.1
+   },
+   {
+    "good": "tools",
+    "strength": 1.1
    }
   ]
  },
@@ -1056,6 +1192,10 @@
    {
     "good": "tea",
     "weight": 2
+   },
+   {
+    "good": "tools",
+    "weight": 1
    }
   ],
   "demands": [
@@ -1069,6 +1209,18 @@
    },
    {
     "good": "textiles",
+    "strength": 1.1
+   },
+   {
+    "good": "tin",
+    "strength": 1.2
+   },
+   {
+    "good": "ivory",
+    "strength": 1.3
+   },
+   {
+    "good": "nutmeg",
     "strength": 1.1
    }
   ]
@@ -1098,6 +1250,10 @@
    {
     "good": "sugar",
     "weight": 1
+   },
+   {
+    "good": "tools",
+    "weight": 1
    }
   ],
   "demands": [
@@ -1115,6 +1271,22 @@
    },
    {
     "good": "rice",
+    "strength": 1.1
+   },
+   {
+    "good": "tin",
+    "strength": 1.1
+   },
+   {
+    "good": "ivory",
+    "strength": 1.1
+   },
+   {
+    "good": "saltpetre",
+    "strength": 1.2
+   },
+   {
+    "good": "nutmeg",
     "strength": 1.1
    }
   ]
@@ -1413,6 +1585,10 @@
    {
     "good": "wine",
     "strength": 1.1
+   },
+   {
+    "good": "tools",
+    "strength": 1.2
    }
   ]
  },
@@ -1447,6 +1623,10 @@
    {
     "good": "salt",
     "strength": 1.1
+   },
+   {
+    "good": "tools",
+    "strength": 1.3
    }
   ]
  },
@@ -1484,6 +1664,10 @@
    {
     "good": "salt",
     "strength": 1.1
+   },
+   {
+    "good": "tools",
+    "strength": 1.2
    }
   ]
  },
@@ -1613,5 +1797,83 @@
     "strength": 1.2
    }
   ]
+ },
+ {
+  "id": "tamsui",
+  "name": "Tamsui",
+  "country": "North Formosa",
+  "lat": 25.17,
+  "lon": 121.43,
+  "fuelPrice": 260,
+  "portFee": 0,
+  "site": "chinese",
+  "label": "right",
+  "produces": [],
+  "demands": []
+ },
+ {
+  "id": "bintan",
+  "name": "Bintan",
+  "country": "Riau islands",
+  "lat": 0.92,
+  "lon": 104.45,
+  "fuelPrice": 240,
+  "portFee": 0,
+  "site": "chinese",
+  "label": "right",
+  "produces": [],
+  "demands": []
+ },
+ {
+  "id": "songkhla",
+  "name": "Songkhla",
+  "country": "Gulf of Siam",
+  "lat": 7.2,
+  "lon": 100.6,
+  "fuelPrice": 220,
+  "portFee": 0,
+  "site": "chinese",
+  "label": "right",
+  "produces": [],
+  "demands": []
+ },
+ {
+  "id": "mauritius",
+  "name": "Mauritius",
+  "country": "Indian Ocean",
+  "lat": -20.16,
+  "lon": 57.5,
+  "fuelPrice": 260,
+  "portFee": 0,
+  "site": "dutch",
+  "label": "right",
+  "produces": [],
+  "demands": []
+ },
+ {
+  "id": "sthelena",
+  "name": "St Helena",
+  "country": "South Atlantic",
+  "lat": -15.92,
+  "lon": -5.72,
+  "fuelPrice": 260,
+  "portFee": 0,
+  "site": "dutch",
+  "label": "right",
+  "produces": [],
+  "demands": []
+ },
+ {
+  "id": "berbice",
+  "name": "Berbice",
+  "country": "the Wild Coast",
+  "lat": 6.4,
+  "lon": -57.5,
+  "fuelPrice": 240,
+  "portFee": 0,
+  "site": "dutch",
+  "label": "right",
+  "produces": [],
+  "demands": []
  }
 ]

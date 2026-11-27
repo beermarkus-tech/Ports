@@ -5,8 +5,9 @@ import { randRange } from './rng';
 import { netWorth, regenerateMarket } from './ships';
 import type { GameState, ShipState } from './types';
 import { getWorld, worldFor } from './world';
-import { ensureCharts } from './charts';
+import { chartKnownWaters, chartNewWaypoints, ensureCharts } from './charts';
 import { ensureTrade } from './trade';
+import { syncSettlementPort } from './settlement';
 
 // Several games ("slots"), each in its own key, with an index of them for the start
 // screen. The single save from before slots (LEGACY_KEY) becomes the first slot.
@@ -18,6 +19,7 @@ const DELETED_KEY = 'deadweight.deleted';
 const slotKey = (id: string) => `deadweight.save.${id}`;
 
 export type Era = 'modern' | 'sail';
+export type { House } from './era';
 
 /** What the start screen shows about a saved game. */
 export interface SlotInfo {
@@ -27,6 +29,8 @@ export interface SlotInfo {
   uid?: string;
   name: string;
   era: Era;
+  /** Age of Sail: the merchant house (missing = Dutch). */
+  house?: 'dutch' | 'chinese';
   /** Real-world times (ms) the game was started and last changed. */
   created: number;
   lastPlayed: number;
@@ -116,7 +120,7 @@ export function createSlot(g: GameState, name: string, storage: Store = globalTh
   const slots = readIndex(storage);
   const id = newSlotId(slots);
   const now = Date.now();
-  slots.push({ id, uid: newUid(), name, era: g.era ?? 'modern', created: now, lastPlayed: now, ...summary(g) });
+  slots.push({ id, uid: newUid(), name, era: g.era ?? 'modern', ...(g.house ? { house: g.house } : {}), created: now, lastPlayed: now, ...summary(g) });
   writeIndex(storage, slots);
   setActiveSlot(id, storage);
   try { storage?.setItem(slotKey(id), JSON.stringify(g)); } catch { /* storage full */ }
@@ -258,9 +262,13 @@ export function migrate(raw: unknown): GameState | null {
   }
   if (g.version !== 4) return null;
   // The Age of Sail's fog arrived after its first games: they start with the Dutch charts of 1650.
-  ensureCharts(g as GameState, worldFor((g as GameState).era ?? 'modern'));
-  ensureTrade(worldFor((g as GameState).era ?? 'modern'), g as GameState);
+  const gw = worldFor((g as GameState).era ?? 'modern', (g as GameState).house);
+  ensureCharts(g as GameState, gw);
+  chartNewWaypoints(gw, g as GameState);
+  // New ports first: the trade news samples every port's prices.
   addNewPorts(g as GameState);
+  syncSettlementPort(gw, g as GameState);
+  ensureTrade(gw, g as GameState);
   addCaptains(g as GameState);
   return g as GameState;
 }
@@ -284,9 +292,11 @@ function addCaptains(g: GameState): void {
 
 /** Ports added to the world after this game was started get a market, offers and a fuel price. */
 function addNewPorts(g: GameState): void {
-  const world = worldFor(g.era ?? 'modern');
+  const world = worldFor(g.era ?? 'modern', g.house);
   const added = world.portList.filter((p) => !g.ports[p.id]);
   for (const p of added) g.ports[p.id] = { fuelDev: randRange(g, -0.12, 0.12), board: [], market: [], prices: {} };
+  // A new port in waters the house knew from the start is charted too.
+  chartKnownWaters(world, g, added.map((p) => p.id));
   for (const p of added) {
     regenerateBoard(world, g, p.id);
     regenerateMarket(world, g, p.id);

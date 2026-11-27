@@ -1,5 +1,6 @@
-// Background music for the Age of Sail: an original sarabande in D minor, the
-// slow triple-time dance in fashion in the 1650s, for lute, recorder and viol.
+// Background music for the Age of Sail. The Dutch house has an original sarabande in D minor,
+// the slow triple-time dance in fashion in the 1650s, for lute, recorder and viol; the Chinese
+// house has its own piece (music-nanyang.ts) for pipa, zheng, xiao and percussion.
 // Everything is synthesised (a plucked-string model for the lute), so there are
 // no audio files. 32 bars, about 75 seconds, looping:
 //   A   lute alone, playing the tune over its chords
@@ -7,8 +8,14 @@
 //   B   the viol joins on the bass
 //   B'  all three, ending on a bright D major chord (a period habit) before it begins again.
 
-type Voice = 'lute' | 'recorder' | 'viol';
-interface Note { beat: number; voice: Voice; midi: number; beats: number; vel: number }
+export type Voice = 'lute' | 'recorder' | 'viol' | 'pipa' | 'zheng' | 'xiao' | 'muyu' | 'gong';
+export interface Note {
+  beat: number; voice: Voice; midi: number; beats: number; vel: number;
+  /** Xiao: slide up into the note from this many semitones below. Pipa: tremolo (rolled) on a long note. */
+  slide?: number; tremolo?: boolean;
+}
+/** A piece: its notes, seconds per beat, and how many beats before it begins again. */
+export interface Piece { notes: Note[]; beat: number; loopBeats: number }
 
 const BEAT = 0.78; // seconds per beat: a stately sarabande
 const BAR = 3;
@@ -76,8 +83,7 @@ function score(): Note[] {
   return notes.sort((a, b) => a.beat - b.beat);
 }
 
-const SCORE = score();
-const LOOP_BEATS = 32 * BAR;
+export const SARABANDE: Piece = { notes: score(), beat: BEAT, loopBeats: 32 * BAR };
 const freq = (midi: number) => 440 * 2 ** ((midi - 69) / 12);
 
 export class Music {
@@ -86,14 +92,24 @@ export class Music {
   private timer: number | null = null;
   private loopStart = 0;
   private next = 0;
-  private plucks = new Map<number, AudioBuffer>();
+  private plucks = new Map<string, AudioBuffer>();
+  private piece: Piece = SARABANDE;
   playing = false;
+
+  /** Choose the piece (takes effect from the next start). */
+  setPiece(piece: Piece): void {
+    if (piece === this.piece) return;
+    this.piece = piece;
+    if (this.playing && this.ctx instanceof AudioContext && this.dest) { const [c, d] = [this.ctx, this.dest]; this.stop(); this.start(c, d); }
+  }
+  private dest: AudioNode | null = null;
 
   /** Start (or keep) playing into `dest` at a gentle level. */
   start(ctx: AudioContext, dest: AudioNode): void {
     if (this.playing && this.ctx === ctx) return;
     this.stop();
     this.connect(ctx, dest);
+    this.dest = dest;
     this.loopStart = ctx.currentTime + 0.3;
     this.next = 0;
     this.playing = true;
@@ -106,11 +122,11 @@ export class Music {
     this.connect(ctx, ctx.destination);
     this.loopStart = 0.1;
     this.next = 0;
-    for (const n of SCORE) this.play(n, this.loopStart + n.beat * BEAT);
+    for (const n of this.piece.notes) this.play(n, this.loopStart + n.beat * this.piece.beat);
   }
 
   /** Seconds in one pass of the piece. */
-  static get loopSeconds(): number { return LOOP_BEATS * BEAT; }
+  get loopSeconds(): number { return this.piece.loopBeats * this.piece.beat; }
 
   private connect(ctx: BaseAudioContext, dest: AudioNode): void {
     this.ctx = ctx;
@@ -149,10 +165,11 @@ export class Music {
   private schedule(): void {
     const ctx = this.ctx!;
     const horizon = ctx.currentTime + 1.2;
+    const { notes, beat, loopBeats } = this.piece;
     for (;;) {
-      if (this.next >= SCORE.length) { this.next = 0; this.loopStart += LOOP_BEATS * BEAT; }
-      const n = SCORE[this.next];
-      const at = this.loopStart + n.beat * BEAT;
+      if (this.next >= notes.length) { this.next = 0; this.loopStart += loopBeats * beat; }
+      const n = notes[this.next];
+      const at = this.loopStart + n.beat * beat;
       if (at > horizon) break;
       if (at > ctx.currentTime - 0.05) this.play(n, at);
       this.next++;
@@ -163,28 +180,177 @@ export class Music {
     // A little human looseness in time and touch.
     const t = Math.max(this.ctx!.currentTime, at + (Math.random() - 0.5) * 0.02);
     const vel = n.vel * (0.9 + Math.random() * 0.2);
-    if (n.voice === 'lute') this.lute(t, n.midi, vel);
-    else if (n.voice === 'recorder') this.recorder(t, n.midi, n.beats * BEAT, vel);
-    else this.viol(t, n.midi, n.beats * BEAT, vel);
+    const dur = n.beats * this.piece.beat;
+    switch (n.voice) {
+      case 'lute': this.lute(t, n.midi, vel); break;
+      case 'recorder': this.recorder(t, n.midi, dur, vel); break;
+      case 'viol': this.viol(t, n.midi, dur, vel); break;
+      case 'pipa': this.pipa(t, n.midi, dur, vel, !!n.tremolo); break;
+      case 'zheng': this.zheng(t, n.midi, vel); break;
+      case 'xiao': this.xiao(t, n.midi, dur, vel, n.slide ?? 0); break;
+      case 'muyu': this.muyu(t, vel); break;
+      case 'gong': this.gong(t, vel); break;
+    }
   }
 
-  /** A plucked gut string (Karplus–Strong), rendered once per pitch. */
-  private pluck(midi: number): AudioBuffer {
-    const hit = this.plucks.get(midi);
+  // ---------------------------------------------------------------- the Chinese ensemble
+
+  /**
+   * Pipa: a bright, short pluck (a plectrum-like nail on silk-and-steel strings), with the
+   * tremolo (lunzhi) on long notes: rapid repeated plucks that fade a little.
+   */
+  private pipa(t: number, midi: number, dur: number, vel: number, tremolo: boolean): void {
+    const hit = (at: number, v: number) => {
+      const ctx = this.ctx!;
+      const src = ctx.createBufferSource();
+      src.buffer = this.pluck(midi, 'pipa');
+      const g = ctx.createGain();
+      g.gain.value = 0.58 * v;
+      const body = ctx.createBiquadFilter();
+      body.type = 'peaking';
+      body.frequency.value = 1800;
+      body.gain.value = 5;
+      src.connect(body).connect(g).connect(this.out!);
+      src.start(at);
+    };
+    if (!tremolo) { hit(t, vel); return; }
+    const step = 0.085;
+    for (let k = 0, at = t; at < t + dur - 0.05; k++, at += step) hit(at, vel * (k ? 0.55 + 0.1 * Math.sin(k) : 1));
+  }
+
+  /** Zheng: a long-ringing plucked zither, warm and soft, with the slight bend of a pressed string. */
+  private zheng(t: number, midi: number, vel: number): void {
+    const ctx = this.ctx!;
+    const src = ctx.createBufferSource();
+    src.buffer = this.pluck(midi, 'zheng');
+    src.playbackRate.setValueAtTime(1, t);
+    // A touch of vibrato from the left hand pressing the string behind the bridge.
+    src.playbackRate.setValueAtTime(1, t + 0.35);
+    src.playbackRate.linearRampToValueAtTime(1.006, t + 0.6);
+    src.playbackRate.linearRampToValueAtTime(0.998, t + 0.85);
+    src.playbackRate.linearRampToValueAtTime(1, t + 1.1);
+    const g = ctx.createGain();
+    g.gain.value = 0.5 * vel;
+    const body = ctx.createBiquadFilter();
+    body.type = 'lowpass';
+    body.frequency.value = 2600;
+    src.connect(body).connect(g).connect(this.out!);
+    src.start(t);
+  }
+
+  /** Xiao: the end-blown bamboo flute, soft and airy, sliding into notes, a slow vibrato. */
+  private xiao(t: number, midi: number, dur: number, vel: number, slide: number): void {
+    const ctx = this.ctx!;
+    const f = freq(midi);
+    const g = ctx.createGain();
+    const peak = 0.14 * vel;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(peak, t + 0.12);
+    g.gain.setValueAtTime(peak, t + Math.max(0.13, dur - 0.18));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.12);
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(slide ? f * 2 ** (-slide / 12) : f, t);
+    if (slide) o.frequency.exponentialRampToValueAtTime(f, t + 0.16);
+    const o2 = ctx.createOscillator();
+    o2.type = 'sine';
+    o2.frequency.value = f * 3;
+    const g2 = ctx.createGain();
+    g2.gain.value = 0.05;
+    // Breath: a little filtered noise around the note.
+    const noise = ctx.createBufferSource();
+    noise.buffer = this.breath();
+    noise.loop = true;
+    const nf = ctx.createBiquadFilter();
+    nf.type = 'bandpass';
+    nf.frequency.value = f * 2;
+    nf.Q.value = 2.5;
+    const ng = ctx.createGain();
+    ng.gain.value = 0.35;
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 4.4;
+    const depth = ctx.createGain();
+    depth.gain.setValueAtTime(0, t);
+    if (dur > 0.8) depth.gain.linearRampToValueAtTime(f * 0.007, t + Math.min(dur, 0.9));
+    lfo.connect(depth);
+    depth.connect(o.frequency);
+    o.connect(g);
+    o2.connect(g2).connect(g);
+    noise.connect(nf).connect(ng).connect(g);
+    g.connect(this.out!);
+    for (const x of [o, o2, lfo, noise]) { x.start(t); x.stop(t + dur + 0.2); }
+  }
+
+  /** Muyu: the wooden fish, a hollow knock. */
+  private muyu(t: number, vel: number): void {
+    const ctx = this.ctx!;
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(760, t);
+    o.frequency.exponentialRampToValueAtTime(620, t + 0.08);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.16 * vel, t + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
+    o.connect(g).connect(this.out!);
+    o.start(t);
+    o.stop(t + 0.16);
+  }
+
+  /** A small gong: a soft, low stroke that shimmers and falls a little in pitch. */
+  private gong(t: number, vel: number): void {
+    const ctx = this.ctx!;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.09 * vel, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 4);
+    for (const [ratio, amp] of [[1, 1], [1.48, 0.45], [2.31, 0.25], [3.1, 0.12]] as const) {
+      const o = ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(196 * ratio, t);
+      o.frequency.exponentialRampToValueAtTime(196 * ratio * 0.985, t + 2.5);
+      const a = ctx.createGain();
+      a.gain.value = amp;
+      o.connect(a).connect(g);
+      o.start(t);
+      o.stop(t + 4.1);
+    }
+    g.connect(this.out!);
+  }
+
+  private breathBuf: AudioBuffer | null = null;
+  private breath(): AudioBuffer {
+    if (this.breathBuf) return this.breathBuf;
+    const ctx = this.ctx!;
+    const buf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * 0.5;
+    return (this.breathBuf = buf);
+  }
+
+  /**
+   * A plucked string (Karplus–Strong), rendered once per pitch and kind: the lute's gut (soft,
+   * finger-plucked), the pipa's (bright and short) or the zheng's (long-ringing).
+   */
+  private pluck(midi: number, kind: 'lute' | 'pipa' | 'zheng' = 'lute'): AudioBuffer {
+    const key = `${kind}:${midi}`;
+    const hit = this.plucks.get(key);
     if (hit) return hit;
     const ctx = this.ctx!;
     const sr = ctx.sampleRate;
     const f = freq(midi);
-    const len = Math.floor(sr * (midi < 50 ? 3.2 : 2.4));
+    const len = Math.floor(sr * (kind === 'zheng' ? 4.5 : kind === 'pipa' ? 1.6 : midi < 50 ? 3.2 : 2.4));
     const buf = ctx.createBuffer(1, len, sr);
     const y = buf.getChannelData(0);
     const period = Math.max(2, Math.round(sr / f));
     // A soft pluck: smoothed noise, so it sounds like a finger, not a plectrum.
+    // (The pipa's nail is barely smoothed: a brighter attack.)
+    const smooth = kind === 'pipa' ? 0.15 : kind === 'zheng' ? 0.4 : 0.5;
     let prev = 0;
-    for (let i = 0; i < period; i++) { prev = prev * 0.5 + (Math.random() * 2 - 1) * 0.5; y[i] = prev; }
-    const damp = midi < 50 ? 0.9965 : 0.994;
+    for (let i = 0; i < period; i++) { prev = prev * smooth + (Math.random() * 2 - 1) * (1 - smooth); y[i] = prev; }
+    const damp = kind === 'zheng' ? 0.9978 : kind === 'pipa' ? 0.991 : midi < 50 ? 0.9965 : 0.994;
     for (let i = period; i < len; i++) y[i] = damp * 0.5 * (y[i - period] + y[i - period - 1 >= 0 ? i - period - 1 : 0]);
-    this.plucks.set(midi, buf);
+    this.plucks.set(key, buf);
     return buf;
   }
 
