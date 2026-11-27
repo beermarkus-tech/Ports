@@ -6,7 +6,7 @@ build log and move items in "Now and next" as work lands.
 
 ## 0. Now and next (read this first)
 
-**State at build 79** (harbour life step 2 in build 75; the settlement view in 76; live settlement tab in 77; harbour weather at its own pace with blending in 79). Live at https://beermarkus-tech.github.io/Ports/. 136 tests pass. Working
+**State at build 80** (harbour life 75; settlement view 76; live settlement tab 77; weather pace and blending 79; the lighter side panel 80). Live at https://beermarkus-tech.github.io/Ports/. 136 tests pass. Working
 branch of the last chat: `ccr-e09247f0-shm8l1`; everything is merged into `main` (main deploys).
 The owner plays the 1650 game (mostly the Chinese house) on an Android device.
 
@@ -39,9 +39,23 @@ people, what's being built, weather). Map returns to the map.
 4. Then (agreed ideas): commissions (orders for the settlement's goods), chart workshop,
    cabinet of curiosities, shipyard (late), family house over generations (with a timeline).
 
-**Proposed and waiting for the owner (build 77):** the owner finds the side panel too text heavy
-and hard to navigate. Proposal "A Lighter Sidebar" (section 10) with five questions; build nothing
-of it before the answers. Suggested order: Orders first, then the settlement, Fleet, Company.
+**The lighter side panel (build 80, owner said yes to all of "A Lighter Sidebar", built at once):**
+four tabs, `Tab = 'orders' | 'settlement' | 'fleet' | 'company'` in main.ts.
+- Orders (ordersTab): shipHead (three gauges), attention() (needs orders / waiting / worn hull),
+  the voyage plan when a destination is picked, "Cargo that fits" (best five, the rest folded;
+  "best per day" tag) with a THREE-WAY SORT TOGGLE the owner asked for (pay per day → total pay →
+  destination, `CONTRACT_SORTS`, saved in deadweight.contractSort), contracts the ship can't take
+  folded, the hold, bestBuys() (top 3 by margin against the best known price; all goods folded),
+  whereTo() (ports for what's aboard; every port folded, destList()), wait buttons, and the ship
+  cards (victuals/careening/the ship) folded, opened by itself under 60% condition.
+- Settlement: four gauges, warnings, landing/loading boxes, "Bring on the next run" (bringList()
+  in settlement.ts, from stageGoals(): two months of food it doesn't grow, timber and tools for the
+  next stage's buildings less the yard, settlers for the room), building now, the next stage as a
+  checklist, "Build next" (up to three goals, possible first), all buildings folded.
+- Fleet: ships, captains, ships for sale (affordable as cards, the rest in one folded table).
+- Company: cash/worth/loan, bank, books, then the guide, achievements, record and log.
+Explanations moved into folds (`fold()` keeps them open across redraws by data-key). Guide hints
+name the new tabs. The proposal's mock-up: section 10.
 
 **Open offers (the owner hasn't answered; don't build without a yes):** own-account trade for
 ★★★ captains; a new app icon to match the name (old chart corner, sea serpent, compass rose);
@@ -552,6 +566,7 @@ Check `vite-plugin-pwa` precache size limits after adding it.
 | 76 | Look at your settlement from anywhere: "Look at …" button in the settlement tab opens its harbour picture, with or without a ship of yours there |
 | 77 | The settlement tab refreshes as the days pass (people, stores, building progress; it was only redrawn on leaving and coming back); "1 day left" |
 | 79 | Harbour weather keeps its own pace: spells follow a real-time clock (WEATHER_SECONDS_PER_DAY = 4 in main.ts, so about 12 s a spell) whatever the game speed, and go on while the clock waits; the season still follows the game date. Changes of weather or light cross-fade over 4 s (PortScene fadeFrom), rain and snow fade in and out |
+| 80 | The lighter side panel: four tabs (Orders, settlement, Fleet, Company) instead of seven; ranked short lists, folds, three-way cargo sort (pay per day / total / destination), "Bring on the next run" for the settlement |
 
 ## 10. Proposals and artifacts (claude.ai, owner's account)
 
@@ -567,4 +582,5 @@ Private to the owner's account; the decisions they led to are recorded above.
 - "A Lighter Sidebar" proposal and phone mock-up (https://claude.ai/artifact/UyQPsMQnQzSZVkABzJRxnF):
   seven tabs (about 16,000 px of scrolling on a phone) to four decision-first tabs (Orders, the
   settlement, Fleet, Company); top 3–5 ranked by the deciding number, explanations behind ⓘ, long
-  lists folded, "Bring on the next run" for the settlement. Waiting for the owner's answers.
+  lists folded, "Bring on the next run" for the settlement. Owner: yes to all, plus a three-way
+  cargo sort toggle; built in build 80.

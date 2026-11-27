@@ -19,7 +19,7 @@ import {
 import type { Captain, Contract, GameState, PremiumKind, ShipOffer, ShipState, ShipTypeDef, VoyageReport } from './sim/types';
 import { currentEra, currentHouse, getWorld, setEra } from './sim/world';
 import { currentChapter, guideChapters, updateGuide, type GuideChapter } from './sim/guide';
-import { BUILDINGS, SETTLEMENT_TUNING, SITES, STAGE_NAMES, buildDays, cannotBuild, count as bcount, eats, foodDays, grows, housing, nextStageNeeds, siteOf, roomFor, storeRoom, stored, willing, yardStored, fish, STAGES, dues, jobs, making as makingNow, products, staffed } from './sim/settlement';
+import { BUILDINGS, SETTLEMENT_TUNING, SITES, STAGE_NAMES, bringList, stageGoals, buildDays, cannotBuild, count as bcount, eats, foodDays, grows, housing, nextStageNeeds, siteOf, roomFor, storeRoom, stored, willing, yardStored, fish, STAGES, dues, jobs, making as makingNow, products, staffed } from './sim/settlement';
 import { compactMoney, currency, days, esc, gameDate, money, setEraFormat, startYear, tons } from './ui/format';
 import { mapIconPath, shipFamily, shipSideView } from './ui/art';
 import { applyCheck, changedSinceSync, checkCloud, clearConfig, CloudError, defaultDeviceName, findOrCreateGist, loadConfig, saveConfig, type Check, type CloudGame, type SyncedSlot } from './cloud';
@@ -38,7 +38,8 @@ import { SARABANDE } from './ui/music';
 import { NANYANG } from './ui/music-nanyang';
 import { BUILD, consumeUpdatedFrom, initServiceWorker, isNewer, justUpdated, latestBuild, reloadApp } from './ui/update';
 
-type Tab = 'contracts' | 'voyage' | 'ship' | 'market' | 'fleet' | 'settlement' | 'log';
+/** The side panel: the selected ship's orders, the settlement, the fleet, the company. */
+type Tab = 'orders' | 'settlement' | 'fleet' | 'company';
 /** Why the clock is stopped: the player paused it, or a ship (or an arrival report) needs the player. */
 type PauseReason = 'user' | 'arrival' | 'decision';
 
@@ -112,10 +113,8 @@ const AMBIENT_CLOUDS = [
 
 
 /** How the cargo board can be ordered. Cargo a ship can't take always goes last. */
-const CONTRACT_SORTS = {
-  pay: { label: 'Pay, highest first', compare: (a: Contract, b: Contract) => b.pay - a.pay },
-  dest: { label: 'Destination A–Z', compare: (a: Contract, b: Contract) => world.ports[a.dest].name.localeCompare(world.ports[b.dest].name) },
-};
+/** The cargo board's orders, in the order the toggle steps through them. */
+const CONTRACT_SORTS = { perDay: 'Pay per day', pay: 'Total pay', dest: 'Destination A–Z' };
 type ContractSort = keyof typeof CONTRACT_SORTS;
 const SORT_KEY = 'deadweight.contractSort';
 
@@ -134,12 +133,12 @@ function loadContractSort(): ContractSort {
     const v = localStorage.getItem(SORT_KEY);
     if (v && v in CONTRACT_SORTS) return v as ContractSort;
   } catch { /* storage blocked */ }
-  return 'pay';
+  return 'perDay';
 }
 class App {
   private g: GameState;
   private activeId: number;
-  private tab: Tab = 'contracts';
+  private tab: Tab = 'orders';
   private dest: string | null = null;
   private hoverDest: string | null = null;
   private marketPort: string | null = null;
@@ -512,7 +511,7 @@ class App {
     // progress, the settlement's people, stores and building): refresh them when the day changes, at most
     // once a second. Market and Log only change on actions.
     const dayChanged = Math.floor(this.g.day) !== this.renderedDay;
-    const live = this.tab === 'contracts' || this.tab === 'voyage' || this.tab === 'ship' || this.tab === 'fleet' || this.tab === 'settlement';
+    const live = this.tab === 'orders' || this.tab === 'fleet' || this.tab === 'settlement';
     // Don't redraw under an open dropdown (it would snap shut).
     const picking = document.activeElement?.tagName === 'SELECT';
     if (dayChanged && live && !picking && performance.now() - this.lastPanel > 1000) this.renderPanel();
@@ -574,7 +573,7 @@ class App {
     this.activeId = waiting[0].id;
     this.dest = null;
     this.marketPort = null;
-    if (this.tab === 'log' || this.tab === 'market') this.tab = 'contracts';
+    if (this.tab === 'company' || this.tab === 'fleet') this.tab = 'orders';
   }
 
   /**
@@ -660,7 +659,7 @@ class App {
           const bought = this.g.fleet[this.g.fleet.length - 1];
           sound.play('fanfare');
           this.map.pulseAt(this.map.portPosition(port), 'good');
-          this.selectShip(bought.id, 'contracts');
+          this.selectShip(bought.id, 'orders');
           this.showNewShip(bought.id);
           return;
         }
@@ -713,7 +712,7 @@ class App {
           regions: ship.orders?.area ? [...ship.orders.area] : home ? [home] : [],
           repairBelow: ship.orders?.repairBelow ?? 50,
         };
-        this.tab = 'voyage';
+        this.tab = 'orders';
         this.render();
         return;
       }
@@ -751,7 +750,7 @@ class App {
         this.viaFinal = final;
         this.dest = data.id;
         this.routesHidden = false;
-        this.tab = 'voyage';
+        this.tab = 'orders';
         break;
       }
       case 'clear-via':
@@ -797,7 +796,7 @@ class App {
       case 'hire': {
         if (this.act((g) => hireCaptain(g, Number(data.id)))) {
           const c = this.g.captains![this.g.captains!.length - 1];
-          this.toast(`Captain ${c.name} is on the payroll. Hand a ship over from its Voyage tab.`, 'good');
+          this.toast(`Captain ${c.name} is on the payroll. Hand a ship over from its Orders tab.`, 'good');
         }
         break;
       }
@@ -823,7 +822,7 @@ class App {
         }
         break;
       case 'contract-sort':
-        this.contractSort = this.contractSort === 'pay' ? 'dest' : 'pay';
+        this.contractSort = this.contractSort === 'perDay' ? 'pay' : this.contractSort === 'pay' ? 'dest' : 'perDay';
         try { localStorage.setItem(SORT_KEY, this.contractSort); } catch { /* not saved, still works */ }
         this.renderPanel();
         return;
@@ -910,7 +909,7 @@ class App {
         this.activeId = this.g.fleet[0].id;
         this.dest = null;
         this.marketPort = null;
-        this.tab = 'contracts';
+        this.tab = 'orders';
         $('#modal').hidden = true;
         saveGame(this.g);
         this.pause('decision');
@@ -962,7 +961,7 @@ class App {
     this.dest = portId === ship.location ? null : portId;
     this.viaFinal = null;
     this.routesHidden = false;
-    this.tab = 'voyage';
+    this.tab = 'orders';
     this.render();
   }
 
@@ -977,7 +976,7 @@ class App {
     // A horn for a steamer; for a sailing ship, the sails filling with wind.
     sound.play(isSail() ? 'sails' : 'horn');
     this.dest = null;
-    this.tab = 'voyage';
+    this.tab = 'orders';
     this.view = 'map';
     this.afterDecision();
     this.render();
@@ -1381,14 +1380,13 @@ class App {
     const ship = this.ship();
     this.renderedDay = Math.floor(g.day);
     const loadable = isReady(g, ship) ? g.ports[ship.location].board.filter((c) => canCarry(ship, c) === null).length : 0;
+    const s = g.settlement;
+    const short = s && s.people >= 1 && (s.hungry || foodDays(s, g.day) < 15);
     const tabs: [Tab, string, string?][] = [
-      ['contracts', 'Cargo', loadable ? String(loadable) : undefined],
-      ['voyage', 'Voyage'],
-      ['ship', 'Ship'],
-      ['market', 'Market'],
-      ['fleet', 'Company'],
-      ...(g.settlement || hasCharter(g) ? [['settlement', g.settlement ? world.ports[g.settlement.site].name : 'Charter', g.settlement?.hungry ? '!' : undefined] as [Tab, string, string?]] : []),
-      ['log', 'Journal'],
+      ['orders', 'Orders', needsDecision(g, ship) ? '!' : loadable ? String(loadable) : undefined],
+      ...(s || hasCharter(g) ? [['settlement', s ? world.ports[s.site].name : 'Charter', short ? '!' : undefined] as [Tab, string, string?]] : []),
+      ['fleet', 'Fleet', shipsNeedingDecision(g).length > 1 ? String(shipsNeedingDecision(g).length) : undefined],
+      ['company', 'Company'],
     ];
     $('#tabs').innerHTML = tabs.map(([id, label, badge]) =>
       `<button class="tab ${this.tab === id ? 'active' : ''}" data-action="tab" data-tab="${id}" role="tab" aria-selected="${this.tab === id}">
@@ -1398,8 +1396,7 @@ class App {
     const scroll = body.scrollTop;
     const open = new Set([...body.querySelectorAll<HTMLDetailsElement>('details[open][data-key]')].map((d) => d.dataset.key));
     body.innerHTML = {
-      contracts: () => this.contractsTab(), voyage: () => this.voyageTab(), ship: () => this.shipTab(),
-      market: () => this.marketTab(), fleet: () => this.fleetTab(), settlement: () => this.settlementTab(), log: () => this.logTab(),
+      orders: () => this.ordersTab(), settlement: () => this.settlementTab(), fleet: () => this.fleetTab(), company: () => this.companyTab(),
     }[this.tab]();
     body.querySelectorAll<HTMLDetailsElement>('details[data-key]').forEach((d) => { if (open.has(d.dataset.key)) d.open = true; });
     if (this.renderedTab !== this.tab || this.renderedShip !== ship.id) {
@@ -1461,7 +1458,8 @@ class App {
       return `<div class="building-now"><span class="lbl">Building now</span><strong>${esc(b.name)}</strong>
         <div class="gs-bar"><i style="width:${Math.min(100, (s.project!.done / b.work) * 100).toFixed(0)}%"></i></div><span class="sub">about ${Math.ceil(left)} day${Math.ceil(left) === 1 ? '' : 's'} left</span></div>`;
     })() : '';
-    const builds = BUILDINGS.filter((b) => b.max(site, { ...s, stage: 'port' }) > 0).map((b) => {
+    const buildable = BUILDINGS.filter((b) => b.max(site, { ...s, stage: 'port' }) > 0);
+    const buildRows = buildable.map((b) => {
       const why = cannotBuild(g, s, b.id);
       const have = bcount(s, b.id);
       const locked = STAGES.indexOf(b.stage) > STAGES.indexOf(s.stage);
@@ -1471,7 +1469,12 @@ class App {
           <span class="b-cost">${money(b.cost)} · ${b.timber} t timber · ${b.tools} t tools · ${s.people >= 1 ? `about ${Math.ceil(buildDays(s, b.id))} days` : `${b.work} days of work`}</span>
           ${why && !s.project ? `<span class="b-why">${esc(why)}</span>` : ''}</div>
         <button class="btn small ${why ? 'ghost' : 'primary'}" data-action="build" data-id="${b.id}" ${why ? 'disabled' : ''}>Build</button></li>`;
-    }).join('');
+    });
+    const builds = buildRows.join('');
+    // Build next: what moves it to the next stage (possible ones first), at most three.
+    const goals = stageGoals(s, g.day).filter((id) => buildable.some((b) => b.id === id));
+    const nextIds = [...goals.filter((id) => !cannotBuild(g, s, id)), ...goals.filter((id) => cannotBuild(g, s, id))].slice(0, 3);
+    const nextBuilds = nextIds.map((id) => buildRows[buildable.findIndex((b) => b.id === id)]).join('');
     // Settlers sign on at home; supplies come in the hold.
     const home = world.era.start.port;
     let settlers = '';
@@ -1492,30 +1495,39 @@ class App {
         <div class="btn-row">${lots.map((l) => `<button class="btn small ${l.fits ? 'primary' : 'ghost'}" data-action="unload-settlement" data-good="${l.good}" ${l.fits ? '' : 'disabled title="No room"'}>Land ${esc(l.label)}</button>`).join('')}
         ${lots.length > 1 ? `<button class="btn small" data-action="unload-settlement" data-good="">Land all that fits</button>` : ''}</div></div>` : '';
     const news = s.news.slice(0, 8).map((n) => `<li class="${n.kind}"><span class="sub">${gameDate(n.day)}</span> ${esc(n.text)}</li>`).join('');
-    return `<div class="port-head"><div><h2>${esc(name)}</h2><span class="sub">${STAGE_NAMES[s.stage]} · founded ${gameDate(s.founded)} · ${esc(world.ports[s.site].country)}</span></div></div>
-      ${look}
-      ${s.hungry ? `<p class="o-warn">${esc(name)} has no food: people are leaving. Bring rice or grain.</p>` : s.people >= 1 && days < 15 ? `<p class="o-warn">Food for only ${Math.floor(days)} days. Bring rice or grain.</p>` : ''}
-      <div class="kvs settle-kv">
-        <div class="kv"><span>People</span><strong>${Math.floor(s.people)}</strong><em>${s.people > housing(s) ? `crowded: room for ${housing(s)}` : `room for ${housing(s)}`}</em></div>
-        <div class="kv"><span>Food</span><strong>${daysText}</strong><em>they eat ${tons(eats(s))} a day</em></div>
-        <div class="kv"><span>Store</span><strong>${tons(stored(s))}</strong><em>of ${storeRoom(s)} t · food</em></div>
-        <div class="kv"><span>Yard</span><strong>${tons(yardStored(s))}</strong><em>of ${SETTLEMENT_TUNING.yard} t · timber, tools</em></div>
-      </div>
-      ${need ? `<h3>To become ${need.stage === 'outpost' ? 'an outpost' : need.stage === 'port' ? 'an open port' : `a ${need.stage}`}</h3><ul class="needs">${need.needs.map((n) => `<li class="${n.done ? 'done' : ''}">${n.done ? '✓' : '○'} ${esc(n.text)}</li>`).join('')}</ul>` : ''}
-      <h3>Stores</h3><div class="kvs">${store}</div>
-      ${making.length ? `<p class="sub">${making.map(esc).join(' · ')}</p>` : ''}
-      ${hands}
+    const gauge = (label: string, value: string, share: number, cls: string) =>
+      `<div class="sg ${cls}"><span>${label}</span><b>${value}</b><i><em style="width:${Math.round(Math.max(0, Math.min(1, share)) * 100)}%"></em></i></div>`;
+    const foodShare = days === Infinity ? 1 : Math.min(1, days / 90);
+    const bring = bringList(s, g.day);
+    const bringName: Record<string, string> = { food: site.crop === 'grain' ? 'Rice or grain' : 'Rice', timber: 'Timber', tools: 'Iron and tools', settlers: 'Settlers' };
+    const bringRows = bring.map((b) => `<li class="bring-row"><strong>${bringName[b.good] ?? esc(b.good)} · ${b.good === 'settlers' ? `up to ${b.tons}` : tons(b.tons)}</strong><span>${esc(b.why)}</span></li>`).join('');
+    const stageWord = need ? (need.stage === 'outpost' ? 'an outpost' : need.stage === 'port' ? 'an open port' : `a ${need.stage}`) : '';
+    const latest = s.news.slice(0, 2).map((n) => `<li class="${n.kind}"><span class="sub">${gameDate(n.day)}</span> ${esc(n.text)}</li>`).join('');
+    return `<div class="ship-head"><div class="sh-name"><h2>${esc(name)}</h2><span>${STAGE_NAMES[s.stage].toLowerCase()} · ${Math.floor(s.people)} people · ${esc(world.ports[s.site].country)}</span></div>
+      <div class="sh-gauges two">
+        ${gauge('Food', daysText, foodShare, s.people >= 1 && days < 15 ? 'bad' : s.people >= 1 && days < 45 ? 'warn' : 'ok')}
+        ${gauge('People', `${Math.floor(s.people)} · room ${housing(s)}`, s.people / Math.max(1, housing(s)), s.people > housing(s) ? 'warn' : 'ok')}
+        ${gauge('Store (food)', `${tons(stored(s))} / ${storeRoom(s)} t`, stored(s) / Math.max(1, storeRoom(s)), 'hold')}
+        ${gauge('Yard', `${tons(yardStored(s))} / ${SETTLEMENT_TUNING.yard} t`, yardStored(s) / SETTLEMENT_TUNING.yard, 'hold')}
+      </div></div>
+      ${s.hungry ? `<div class="ask warn"><strong>${esc(name)} has no food:</strong> people are leaving. Bring rice${site.crop === 'grain' ? ' or grain' : ''}.</div>` : s.people >= 1 && days < 15 ? `<div class="ask warn"><strong>Food for only ${Math.floor(days)} days.</strong> They eat ${tons(eats(s))} a day.</div>` : ''}
       ${portLine}
       ${loadBox}
       ${unload}
+      ${bringRows ? `<div class="sec-h"><h3>Bring on the next run</h3><span>buy them on your own account</span></div><ul class="bring-list">${bringRows}</ul>` : ''}
       ${project}
-      <h3>Build</h3><ul class="build-list">${builds}</ul>
-      <h3>Settlers</h3>${settlers}
-      <p class="hint">Supplies: buy rice${site.crop === 'grain' ? ' or grain' : ''}, timber, and iron and tools on your own account (Market tab) and sail them here; on arrival settlers go ashore and supplies are landed (timber and tools in the yard, food in the store). Rent to the local ruler: ${money(Math.round(site.charter * SETTLEMENT_TUNING.rent))} a year.</p>
-      ${news ? `<h3>News</h3><ul class="settle-news">${news}</ul>` : ''}`;
+      ${need ? `<div class="sec-h"><h3>To become ${stageWord}</h3><span>${need.needs.filter((n) => n.done).length} of ${need.needs.length}</span></div><ul class="needs">${need.needs.map((n) => `<li class="${n.done ? 'done' : ''}">${n.done ? '✓' : '○'} ${esc(n.text)}</li>`).join('')}</ul>` : ''}
+      ${nextBuilds && !s.project ? `<div class="sec-h"><h3>Build next</h3><span>for the next stage</span></div><ul class="build-list">${nextBuilds}</ul>` : ''}
+      ${this.fold('builds', `All ${buildable.length} buildings`, `<ul class="build-list">${builds}</ul>`, !nextBuilds && !s.project)}
+      ${look}
+      ${settlers ? `<div class="sec-h"><h3>Settlers</h3></div>${settlers}` : ''}
+      ${latest ? `<div class="sec-h"><h3>News</h3></div><ul class="settle-news">${latest}</ul>` : ''}
+      ${this.fold('stores', 'Stores, what it makes, workers', `<div class="kvs">${store}</div>${making.length ? `<p class="sub">${making.map(esc).join(' · ')}</p>` : ''}${hands}`)}
+      ${news && s.news.length > 2 ? this.fold('news', 'Older news', `<ul class="settle-news">${news}</ul>`) : ''}
+      ${this.fold('rent', 'Supplies and rent', `<p class="hint">Supplies: buy rice${site.crop === 'grain' ? ' or grain' : ''}, timber, and iron and tools on your own account (Orders tab, best buys and all goods) and sail them here; on arrival settlers go ashore and supplies are landed (timber and tools in the yard, food in the store). Rent to the local ruler: ${money(Math.round(site.charter * SETTLEMENT_TUNING.rent))} a year.</p>`)}`;
   }
 
-  /** Shown in the Cargo and Voyage tabs while the selected ship can't take orders. */
+  /** Shown in the Orders tab while the selected ship can't take orders. */
   private busyCard(): string {
     const g = this.g;
     const ship = this.ship();
@@ -1544,7 +1556,7 @@ class App {
     </section>`;
   }
 
-  private contractRow(c: Contract, mode: 'board' | 'hold'): string {
+  private contractRow(c: Contract, mode: 'board' | 'hold', best = false): string {
     const g = this.g;
     const ship = this.ship();
     const good = world.goods[c.good];
@@ -1571,13 +1583,13 @@ class App {
       <li class="contract ${why ? 'unavailable' : ''} ${c.premium ? 'premium' : ''} ${way?.kind === 'off' ? 'offcourse' : ''}" data-hover-dest="${c.dest}">
         <div class="c-icon">${goodIcon(c.good, 36)}</div>
         <div class="c-main">
-          <div class="c-good">${c.premium ? `<span class="tag premium">★ ${PREMIUM_LABEL[c.premium]}</span> ` : ''}${esc(good.name)} · ${tons(c.tons)}</div>
+          <div class="c-good">${c.premium ? `<span class="tag premium">★ ${PREMIUM_LABEL[c.premium]}</span> ` : ''}${esc(good.name)} · ${tons(c.tons)}${best ? ' <span class="tag best">best per day</span>' : ''}</div>
           <div class="c-route"><span class="cmark ${good.cargoClass}" title="${CLASS_LABEL[good.cargoClass]}" aria-label="${CLASS_LABEL[good.cargoClass]}"></span>→ <strong>${esc(world.ports[c.dest].name)}</strong> · ${nm.toLocaleString('en-US')} nm ${wayTag}${reach}</div>
           <div class="c-meta ${urgent ? 'urgent' : ''}">Due ${gameDate(c.deadline)} (${days(Math.max(0, Math.round(daysLeft)))})${why ? ` · <span class="why">${esc(why)}</span>` : ''}</div>
         </div>
         <div class="c-side">
           <div class="c-pay">${compactMoney(c.pay)}</div>
-          <div class="c-rate">${money(c.pay / c.tons)}/t</div>
+          <div class="c-rate" title="${money(c.pay / c.tons)} a ton">${plan ? `${money(c.pay / Math.max(0.5, plan.seaDays))}/day` : `${money(c.pay / c.tons)}/t`}</div>
           ${button}
         </div>
       </li>`;
@@ -1610,7 +1622,7 @@ class App {
           ${free.length ? '<button class="btn small" data-action="area-edit">Hand over to a captain…</button>'
             : `<button class="btn small" data-action="goto-company">${room ? 'Hire a captain…' : 'Captains…'}</button>`}</div>
         <p class="hint">${free.length ? `A captain trades in a region (or on a lane between two) by himself, for a wage.`
-          : room ? 'Hire a captain in the Company tab and he can run this ship by himself in a region you choose.'
+          : room ? 'Hire a captain in the Fleet tab and he can run this ship by himself in a region you choose.'
             : 'All your captains have ships. More posts come with each net-worth goal.'}
           Only ships you command take ★ premium jobs.</p>
       </section>`;
@@ -1672,7 +1684,7 @@ class App {
     const pickCaptain = captains.length
       ? captains.map((c) => `<button class="cap-chip ${c.id === d.captainId ? 'on' : ''}" data-action="area-captain" data-id="${c.id}">
           <strong>${esc(c.name)}</strong> ${this.stars(c)}<span>from ${esc(region(c.home).name)} · ${money(c.wage)}/mo</span></button>`).join('')
-      : '<p class="warn-line">No free captain. Hire one in the Company tab first.</p>';
+      : '<p class="warn-line">No free captain. Hire one in the Fleet tab first.</p>';
     const cards = regions().map((r) => {
       const on = d.regions.includes(r.id);
       // What each card shows is what the captain would actually sail: the chosen region or
@@ -1844,12 +1856,10 @@ class App {
     const total = g.fleet.reduce((sum, s) => sum + (s.earnings ?? []).filter((e) => e.day > g.day - 30).reduce((a, e) => a + e.net, 0), 0);
     const routed = g.fleet.filter((s) => s.orders).length;
     return `
-      ${this.companyCard()}
+      <div class="sec-h"><h3>Your ships</h3><span>${g.fleet.length} · ${routed} on routes · 30 days ${money(total, true)}</span></div>
+      <ul class="fleet-list">${rows}</ul>
       ${this.captainsCard()}
-      <header class="port-head"><div><h2>Your fleet</h2>
-        <span class="sub">${g.fleet.length} ship${g.fleet.length > 1 ? 's' : ''} · ${routed} on routes · last 30 days ${money(total, true)} after fuel</span></div></header>
-      <p class="hint">Tap a ship to select it. "30 days" is what its finished legs earned after port fees, canal dues, upkeep and fuel.</p>
-      <ul class="fleet-list">${rows}</ul>`;
+      ${this.shipsForSale()}`;
   }
 
   /** Arrivals of ships on routes don't stop the game: just the payment on the map and the coins. */
@@ -1885,50 +1895,167 @@ class App {
       Until then, the ${esc(ship.name)} can take general cargo.</p>`;
   }
 
-  private contractsTab(): string {
+  /** Orders: what the selected ship needs, in the order you decide it (load, buy, where to). */
+  private ordersTab(): string {
     const g = this.g;
     const ship = this.ship();
-    const hold = (ship.cargo.length ? `<h3>In the hold</h3><ul class="contracts">${ship.cargo.map((c) => this.contractRow(c, 'hold')).join('')}</ul>` : '')
-      + (!isReady(g, ship) ? this.ownGoods(ship) : '');
-    if (!isReady(g, ship)) return this.busyCard() + hold;
+    if (this.areaDraft?.shipId === ship.id) return this.areaEditor();
+    const head = this.shipHead(ship);
+    const hold = ship.cargo.length ? `<div class="sec-h"><h3>In the hold</h3><span>${tons(cargoTons(ship))}</span></div><ul class="contracts">${ship.cargo.map((c) => this.contractRow(c, 'hold')).join('')}</ul>` : '';
+    const shipFold = (open: boolean) => this.fold('ship', `${isSail() ? 'Victuals, careening' : 'Bunkers, dry dock'}, the ship`, this.shipTab('ship'), open);
+    if (!isReady(g, ship) || onOrders(ship)) {
+      return head + this.newsCard() + (isReady(g, ship) ? '' : this.busyCard()) + this.captainCard() + hold + this.ownGoods(ship) + shipFold(false);
+    }
     const port = world.ports[ship.location];
-    // Cargo this ship can take first, then the rest; each group in the chosen order.
-    const order = CONTRACT_SORTS[this.contractSort].compare;
-    const board = [...g.ports[port.id].board].sort((a, b) =>
-      Number(canCarry(ship, a) !== null) - Number(canCarry(ship, b) !== null) || order(a, b) || b.pay - a.pay);
-    const sortPick = `<div class="sort-row">Sorted by <button class="btn small" data-action="contract-sort"
-      title="Switch the order">${CONTRACT_SORTS[this.contractSort].label} ⇅</button></div>`;
+    const board = g.ports[port.id].board;
+    const perDay = this.perDayOf(ship);
+    const order = this.contractSort === 'perDay' ? (a: Contract, b: Contract) => perDay(b) - perDay(a)
+      : this.contractSort === 'dest' ? (a: Contract, b: Contract) => world.ports[a.dest].name.localeCompare(world.ports[b.dest].name) || b.pay - a.pay
+        : (a: Contract, b: Contract) => b.pay - a.pay;
+    const takes = (c: Contract) => !(c.premium && ship.captainId !== undefined) && canCarry(ship, c) === null;
+    const fits = board.filter(takes).sort(order), rest = board.filter((c) => !takes(c)).sort(order);
+    const best = fits.length > 1 ? [...fits].sort((a, b) => perDay(b) - perDay(a))[0].id : null;
     const free = typeOf(ship).capacity - cargoTons(ship);
+    const sortBtn = `<button class="btn small sort-toggle" data-action="contract-sort" title="Sort by pay per day, total pay or destination">${CONTRACT_SORTS[this.contractSort]} ⇅</button>`;
+    const condLow = ship.condition < 60;
     return `
-      <header class="port-head">
-        <div><h2>${esc(port.name)}</h2><span class="sub">${esc(ship.name)} · port fee ${money(portFee(g, ship, port.id))} · ${FUEL().toLowerCase()} ${money(fuelPrice(g, port.id))}${perFuel()}</span></div>
-      </header>
+      ${head}
       ${this.plannedBanner(ship)}
-      ${this.waitControls()}
-      ${this.chartsCard(port.id)}
-      <p class="hint">Free hold space: <strong>${tons(free)}</strong>. New offers appear as days pass. Hover a contract to see its route.</p>
+      ${this.attention(ship)}
+      ${this.newsCard()}
+      ${this.dest ? this.planCard(planVoyage(g, ship.id, this.dest)!) : ''}
+      <div class="sec-h"><h3>Cargo that fits</h3>${board.length > 1 ? sortBtn : ''}</div>
+      <p class="sec-sub">${tons(free)} free · port fee ${money(portFee(g, ship, port.id))}</p>
+      ${fits.length ? `<ul class="contracts">${fits.slice(0, 5).map((c) => this.contractRow(c, 'board', c.id === best)).join('')}</ul>`
+        : `<p class="empty">${free < 1 ? 'The hold is full.' : board.length ? 'Nothing on offer that this ship can take.' : 'No cargo on offer right now.'} New offers come as days pass.</p>`}
+      ${fits.length > 5 ? this.fold('fits', `${fits.length - 5} more that fit`, `<ul class="contracts">${fits.slice(5).map((c) => this.contractRow(c, 'board')).join('')}</ul>`) : ''}
+      ${rest.length ? this.fold('cant', `${rest.length} more ${rest.length === 1 ? 'needs' : 'need'} another ship`, `<ul class="contracts">${rest.map((c) => this.contractRow(c, 'board')).join('')}</ul>`) : ''}
       ${this.priceHints(port.id)}
       ${this.chilledHint(ship, port.id)}
-      ${board.length > 1 ? sortPick : ''}
-      ${board.length ? `<ul class="contracts">${board.map((c) => this.contractRow(c, 'board')).join('')}</ul>`
-        : '<p class="empty">No cargo on offer right now. Let some time pass, or sail on.</p>'}
-      ${this.tradeCard(ship)}
       ${hold}
-      ${this.nextStepBar()}`;
+      ${this.bestBuys(ship)}
+      ${this.chartsCard(port.id)}
+      ${this.whereTo(ship)}
+      ${this.waitControls()}
+      ${shipFold(condLow)}
+      ${this.captainCard()}`;
   }
 
-  /** The two kinds of order a ship in port can get: cast off (Voyage tab), or wait here. */
+  /** Pay per day at sea for a contract from where the ship lies (memoised for one panel draw). */
+  private perDayOf(ship: ShipState): (c: Contract) => number {
+    const memo = new Map<string, number>();
+    return (c: Contract) => {
+      let d = memo.get(c.dest);
+      if (d === undefined) { d = Math.max(0.5, planVoyage(this.g, ship.id, c.dest)?.seaDays ?? 99); memo.set(c.dest, d); }
+      return c.pay / d;
+    };
+  }
+
+  /** A folded section; it stays open across redraws once opened. */
+  private fold(key: string, label: string, html: string, open = false): string {
+    return `<details class="fold" data-key="${key}" ${open ? 'open' : ''}><summary>${label}</summary><div class="fold-body">${html}</div></details>`;
+  }
+
+  /** The selected ship at a glance: name, where, and three gauges. */
+  private shipHead(ship: ShipState): string {
+    const g = this.g;
+    const type = typeOf(ship);
+    const where = ship.voyage ? `→ ${esc(world.ports[ship.voyage.to].name)}` : `${inDryDock(g, ship) ? (isSail() ? 'careening at' : 'in dry dock,') : 'at'} ${esc(world.ports[ship.location].name)}`;
+    const speed = effectiveSpeed(type, ship);
+    const burn = type.fuelPerDay * consumptionFactor(ship);
+    const range = Math.round((ship.fuel / Math.max(0.01, burn)) * speed * 24);
+    const gauge = (label: string, value: string, share: number, cls: string, title = '') =>
+      `<div class="sg ${cls}" title="${esc(title)}"><span>${label}</span><b>${value}</b><i><em style="width:${Math.round(Math.max(0, Math.min(1, share)) * 100)}%"></em></i></div>`;
+    const held = cargoTons(ship);
+    return `<div class="ship-head">
+      <div class="sh-name"><h2>${esc(ship.name)}</h2><span>${esc(type.name.toLowerCase())} · ${where}</span></div>
+      <div class="sh-gauges">
+        ${gauge('Hold', `${Math.round(held)} / ${tons(type.capacity)}`, held / type.capacity, 'hold')}
+        ${gauge(isSail() ? 'Victuals' : 'Bunkers', `${Math.round(ship.fuel)} ${isSail() ? 'casks' : 't'}`, ship.fuel / type.bunkerCapacity, range < 3000 ? 'warn' : 'ok', `range about ${range.toLocaleString('en-US')} nm`)}
+        ${gauge('Condition', `${Math.round(ship.condition)}%`, ship.condition / 100, ship.condition < 40 ? 'bad' : ship.condition < 60 ? 'warn' : 'ok')}
+      </div>
+    </div>`;
+  }
+
+  /** What needs you about this ship now: orders, a wait, a worn hull, low victuals. */
+  private attention(ship: ShipState): string {
+    const g = this.g;
+    const out: string[] = [];
+    if (isWaiting(g, ship)) {
+      const until = ship.waitUntil! >= LAID_UP ? 'laid up until further notice' : `waiting until ${gameDate(ship.waitUntil!)}`;
+      out.push(`<div class="ask quiet"><span>The ${esc(ship.name)} is ${until}. You can still load her and cast off any time.</span> <button class="btn small" data-action="stop-wait">Stop waiting</button></div>`);
+    } else if (needsDecision(g, ship)) {
+      out.push(`<div class="ask"><strong>${esc(ship.name)} needs orders.</strong> Load, buy, then pick where to go below or on the map.</div>`);
+    }
+    if (ship.condition < 60) out.push(`<div class="ask warn"><strong>Condition ${Math.round(ship.condition)}%.</strong> ${isSail() ? 'Careen her soon: a worn hull leaks and sails slow.' : 'Dry-dock her soon: a worn ship breaks down.'} See "${isSail() ? 'Victuals, careening' : 'Bunkers, dry dock'}" below.</div>`);
+    return out.join('');
+  }
+
+  /** The best goods to buy here on your own account: the margin against the best price we know of. */
+  private bestBuys(ship: ShipState): string {
+    if (!hasTrade(world)) return '';
+    const g = this.g;
+    const port = world.ports[ship.location];
+    const type = typeOf(ship);
+    const room = type.capacity - cargoTons(ship);
+    const buyBtn = (good: string, n: number | 'max', label: string) => {
+      const t = n === 'max' ? room : Math.min(n, room);
+      const q = t > 0 ? goodsBuyQuote(world, g, port.id, good, t) : null;
+      return `<button class="btn small" data-action="buy-goods" data-good="${good}" data-tons="${n}" ${!q || q.total > g.cash ? 'disabled' : ''}>${label}<span>${q ? compactMoney(q.total) : '—'}</span></button>`;
+    };
+    const goods = port.produces.map((x) => x.good).filter((good) => type.cargoClasses.includes(world.goods[good].cargoClass))
+      .map((good) => {
+        const price = buyPrice(world, g, port.id, good)!;
+        const top = bestKnownMarkets(world, g, good, port.id)[0];
+        return { good, price, top, ratio: top ? top.price / price : 0 };
+      }).filter((x) => x.top).sort((a, b) => b.ratio - a.ratio);
+    const aboard = this.ownGoods(ship);
+    if (!goods.length && !aboard) return '';
+    const rows = goods.slice(0, 3).map((x) => `<li class="buy-row">
+        <div class="br-main">${goodIcon(x.good, 24)}<strong>${esc(world.goods[x.good].name)}</strong> <span class="sub">${money(x.price)}/t</span></div>
+        <div class="br-gain"><b>×${x.ratio.toFixed(1)}</b><span>${esc(world.ports[x.top!.port].name)} ${money(x.top!.price)}</span></div>
+        <div class="btn-row">${room > 10 ? buyBtn(x.good, 10, '+10 t') : ''}${buyBtn(x.good, 'max', room > 0 ? `Fill ${tons(room)}` : 'Hold full')}</div>
+      </li>`).join('');
+    return `${aboard}
+      ${rows ? `<div class="sec-h"><h3>Best buys here</h3><span>on your own account</span></div><ul class="buy-list">${rows}</ul>` : ''}
+      ${this.fold('trade', `All goods for sale in ${esc(port.name)}, and what it buys`, this.tradeCard(ship, false))}`;
+  }
+
+  /** Where to go: the ports the cargo aboard is bound for (and where own goods sell best); any other port folded. */
+  private whereTo(ship: ShipState): string {
+    const g = this.g;
+    const here = ship.location;
+    const byDest = new Map<string, { lots: number; pay: number; goods: string[] }>();
+    for (const c of ship.cargo) {
+      const d = byDest.get(c.dest) ?? { lots: 0, pay: 0, goods: [] };
+      d.lots++; d.pay += c.pay; byDest.set(c.dest, d);
+    }
+    for (const l of ship.goods ?? []) {
+      const top = bestKnownMarkets(world, g, l.good, here)[0];
+      if (!top) continue;
+      const d = byDest.get(top.port) ?? { lots: 0, pay: 0, goods: [] };
+      d.goods.push(world.goods[l.good].name.toLowerCase()); byDest.set(top.port, d);
+    }
+    const items = [...byDest].filter(([id]) => id !== here).sort((a, b) => b[1].pay - a[1].pay).map(([id, d]) => {
+      const plan = planVoyage(g, ship.id, id);
+      const what = [d.lots ? `delivers ${d.lots} lot${d.lots > 1 ? 's' : ''}` : '', d.goods.length ? `sells your ${d.goods.join(', ')}` : ''].filter(Boolean).join(' · ');
+      return `<li class="dest-s ${id === this.dest ? 'selected' : ''}" data-action="dest" data-id="${id}" data-hover-dest="${id}">
+        <span class="ds-name">${esc(world.ports[id].name)}</span>
+        <span class="ds-pay">${d.pay ? compactMoney(d.pay) : ''}<em>${plan ? days(Math.round(plan.seaDays)) : ''}</em></span>
+        <span class="ds-what">${what}</span></li>`;
+    }).join('');
+    return `<div class="sec-h"><h3>Where to</h3><span>${items ? 'for what\'s aboard' : 'tap a port on the map'}</span></div>
+      ${items ? `<ul class="dest-list">${items}</ul>` : `<p class="sec-sub">Load something first, or pick any port below or on the map.</p>`}
+      ${this.fold('dests', 'Any other port, nearest first', `<p class="hint">"Exports for you" lists what each port ships that your ${esc(typeOf(ship).name.toLowerCase())} can carry.</p><ul class="dests">${this.destList(ship)}</ul>`)}`;
+  }
+
+  /** Waiting instead of sailing: a day, five, or laid up. */
   private waitControls(): string {
     const g = this.g;
     const ship = this.ship();
-    if (isWaiting(g, ship)) {
-      const until = ship.waitUntil! >= LAID_UP ? 'laid up until further notice' : `waiting until ${gameDate(ship.waitUntil!)}`;
-      return `<div class="wait-bar waiting"><span>The ${esc(ship.name)} is ${until}. You can still load it and cast off any time.</span>
-        <button class="btn small" data-action="stop-wait">Stop waiting</button></div>`;
-    }
-    if (!needsDecision(g, ship)) return '';
-    return `<div class="wait-bar">
-      <span><strong>${esc(ship.name)} needs orders.</strong> Cast off from the Voyage tab, or wait here:</span>
+    if (isWaiting(g, ship) || !needsDecision(g, ship)) return '';
+    return `<div class="wait-row">
+      <span>Or wait here:</span>
       <span class="btn-row">
         <button class="btn small" data-action="wait" data-days="1" title="New offers may appear; prices move">1 day</button>
         <button class="btn small" data-action="wait" data-days="5">5 days</button>
@@ -1937,23 +2064,7 @@ class App {
     </div>`;
   }
 
-  /** Sticky bar under the contracts: one tap from loading cargo to planning the voyage. */
-  private nextStepBar(): string {
-    const ship = this.ship();
-    if (ship.cargo.length === 0) return '';
-    const byDest = new Map<string, { lots: number; pay: number }>();
-    for (const c of ship.cargo) {
-      const d = byDest.get(c.dest) ?? { lots: 0, pay: 0 };
-      d.lots++;
-      d.pay += c.pay;
-      byDest.set(c.dest, d);
-    }
-    const buttons = [...byDest].sort((a, b) => b[1].pay - a[1].pay).map(([id, d]) =>
-      `<button class="btn primary" data-action="dest" data-id="${id}" data-hover-dest="${id}">Plan voyage → ${esc(world.ports[id].name)}<span>${d.lots} lot${d.lots > 1 ? 's' : ''} · ${compactMoney(d.pay)}</span></button>`).join('');
-    return `<div class="next-step">${buttons}</div>`;
-  }
-
-  private shipTab(): string {
+  private shipTab(part: 'ship' | 'bank'): string {
     const g = this.g;
     const ship = this.ship();
     const type = typeOf(ship);
@@ -1977,6 +2088,21 @@ class App {
       const n = amount === 'fill' ? space : Math.min(amount, space);
       return `<button class="btn small" data-action="fuel" data-amount="${amount}" ${n <= 0 || !ready ? 'disabled' : ''}>${label}<span>${money(n * price)}</span></button>`;
     };
+    const bank = `
+      <section class="card">
+        <h3>Bank · whole company</h3>
+        <div class="kv"><span>Loan</span><strong>${money(g.loan)}</strong><em>${g.loan ? `8% a year ≈ ${money(yearly)}/yr` : 'no loan'}</em></div>
+        <div class="kv"><span>Limit</span><strong>${money(limit)}</strong><em>${Math.round(SHIP_TUNING.loanToValue * 100)}% of your fleet's value (${compactMoney(fleetValue(g, world))})</em></div>
+        <div class="kv"><span>Upkeep</span><strong>${money(dailyUpkeep(g))}/day</strong><em>all ships, at sea or in port</em></div>
+        <div class="btn-row">
+          <button class="btn small" data-action="borrow" data-amount="100000" ${room >= 1000 ? '' : 'disabled'}>Borrow<span>${money(Math.min(100_000, room))}</span></button>
+          <button class="btn small" data-action="borrow" data-amount="max" ${room >= 1000 ? '' : 'disabled'}>Borrow max<span>${money(room)}</span></button>
+          <button class="btn small" data-action="repay" data-amount="100000" ${g.loan > 0 && g.cash > 0 ? '' : 'disabled'}>Repay<span>${money(Math.min(100_000, g.loan, Math.max(0, g.cash)))}</span></button>
+          <button class="btn small" data-action="repay" data-amount="all" ${g.loan > 0 && g.cash > 0 ? '' : 'disabled'}>Repay all<span>${money(Math.min(g.loan, Math.max(0, g.cash)))}</span></button>
+        </div>
+        <details class="fold"><summary>How the bank works</summary><p class="hint">If you run short of cash, the bank automatically extends this loan up to the limit. Beyond that there's an overdraft of up to ${money(RULES.overdraftLimit)} at 18% a year.</p></details>
+      </section>`;
+    if (part === 'bank') return bank;
     return `
       ${world.era.hasOil ? this.oilCard() : ''}
       <section class="card">
@@ -2007,19 +2133,7 @@ class App {
         <div class="kv"><span>Value</span><strong>${money(stateValue(ship, world))}</strong><em>a broker pays ${money(saleValue(ship, world))}</em></div>
         <button class="btn ghost wide" data-action="sell-ship" ${sale.blocked ? 'disabled' : ''} title="${esc(sale.blocked ?? '')}">Sell the ${esc(ship.name)}${sale.blocked ? `<span>${esc(sale.blocked)}</span>` : `<span>${money(sale.price + sale.fuelRefund)}</span>`}</button>
       </section>
-      <section class="card">
-        <h3>Bank · whole company</h3>
-        <div class="kv"><span>Loan</span><strong>${money(g.loan)}</strong><em>${g.loan ? `8% a year ≈ ${money(yearly)}/yr` : 'no loan'}</em></div>
-        <div class="kv"><span>Limit</span><strong>${money(limit)}</strong><em>${Math.round(SHIP_TUNING.loanToValue * 100)}% of your fleet's value (${compactMoney(fleetValue(g, world))})</em></div>
-        <div class="kv"><span>Upkeep</span><strong>${money(dailyUpkeep(g))}/day</strong><em>all ships, at sea or in port</em></div>
-        <div class="btn-row">
-          <button class="btn small" data-action="borrow" data-amount="100000" ${room >= 1000 ? '' : 'disabled'}>Borrow<span>${money(Math.min(100_000, room))}</span></button>
-          <button class="btn small" data-action="borrow" data-amount="max" ${room >= 1000 ? '' : 'disabled'}>Borrow max<span>${money(room)}</span></button>
-          <button class="btn small" data-action="repay" data-amount="100000" ${g.loan > 0 && g.cash > 0 ? '' : 'disabled'}>Repay<span>${money(Math.min(100_000, g.loan, Math.max(0, g.cash)))}</span></button>
-          <button class="btn small" data-action="repay" data-amount="all" ${g.loan > 0 && g.cash > 0 ? '' : 'disabled'}>Repay all<span>${money(Math.min(g.loan, Math.max(0, g.cash)))}</span></button>
-        </div>
-        <p class="hint">If you run short of cash, the bank automatically extends this loan up to the limit. Beyond that there's an overdraft of up to ${money(RULES.overdraftLimit)} at 18% a year.</p>
-      </section>`;
+`;
   }
 
   /** What a port pays well for right now, and what it has had too much of. */
@@ -2064,7 +2178,7 @@ class App {
     </section>`;
   }
 
-  private marketTab(): string {
+  private shipsForSale(): string {
     const g = this.g;
     const ship = this.ship();
     const portId = this.marketPort ?? ship.location;
@@ -2073,14 +2187,20 @@ class App {
     const yards = world.portList.filter((p) => p.shipyard).map((p) => p.name).join(', ');
     const ships = (pid: string) => g.fleet.filter((s) => !s.voyage && s.location === pid).length;
     const options = world.portList.map((p) => `<option value="${p.id}" ${p.id === portId ? 'selected' : ''}>${esc(p.name)}${p.shipyard ? ' (shipyard)' : ''}${ships(p.id) ? ` · ${ships(p.id)} of your ships` : ''}</option>`).join('');
+    const can = offers.filter((o) => !quotePurchase(g, o, world).blocked);
+    const cannot = offers.filter((o) => quotePurchase(g, o, world).blocked);
+    const shortBy = (o: ShipOffer) => { const m = /([ƒ$][\d,.]+[kM]?) short/.exec(quotePurchase(g, o, world).blocked ?? ''); return m ? `${m[1]} short` : 'not yet'; };
+    const table = cannot.length ? `<div class="scroll"><table class="sale-table"><thead><tr><th>Ship</th><th>Hold</th><th>Kn</th><th>Price</th><th></th></tr></thead><tbody>${cannot.map((o) => {
+      const t = world.shipTypes[o.typeId];
+      return `<tr><td><strong>${esc(t.name)}</strong> <span class="sub">${o.age ? `${o.age} yrs` : 'new'}</span></td><td>${tons(t.capacity)}</td><td>${t.speedKn.toFixed(1)}</td><td>${compactMoney(o.price)}</td><td class="why">${esc(shortBy(o))}</td></tr>`;
+    }).join('')}</tbody></table></div>` : '';
     return `
-      <header class="port-head">
-        <div><h2>Ships for sale</h2><span class="sub">${port.shipyard ? 'Shipyard: new ships of every class, plus used ones' : `Second-hand market. New ships are built in ${esc(yards)}`}</span></div>
-      </header>
+      <div class="sec-h"><h3>Ships for sale</h3><span>${port.shipyard ? 'shipyard' : 'second-hand'}</span></div>
       <label class="port-pick">Market in <select data-action="market-port">${options}</select></label>
-      <p class="hint">A ship you buy joins your fleet in ${esc(port.name)}, with a little fuel aboard. Markets turn over every few weeks. Compared with the ${esc(ship.name)} (selected below the map).</p>
-      ${this.yourShipCard()}
-      <ul class="offers">${offers.map((o) => this.offerCard(portId, o)).join('')}</ul>`;
+      <p class="sec-sub">Compared with the ${esc(ship.name)}${port.shipyard ? '' : ` · new ships are built in ${esc(yards)}`}.</p>
+      ${can.length ? `<ul class="offers">${can.map((o) => this.offerCard(portId, o)).join('')}</ul>` : '<p class="sec-sub">Nothing here you can buy yet, even with a loan.</p>'}
+      ${cannot.length ? this.fold('sale-more', `${cannot.length} more you can't afford yet`, table) : ''}
+      ${this.fold('sale-mine', `Your ${esc(typeOf(ship).name.toLowerCase())} for comparison`, this.yourShipCard())}`;
   }
 
   /** The selected ship in the same layout as the offers, as the baseline for comparing. */
@@ -2149,11 +2269,9 @@ class App {
       </li>`;
   }
 
-  private voyageTab(): string {
+  /** Every port the ship can sail for, nearest first, with what it exports for her. */
+  private destList(ship: ShipState): string {
     const g = this.g;
-    const ship = this.ship();
-    if (this.areaDraft?.shipId === ship.id) return this.areaEditor();
-    if (!isReady(g, ship) || onOrders(ship)) return this.newsCard() + this.captainCard() + this.busyCard();
     const here = ship.location;
     const settlementPort = g.settlement && !world.portList.includes(world.ports[g.settlement.site]) ? [world.ports[g.settlement.site]] : [];
     const rows = [...world.portList, ...settlementPort].filter((p) => p.id !== here).map((p) => ({ p, plan: planVoyage(g, ship.id, p.id)! }))
@@ -2170,14 +2288,7 @@ class App {
         <span class="d-exports ${exports.length && !dark ? '' : 'none'}">${dark ? 'Known only from rumour: a voyage of discovery' : exports.length ? `Exports for you: ${exportIds.map((id) => `<span class="gchip">${goodIcon(id, 16)}${esc(world.goods[id].name.toLowerCase())}</span>`).join(' ')}` : 'Exports nothing this ship can carry'}</span>
       </li>`;
     }).join('');
-    return `
-      ${this.newsCard()}
-      ${this.captainCard()}
-      ${this.plannedBanner(ship)}
-      ${this.waitControls()}
-      ${this.dest ? this.planCard(planVoyage(g, ship.id, this.dest)!) : `<p class="hint">Where should the ${esc(ship.name)} go? Pick a destination below or tap a port on the map.</p>`}
-      <p class="hint">"Exports for you" lists what each port ships that your ${esc(type.name.toLowerCase())} can carry.</p>
-      <ul class="dests">${list}</ul>`;
+    return list;
   }
 
   /** A known price, with how old the news is. */
@@ -2230,7 +2341,7 @@ class App {
   }
 
   /** Buy and sell on your own account (Age of Sail). */
-  private tradeCard(ship: ShipState): string {
+  private tradeCard(ship: ShipState, full = true): string {
     if (!hasTrade(world)) return '';
     const g = this.g;
     const port = world.ports[ship.location];
@@ -2250,9 +2361,9 @@ class App {
       </li>`).join('');
     const wants = wanted.map((good) => `<span class="gchip">${goodIcon(good, 18)}${esc(world.goods[good].name.toLowerCase())} ${money(priceNews(world, g, port.id, good)!.price)}</span>`).join(' ');
     return `<section class="card trade-card">
-      <h3>⚖ Trade on your own account</h3>
+      ${full ? '<h3>⚖ Trade on your own account</h3>' : ''}
       <p class="hint">Buy goods here and sell them where they're wanted. Prices elsewhere are as of the latest letter from there: news travels by ship. A price is for the first ton: the more you buy, the dearer it gets, and the more you sell, the less each ton fetches (≈ shows the average for a whole lot).</p>
-      ${this.ownGoods(ship)}
+      ${full ? this.ownGoods(ship) : ''}
       ${rows ? `<h4>For sale in ${esc(port.name)}</h4><ul class="trade-goods">${rows}</ul>` : `<p class="hint">${esc(port.name)} sells nothing your ${esc(type.name.toLowerCase())} can carry.</p>`}
       ${wants ? `<p class="hint"><strong>${esc(port.name)} buys:</strong> ${wants}</p>` : ''}
     </section>`;
@@ -2377,6 +2488,17 @@ class App {
       </section>`;
   }
 
+  /** Company: money at a glance, the bank, the books; the guide, achievements, record and log. */
+  private companyTab(): string {
+    const g = this.g;
+    const cell = (label: string, value: string, cls = '') => `<div class="sg ${cls}"><span>${label}</span><b>${value}</b></div>`;
+    return `<div class="ship-head"><div class="sh-name"><h2>${esc(g.company ?? 'Your company')}</h2><span>${gameDate(g.day)}</span></div>
+      <div class="sh-gauges">${cell('Cash', compactMoney(g.cash), g.cash < 0 ? 'bad' : 'money')}${cell('Worth', compactMoney(netWorth(g, world)))}${cell('Loan', compactMoney(g.loan))}</div></div>
+      ${this.shipTab('bank')}
+      ${this.companyCard()}
+      ${this.logTab()}`;
+  }
+
   private logTab(): string {
     const g = this.g;
     const s = g.stats;
@@ -2441,7 +2563,7 @@ class App {
       this.view = 'port';
       this.dest = null;
       this.marketPort = null;
-      this.tab = 'contracts';
+      this.tab = 'orders';
     }
     if (report.revenue > 0) {
       this.map.flashAt(this.map.portPosition(report.to), money(report.revenue, true), 'good');
@@ -2524,7 +2646,7 @@ class App {
     this.areaDraft = null;
     this.routesHidden = false;
     this.storms = [];
-    this.tab = 'contracts';
+    this.tab = 'orders';
     // Show the new game's cash straight away (no counting from the old game's figure).
     this.shownCash = null;
     this.cashTarget = null;

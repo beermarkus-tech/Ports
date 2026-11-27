@@ -401,3 +401,55 @@ export function syncSettlementPort(world: World, g: GameState): void {
   if (!ps.board.length) regenerateBoard(world, g, s.site);
   ensureTrade(world, g);
 }
+
+/** The buildings the next stage asks for (and the houses and food it takes to get there). */
+export function stageGoals(s: Settlement, day: number): string[] {
+  const goals: Record<Stage, string[]> = {
+    camp: ['jetty', 'storehouse'],
+    outpost: ['well', ...(feedsItself(s, day) ? [] : ['fields', 'fishery'])],
+    village: ['wharf', 'market', ...(workshops(s) < T.town.workshops ? ['sawmill', ...BUILDINGS.filter((b) => b.makes).map((b) => b.id)] : [])],
+    town: ['customs'],
+    port: [],
+  };
+  const site = SITES[s.site];
+  const roomy = housing(s) - s.people >= 10;
+  const ids = [...(roomy ? [] : ['houses']), ...goals[s.stage]];
+  // Only what can still be built there, and not what's under way already.
+  return ids.filter((id, i) => {
+    const b = BUILDINGS.find((x) => x.id === id);
+    return b && ids.indexOf(id) === i && s.project?.id !== id && count(s, id) < b.max(site, { ...s, stage: 'port' })
+      && (id === 'houses' || !['fields', 'fishery'].includes(id) || count(s, id) === 0 || !feedsItself(s, day))
+      && (!['wharf', 'market', 'customs', 'jetty', 'storehouse', 'well'].includes(id) || count(s, id) === 0);
+  });
+}
+
+/**
+ * What to bring on the next run: two months of food the place doesn't grow, the timber and tools
+ * for the next stage's buildings (less what's in the yard), and settlers for the room there is.
+ */
+export function bringList(s: Settlement, day: number): { good: string; tons: number; why: string }[] {
+  const out: { good: string; tons: number; why: string }[] = [];
+  const up10 = (n: number) => Math.ceil(n / 10) * 10;
+  const short = Math.max(0, eats(s) - localFood(s, day));
+  const food = up10(Math.max(0, short * 60 - stored(s)));
+  if (food > 0) out.push({ good: 'food', tons: food, why: `two months' food (${fmt(short)} t a day they don't grow)` });
+  // Workshops: one more is enough to list (any of them counts).
+  let shopListed = false;
+  const goals = stageGoals(s, day).filter((id) => {
+    const b = BUILDINGS.find((x) => x.id === id)!;
+    if (!b.makes && id !== 'sawmill') return true;
+    if (shopListed) return false;
+    shopListed = true; return true;
+  });
+  const need = (k: 'timber' | 'tools') => goals.reduce((a, id) => a + BUILDINGS.find((b) => b.id === id)![k], 0);
+  const names = goals.map((id) => BUILDINGS.find((b) => b.id === id)!.name.toLowerCase());
+  const why = names.length ? `for ${names.slice(0, 3).join(', ')}` : '';
+  const timber = up10(Math.max(0, need('timber') - (s.stores.timber ?? 0)));
+  const tools = Math.ceil(Math.max(0, need('tools') - (s.stores.tools ?? 0)));
+  if (timber > 0) out.push({ good: 'timber', tons: timber, why });
+  if (tools > 0) out.push({ good: 'tools', tons: tools, why });
+  const room = Math.floor(housing(s) - s.people);
+  const sign = Math.min(room, willing(s));
+  if (room >= 5 && sign >= 1) out.push({ good: 'settlers', tons: sign, why: `room for ${room} more` });
+  return out;
+}
