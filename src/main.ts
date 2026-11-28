@@ -2034,21 +2034,28 @@ class App {
       const q = t > 0 ? goodsBuyQuote(world, g, port.id, good, t) : null;
       return `<button class="btn small" data-action="buy-goods" data-good="${good}" data-tons="${n}" ${!q || q.total > g.cash ? 'disabled' : ''}>${label}<span>${q ? compactMoney(q.total) : '—'}</span></button>`;
     };
+    // Everything for the load she'd actually take (the room left): the price rises as you buy and falls as you sell.
+    const lot = room >= 1 ? Math.floor(room) : 10;
     const goods = port.produces.map((x) => x.good).filter((good) => type.cargoClasses.includes(world.goods[good].cargoClass))
       .map((good) => {
         const price = buyPrice(world, g, port.id, good)!;
-        const top = bestKnownMarkets(world, g, good, port.id)[0];
-        return { good, price, top, ratio: top ? top.price / price : 0 };
-      }).filter((x) => x.top).sort((a, b) => b.ratio - a.ratio);
+        const cost = goodsBuyQuote(world, g, port.id, good, lot)?.total ?? price * lot;
+        const sales = bestKnownMarkets(world, g, good, port.id).slice(0, 2)
+          .map((b) => ({ port: b.port, total: Math.round(b.price * saleFactor(world, good, lot) * lot) }))
+          .sort((a, b) => b.total - a.total);
+        return { good, price, cost, sales, profit: sales.length ? sales[0].total - cost : -Infinity };
+      }).filter((x) => x.sales.length).sort((a, b) => b.profit - a.profit);
     const aboard = this.ownGoods(ship);
     if (!goods.length && !aboard) return '';
+    const per = (total: number) => money(Math.round(total / lot));
     const rows = goods.slice(0, 3).map((x) => `<li class="buy-row">
-        <div class="br-main">${goodIcon(x.good, 24)}<strong>${esc(world.goods[x.good].name)}</strong> <span class="sub">${money(x.price)}/t</span></div>
-        <div class="br-gain"><b>×${x.ratio.toFixed(1)}</b><span>${esc(world.ports[x.top!.port].name)} ${money(x.top!.price)}</span></div>
+        <div class="br-main">${goodIcon(x.good, 24)}<strong>${esc(world.goods[x.good].name)}</strong> <span class="sub">${money(x.price)}/t here</span></div>
+        <div class="br-gain"><b class="${x.profit < 0 ? 'neg' : ''}">${money(x.profit, true)}</b><span>for ${tons(lot)}</span></div>
+        <div class="br-calc">${tons(lot)} cost ${compactMoney(x.cost)} (≈ ${per(x.cost)}/t) → sell ≈ ${x.sales.map((sl) => `${compactMoney(sl.total)} in ${esc(world.ports[sl.port].name)} (≈ ${per(sl.total)}/t)`).join(' · ')}</div>
         <div class="btn-row">${room > 10 ? buyBtn(x.good, 10, '+10 t') : ''}${buyBtn(x.good, 'max', room > 0 ? `Fill ${tons(room)}` : 'Hold full')}</div>
       </li>`).join('');
     return `${aboard}
-      ${rows ? `<div class="sec-h"><h3>Best buys here</h3><span>on your own account</span></div><ul class="buy-list">${rows}</ul>` : ''}
+      ${rows ? `<div class="sec-h"><h3>Best buys here</h3><span>for a full hold, by the latest news</span></div><ul class="buy-list">${rows}</ul>` : ''}
       ${this.fold('trade', `All goods for sale in ${esc(port.name)}, and what it buys`, this.tradeCard(ship, false))}`;
   }
 
