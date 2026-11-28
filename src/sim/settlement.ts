@@ -140,6 +140,8 @@ export const SETTLEMENT_TUNING = {
   perStorehouse: 500,
   /** Building materials lie in a yard on the beach with its own room, so food never blocks a building. */
   yardGoods: ['timber', 'tools'],
+  /** Share of the yard the sawmill leaves free, for tools landed from the ships. */
+  sawmillReserve: 0.2,
   yard: 300,
   /** What a settler costs to recruit at home (passage, wages, tools), and the hold room one takes. */
   settlerCost: 300,
@@ -185,6 +187,8 @@ export const stored = (s: Settlement): number => Object.entries(s.stores).reduce
 /** Tons in the yard (timber, iron and tools). */
 export const yardStored = (s: Settlement): number => Object.entries(s.stores).reduce((a, [g, t]) => a + (inYard(g) ? t : 0), 0);
 /** Room left for a good: in the yard for building materials, in the store for the rest. */
+/** The sawmill has stopped: the yard is as full as it fills it (the rest is kept for tools). */
+export const sawmillResting = (s: Settlement): boolean => count(s, 'sawmill') > 0 && yardStored(s) >= T.yard * (1 - T.sawmillReserve) - 0.5;
 export const roomFor = (s: Settlement, good: string): number => Math.max(0, inYard(good) ? T.yard - yardStored(s) : storeRoom(s) - stored(s));
 export const foodStock = (s: Settlement): number => (s.stores.rice ?? 0) + (s.stores.grain ?? 0);
 export const eats = (s: Settlement): number => s.people * T.food;
@@ -314,7 +318,8 @@ export function settlementDay(world: World, g: GameState, day: number, note: Not
   s.willing = Math.min(T.willingMax, (s.willing ?? T.willingStart) + T.willingPerDay);
   // What the land gives.
   if (grows(s, day)) store(s, site.crop, grows(s, day));
-  if (count(s, 'sawmill')) store(s, 'timber', site.forest);
+  // The sawmill rests once the yard is nearly full: room is kept for tools from the ships.
+  if (count(s, 'sawmill')) store(s, 'timber', Math.min(site.forest, Math.max(0, T.yard * (1 - T.sawmillReserve) - yardStored(s))));
   for (const [good, tons] of Object.entries(making(s))) store(s, good, tons);
   if (s.people > 0) {
     const short = eat(s, Math.max(0, eats(s) - fish(s)));

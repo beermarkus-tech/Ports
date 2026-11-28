@@ -30,7 +30,7 @@ import type {
   ActiveVoyage, Captain, Contract, Delivery, GameState, MonthBook, ShipState, ShipTypeDef, StandingOrders, VoyageEvent, VoyageReport,
 } from './types';
 import { getWorld, type Route, type World } from './world';
-import { BUILDING, SETTLEMENT_TUNING, SITES, cannotBuild, inYard, settlementDay, store, syncSettlementPort } from './settlement';
+import { BUILDING, SETTLEMENT_TUNING, SITES, cannotBuild, inYard, roomFor, settlementDay, store, syncSettlementPort } from './settlement';
 export { syncSettlementPort };
 
 /** The money sign of the era being played. */
@@ -1669,6 +1669,38 @@ export function loadFromSettlement(state: GameState, shipId: number, good: strin
   if (lot) lot.tons += n; else lots.push({ good, tons: n, cost: 0, from: s.site });
   s.shipped = (s.shipped ?? 0) + n;
   log(g, `${n} t of ${world.goods[good].name.toLowerCase()} from ${world.ports[s.site].name} loaded aboard the ${ship.name}.`);
+  return g;
+}
+
+/**
+ * Land timber or tools that don't fit the full yard by taking the other aboard in their place
+ * (tools ashore, timber into the hold, ton for ton): the timber is yours to sell anywhere.
+ */
+export function swapAtSettlement(state: GameState, shipId: number, good: string, world: World = getWorld()): GameState {
+  const ship0 = readyShip(state, shipId);
+  const s0 = state.settlement;
+  if (!s0 || s0.site !== ship0.location) throw new ActionError('The ship is not at your settlement.');
+  if (!inYard(good)) throw new ActionError('Only the yard\'s timber and tools are exchanged.');
+  const lot0 = ship0.goods?.find((l) => l.good === good);
+  if (!lot0 || lot0.tons < 0.5) throw new ActionError(`No ${world.goods[good]?.name.toLowerCase() ?? good} aboard.`);
+  const others = SETTLEMENT_TUNING.yardGoods.filter((x) => x !== good && (s0.stores[x] ?? 0) >= 0.5);
+  let need = lot0.tons - roomFor(s0, good);
+  if (need < 0.5) return unloadAtSettlement(state, shipId, good, world);
+  if (!others.length) throw new ActionError('Nothing in the yard to take aboard in exchange.');
+  const g = clone(state);
+  const s = g.settlement!;
+  const ship = getShip(g, shipId);
+  const lots = (ship.goods ??= []);
+  for (const other of others) {
+    if (need < 0.5) break;
+    const take = +Math.min(need, s.stores[other] ?? 0).toFixed(3);
+    s.stores[other] = +((s.stores[other] ?? 0) - take).toFixed(3);
+    const lot = lots.find((x) => x.good === other);
+    if (lot) lot.tons = +(lot.tons + take).toFixed(3); else lots.push({ good: other, tons: take, cost: 0, from: s.site });
+    need -= take;
+    log(g, `${Math.round(take)} t of ${world.goods[other].name.toLowerCase()} taken aboard the ${ship.name} from the yard at ${world.ports[s.site].name}, to make room.`);
+  }
+  for (const n of landAtSettlement(world, g, ship, good)) log(g, n);
   return g;
 }
 
