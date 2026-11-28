@@ -1069,3 +1069,5 @@ details.fold[open] > summary::before { content: '▾ '; }
 .news-ticker ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .news-ticker li { display: flex; gap: 8px; align-items: baseline; }
 .news-ticker.open .nt-text { white-space: normal; }
+.plan-warn { color: var(--bad); font-size: 12.5px; margin: 6px 0; }
+.card.plan details.fold { border-bottom: 0; }

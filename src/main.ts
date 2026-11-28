@@ -1,6 +1,6 @@
 import './ui/style.css';
 import { activeEvents, closedCanals, priceLevel, routeFor } from './sim/economy';
-import { CHART_TUNING, chartOffers, fogFor, isCharted, unchartedShare, wantedGoods } from './sim/charts';
+import { CHART_TUNING, chartOffers, fogFor, isCharted, wantedGoods } from './sim/charts';
 import { bestKnownMarkets, buyPrice, goodsBuyQuote, goodsSaleQuote, hasTrade, priceNews, saleFactor, type PriceNews } from './sim/trade';
 import {
   ActionError, LAID_UP, RULES, acceptContract, advance, atSea, borrow, buyFuel, buyShip, canCarry, cargoTons, clearOrders,
@@ -2045,7 +2045,7 @@ class App {
       const d = byDest.get(top.port) ?? { lots: 0, pay: 0, goods: [] };
       d.goods.push(world.goods[l.good].name.toLowerCase()); byDest.set(top.port, d);
     }
-    const items = [...byDest].filter(([id]) => id !== here).sort((a, b) => b[1].pay - a[1].pay).map(([id, d]) => {
+    const items = [...byDest].filter(([id]) => id !== here && id !== this.dest).sort((a, b) => b[1].pay - a[1].pay).map(([id, d]) => {
       const plan = planVoyage(g, ship.id, id);
       const what = [d.lots ? `delivers ${d.lots} lot${d.lots > 1 ? 's' : ''}` : '', d.goods.length ? `sells your ${d.goods.join(', ')}` : ''].filter(Boolean).join(' · ');
       return `<li class="dest-s ${id === this.dest ? 'selected' : ''}" data-action="dest" data-id="${id}" data-hover-dest="${id}">
@@ -2055,7 +2055,7 @@ class App {
     }).join('');
     return `<section data-anchor="where"><div class="sec-h"><h3>Where to</h3><span>${items ? 'for what\'s aboard' : 'tap a port on the map'}</span></div>
       ${this.dest ? this.planCard(planVoyage(g, ship.id, this.dest)!) : ''}
-      ${items ? `<ul class="dest-list">${items}</ul>` : this.dest ? '' : `<p class="sec-sub">Load cargo below, or pick any port on the map.</p>`}
+      ${items ? `${this.dest ? '<p class="sec-sub">Or another port for what\'s aboard:</p>' : ''}<ul class="dest-list">${items}</ul>` : this.dest ? '' : `<p class="sec-sub">Load cargo below, or pick any port on the map.</p>`}
       ${this.fold('dests', 'Any other port, nearest first', `<p class="hint">"Exports for you" lists what each port ships that your ${esc(typeOf(ship).name.toLowerCase())} can carry.</p><ul class="dests">${this.destList(ship)}</ul>`)}</section>`;
   }
 
@@ -2340,22 +2340,6 @@ class App {
     }).join('')}</ul>`;
   }
 
-  /** For the voyage plan: what your own goods should fetch at the destination, by the news you have. */
-  private goodsOutlook(ship: ShipState, dest: string): string {
-    const lots = ship.goods ?? [];
-    if (!lots.length) return '';
-    const name = world.ports[dest].name;
-    const rows = lots.map((l) => {
-      const n = priceNews(world, this.g, dest, l.good);
-      const wanted = world.ports[dest].demands.some((d) => d.good === l.good);
-      const good = esc(world.goods[l.good].name.toLowerCase());
-      if (!wanted || !n) return `<li>${goodIcon(l.good, 18)} ${tons(l.tons)} of ${good}: nobody in ${esc(name)} buys it.</li>`;
-      const value = n.price * l.tons * saleFactor(world, l.good, l.tons, n.live ? (this.g.ports[dest].prices?.[l.good] ?? 1) : 1);
-      return `<li>${goodIcon(l.good, 18)} ${tons(l.tons)} of ${good}: ${esc(name)} paid ${this.newsText(n, '/t')} for the first ton; all of it ≈ ${compactMoney(value)} (${money(Math.round(value / l.tons))}/t, ${money(value - l.cost, true)} on cost).</li>`;
-    }).join('');
-    return `<div class="goods-outlook"><span class="lbl">Your own goods</span><ul>${rows}</ul></div>`;
-  }
-
   /** Buy and sell on your own account (Age of Sail). */
   private tradeCard(ship: ShipState, full = true): string {
     if (!hasTrade(world)) return '';
@@ -2438,37 +2422,11 @@ class App {
     const ship = this.ship();
     const name = world.ports[plan.dest].name;
     const price = fuelPrice(g, ship.location);
-    const fuelValue = plan.fuelNeeded * price;
-    const reserve = ship.fuel - plan.fuelNeeded;
-    const undelivered = ship.cargo.filter((c) => c.dest !== plan.dest);
     const type = typeOf(ship);
-    const warnings: string[] = [];
-    if (!plan.inRange) warnings.push(`Beyond this ship's range (${fuelAmt(plan.fuelNeeded)} needed, ${isSail() ? 'the hold stores' : 'bunkers hold'} ${fuelAmt(type.bunkerCapacity)}). Plan a stop on the way.`);
-    if (plan.strike) warnings.push(`Dock strike in ${name}: ${plan.strikeDays} extra days in port and double fees (included above).`);
     const normal = world.route(ship.location, plan.dest, [], fogFor(g), CHART_TUNING.unchartedPenalty);
-    const dark = unchartedShare(world, g, plan.route.path);
-    if (dark > 0) warnings.push(`A voyage of discovery: ${Math.round(dark * 100)}% of the way is uncharted water, slower going and more danger. Every league sailed gets charted${isCharted(g, plan.dest) ? '' : `, , and the first of your ships in ${name} will find it paying well above the usual for ${wantedGoods(world, plan.dest)}`}.`);
-    if (normal && normal.nm < plan.route.nm - 50) {
-      const closed = closedCanals(g).filter((c) => normal.canals.includes(c)).map((c) => world.canals[c].name).join(' and ');
-      warnings.push(`The ${closed} is closed: this route is ${(plan.route.nm - normal.nm).toLocaleString('en-US')} nm longer than usual.`);
-    }
-    for (const d of plan.deliveries) if (d.late) warnings.push(`${world.goods[d.contract.good].name} will arrive after its deadline.`);
-    if (undelivered.length) warnings.push(`${undelivered.length} cargo lot(s) stay aboard for other ports.`);
-    if (plan.deliveries.length === 0) warnings.push('Sailing in ballast: no cargo for this port.');
-    const line = (label: string, v: number, cls = '') => `<div class="line ${cls}"><span>${label}</span><span>${money(v, true)}</span></div>`;
-
     const target = Math.min(type.bunkerCapacity, Math.ceil(plan.fuelNeeded * 1.15));
     const topUp = Math.max(0, target - Math.floor(ship.fuel));
     const short = plan.fuelShort > 0;
-    const fuelState = !plan.inRange ? 'bad' : short ? 'bad' : reserve < plan.fuelNeeded * 0.12 ? 'warn' : 'good';
-    const fuelText = !plan.inRange ? 'out of range'
-      : short ? `short by ${fuelAmt(Math.ceil(plan.fuelShort))}`
-        : `reserve ${fuelAmt(Math.floor(reserve))}${fuelState === 'warn' ? ', thin: a storm could leave you adrift' : ''}`;
-    const fuelBlock = `
-      <div class="fuel-row ${fuelState}">
-        <div><span class="lbl">${FUEL()}</span> <strong>${fuelAmt(Math.floor(ship.fuel))}</strong> aboard · leg needs <strong>${fuelAmt(plan.fuelNeeded)}</strong> · <em>${fuelText}</em></div>
-        ${plan.inRange && !short && topUp > 0 ? `<button class="btn small" data-action="fuel-for-leg">+${fuelAmt(topUp)} reserve<span>${money(topUp * price)}</span></button>` : ''}
-      </div>`;
     const loss = plan.estimatedNet < 0 ? ` <span>estimate ${money(plan.estimatedNet)}</span>` : '';
     const sailButton = !plan.inRange
       ? `<button class="btn primary wide" disabled>Out of range</button>`
@@ -2476,6 +2434,15 @@ class App {
         ? `<button class="btn primary wide ${loss ? 'loss' : ''}" data-action="bunker-sail">${isSail() ? 'Victual' : 'Bunker'} ${fuelAmt(topUp)} (${money(topUp * price)}) &amp; ${isSail() ? 'set sail' : 'cast off'}${loss}</button>`
         : `<button class="btn primary wide ${loss ? 'loss' : ''}" data-action="sail">Cast off for ${esc(name)}${loss}</button>`;
     const total = plan.seaDays + RULES.portDays + plan.strikeDays;
+    // Only what changes the decision shows: a late delivery, a strike there, a closed canal.
+    const urgent = [
+      ...plan.deliveries.filter((d) => d.late).map((d) => `${world.goods[d.contract.good].name} would arrive after its deadline.`),
+      ...(plan.strike ? [`Dock strike in ${name}: ${plan.strikeDays} extra days in port.`] : []),
+      ...(normal && normal.nm < plan.route.nm - 50 ? [`A canal is closed: ${(plan.route.nm - normal.nm).toLocaleString('en-US')} nm longer than usual.`] : []),
+    ];
+    const callsHtml = this.callsCard(plan.dest);
+    const calls = !callsHtml ? '' : this.viaFinal ? callsHtml
+      : this.fold('calls', `Worth a call on the way${isSail() ? ' · by the latest news' : ''}`, callsHtml.replace(/<h5>[^<]*<\/h5>/, ''));
     return `
       <section class="card plan">
         <h3>${esc(ship.name)} to ${esc(name)}</h3>
@@ -2486,20 +2453,8 @@ class App {
           <div><strong>${gameDate(g.day + total)}</strong><span>ready</span></div>
         </div>
         ${plan.route.canals.length ? `<p class="hint">Via the ${plan.route.canals.map((c) => world.canals[c].name).join(' and ')}.</p>` : ''}
-        <div class="ledger">
-          ${line('Freight revenue', plan.revenue, 'good')}
-          ${line('Upkeep', -plan.upkeep)}
-          ${line(`Port fee ${name}`, -plan.portFee)}
-          ${plan.services ? line('Pilot & tugs (dock yourself to save it)', -plan.services) : ''}
-          ${plan.canalFees ? line('Canal dues', -plan.canalFees) : ''}
-          ${line(`${isSail() ? 'Victuals eaten' : 'Fuel burned'} (at ${money(price)}${perFuel()})`, -fuelValue)}
-          <div class="line total ${plan.estimatedNet >= 0 ? 'good' : 'bad'}"><span>Estimated result</span><span>${money(plan.estimatedNet, true)}</span></div>
-          <div class="line per-day"><span>per day</span><span>${money(plan.estimatedNet / total, true)}</span></div>
-        </div>
-        ${fuelBlock}
-        ${warnings.length ? `<ul class="warnings">${warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
-        ${this.goodsOutlook(ship, plan.dest)}
-        ${this.callsCard(plan.dest)}
+        ${urgent.length ? `<p class="plan-warn">${urgent.map(esc).join(' ')}</p>` : ''}
+        ${calls}
         ${sailButton}
       </section>`;
   }
