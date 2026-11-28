@@ -30,7 +30,7 @@ import type {
   ActiveVoyage, Captain, Contract, Delivery, GameState, MonthBook, ShipState, ShipTypeDef, StandingOrders, VoyageEvent, VoyageReport,
 } from './types';
 import { getWorld, type Route, type World } from './world';
-import { BUILDING, SETTLEMENT_TUNING, SITES, cannotBuild, inYard, roomFor, settlementDay, storeGoods, store, syncSettlementPort } from './settlement';
+import { BUILDING, SETTLEMENT_TUNING, SITES, cannotBuild, inYard, roomFor, settlementDay, store, syncSettlementPort } from './settlement';
 export { syncSettlementPort };
 
 /** The money sign of the era being played. */
@@ -1680,12 +1680,10 @@ export function swapAtSettlement(state: GameState, shipId: number, good: string,
   const ship0 = readyShip(state, shipId);
   const s0 = state.settlement;
   if (!s0 || s0.site !== ship0.location) throw new ActionError('The ship is not at your settlement.');
-  const food = good === 'rice' || good === 'grain';
-  if (!inYard(good) && !food) throw new ActionError('Only timber, tools and food are exchanged.');
+  if (!inYard(good)) throw new ActionError('Only the yard\'s timber and tools are exchanged.');
   const lot0 = ship0.goods?.find((l) => l.good === good);
   if (!lot0 || lot0.tons < 0.5) throw new ActionError(`No ${world.goods[good]?.name.toLowerCase() ?? good} aboard.`);
-  // Timber for tools in the yard; for food, what the workshops made comes aboard.
-  const others = food ? storeGoods(s0) : SETTLEMENT_TUNING.yardGoods.filter((x) => x !== good && (s0.stores[x] ?? 0) >= 0.5);
+  const others = SETTLEMENT_TUNING.yardGoods.filter((x) => x !== good && (s0.stores[x] ?? 0) >= 0.5);
   let need = lot0.tons - roomFor(s0, good);
   if (need < 0.5) return unloadAtSettlement(state, shipId, good, world);
   if (!others.length) throw new ActionError('Nothing in the yard to take aboard in exchange.');
@@ -1700,7 +1698,7 @@ export function swapAtSettlement(state: GameState, shipId: number, good: string,
     const lot = lots.find((x) => x.good === other);
     if (lot) lot.tons = +(lot.tons + take).toFixed(3); else lots.push({ good: other, tons: take, cost: 0, from: s.site });
     need -= take;
-    log(g, `${Math.round(take)} t of ${world.goods[other].name.toLowerCase()} taken aboard the ${ship.name} from the ${food ? 'store' : 'yard'} at ${world.ports[s.site].name}, to make room.`);
+    log(g, `${Math.round(take)} t of ${world.goods[other].name.toLowerCase()} taken aboard the ${ship.name} from the yard at ${world.ports[s.site].name}, to make room.`);
   }
   for (const n of landAtSettlement(world, g, ship, good)) log(g, n);
   return g;

@@ -105,7 +105,7 @@ const works = (id: string) => (site: SiteInfo) => (site.works.includes(id) ? 3 :
 
 export const BUILDINGS: BuildingDef[] = [
   { id: 'jetty', name: 'Jetty', blurb: 'A place to land people and cargo: the beginning of a port.', cost: 20_000, timber: 20, tools: 4, work: 240, stage: 'camp', max: () => 1 },
-  { id: 'storehouse', name: 'Storehouse', blurb: 'Room for 500 t more in store, out of the rain.', cost: 15_000, timber: 30, tools: 4, work: 300, stage: 'camp', max: () => 3 },
+  { id: 'storehouse', name: 'Storehouse', blurb: 'Room for 500 t more rice and grain in the granary, out of the rain.', cost: 15_000, timber: 30, tools: 4, work: 300, stage: 'camp', max: () => 3 },
   { id: 'houses', name: 'Houses', blurb: 'Room for 20 more people.', cost: 8_000, timber: 15, tools: 2, work: 150, stage: 'camp', max: () => 30 },
   { id: 'fields', name: 'Fields', blurb: 'Food from the land: 1.5 t a day (enough for 33 people), from the first harvest about 2½ months after they are cleared.', cost: 6_000, timber: 4, tools: 6, work: 300, stage: 'outpost', max: (site, s) => site.fields * grown(s) },
   { id: 'fishery', name: 'Fishing boats', blurb: 'Fresh fish, eaten the day it is landed: 1 t a day (enough for 22 people), from the day they are built.', cost: 8_000, timber: 12, tools: 3, work: 150, stage: 'outpost', max: (site, s) => site.fishing * grown(s) },
@@ -135,15 +135,15 @@ export const SETTLEMENT_TUNING = {
   /** Tents for the first comers, then houses. */
   tents: 15,
   perHouse: 20,
-  /** Store room without a storehouse, and per storehouse. */
+  /** Granary room (rice and grain) without a storehouse, and per storehouse. */
   store: 150,
   perStorehouse: 500,
   /** Building materials lie in a yard on the beach with its own room, so food never blocks a building. */
   yardGoods: ['timber', 'tools'],
   /** Share of the yard the sawmill leaves free, for tools landed from the ships. */
   sawmillReserve: 0.2,
-  /** Share of the store the workshops leave free, for the harvest and food from the ships. */
-  workshopReserve: 0.2,
+  /** Warehouse room for what the workshops make, per workshop. */
+  perWorkshop: 200,
   yard: 300,
   /** What a settler costs to recruit at home (passage, wages, tools), and the hold room one takes. */
   settlerCost: 300,
@@ -184,18 +184,25 @@ export const count = (s: Settlement, id: string): number => s.buildings[id] ?? 0
 export const housing = (s: Settlement): number => T.tents + count(s, 'houses') * T.perHouse;
 export const storeRoom = (s: Settlement): number => T.store + count(s, 'storehouse') * T.perStorehouse;
 export const inYard = (good: string): boolean => T.yardGoods.includes(good);
-/** Tons in the store (food and the like; the yard's timber and tools not counted). */
-export const stored = (s: Settlement): number => Object.entries(s.stores).reduce((a, [g, t]) => a + (inYard(g) ? 0 : t), 0);
+/** Food goes to the granary, timber and tools to the yard, everything else (what the workshops make) to the warehouse. */
+export const inGranary = (good: string): boolean => good === 'rice' || good === 'grain';
+/** Tons in the granary: the food. */
+export const stored = (s: Settlement): number => (s.stores.rice ?? 0) + (s.stores.grain ?? 0);
+/** The warehouse: room for what the workshops make (by the workshops there are), and what's in it. */
+export const warehouseRoom = (s: Settlement): number => BUILDINGS.filter((b) => b.makes).reduce((n, b) => n + count(s, b.id), 0) * T.perWorkshop;
+export const warehoused = (s: Settlement): number => Object.entries(s.stores).reduce((a, [g, t]) => a + (inYard(g) || inGranary(g) ? 0 : t), 0);
 /** Tons in the yard (timber, iron and tools). */
 export const yardStored = (s: Settlement): number => Object.entries(s.stores).reduce((a, [g, t]) => a + (inYard(g) ? t : 0), 0);
 /** Room left for a good: in the yard for building materials, in the store for the rest. */
 /** The sawmill has stopped: the yard is as full as it fills it (the rest is kept for tools). */
 export const sawmillResting = (s: Settlement): boolean => count(s, 'sawmill') > 0 && yardStored(s) >= T.yard * (1 - T.sawmillReserve) - 0.5;
-/** The workshops have stopped: the store is as full as they fill it (the rest is kept for food). */
-export const workshopsResting = (s: Settlement): boolean => Object.keys(making(s)).length > 0 && stored(s) >= storeRoom(s) * (1 - T.workshopReserve) - 0.5;
-/** Goods in the store that aren't food or the yard's: what the workshops made, to ship out and sell. */
-export const storeGoods = (s: Settlement): string[] => Object.keys(s.stores).filter((k) => !inYard(k) && k !== 'rice' && k !== 'grain' && (s.stores[k] ?? 0) >= 0.5);
-export const roomFor = (s: Settlement, good: string): number => Math.max(0, inYard(good) ? T.yard - yardStored(s) : storeRoom(s) - stored(s));
+/** The workshops have stopped: their warehouse is full. */
+export const workshopsResting = (s: Settlement): boolean => Object.keys(making(s)).length > 0 && warehoused(s) >= warehouseRoom(s) - 0.5;
+/** What's in the warehouse: the workshops' goods, to ship out and sell. */
+export const storeGoods = (s: Settlement): string[] => Object.keys(s.stores).filter((k) => !inYard(k) && !inGranary(k) && (s.stores[k] ?? 0) >= 0.5);
+/** Room left for a good: in the yard, the granary or the warehouse. */
+export const roomFor = (s: Settlement, good: string): number =>
+  Math.max(0, inYard(good) ? T.yard - yardStored(s) : inGranary(good) ? storeRoom(s) - stored(s) : warehouseRoom(s) - warehoused(s));
 export const foodStock = (s: Settlement): number => (s.stores.rice ?? 0) + (s.stores.grain ?? 0);
 export const eats = (s: Settlement): number => s.people * T.food;
 /** Fields with a harvest in. */
@@ -326,9 +333,8 @@ export function settlementDay(world: World, g: GameState, day: number, note: Not
   if (grows(s, day)) store(s, site.crop, grows(s, day));
   // The sawmill rests once the yard is nearly full: room is kept for tools from the ships.
   if (count(s, 'sawmill')) store(s, 'timber', Math.min(site.forest, Math.max(0, T.yard * (1 - T.sawmillReserve) - yardStored(s))));
-  // The workshops rest once the store is nearly full: room is kept for the harvest and food from the ships.
-  let shopRoom = Math.max(0, storeRoom(s) * (1 - T.workshopReserve) - stored(s));
-  for (const [good, tons] of Object.entries(making(s))) shopRoom -= store(s, good, Math.min(tons, shopRoom));
+  // What the workshops make goes into their warehouse; they rest while it's full.
+  for (const [good, tons] of Object.entries(making(s))) store(s, good, tons);
   if (s.people > 0) {
     const short = eat(s, Math.max(0, eats(s) - fish(s)));
     if (short > 0.001) {

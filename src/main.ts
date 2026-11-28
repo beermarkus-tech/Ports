@@ -19,7 +19,7 @@ import {
 import type { Captain, Contract, GameState, PremiumKind, ShipOffer, ShipState, ShipTypeDef, VoyageReport } from './sim/types';
 import { currentEra, currentHouse, getWorld, setEra } from './sim/world';
 import { currentChapter, guideChapters, updateGuide, type GuideChapter } from './sim/guide';
-import { BUILDINGS, SETTLEMENT_TUNING, SITES, STAGE_NAMES, bringList, foodStock, sawmillResting, stageGoals, storeGoods, workshopsResting, buildDays, cannotBuild, count as bcount, eats, foodDays, grows, housing, nextStageNeeds, siteOf, roomFor, storeRoom, stored, willing, yardStored, fish, STAGES, dues, jobs, making as makingNow, products, staffed } from './sim/settlement';
+import { BUILDINGS, SETTLEMENT_TUNING, SITES, STAGE_NAMES, bringList, sawmillResting, stageGoals, storeGoods, warehouseRoom, warehoused, workshopsResting, buildDays, cannotBuild, count as bcount, eats, foodDays, grows, housing, nextStageNeeds, siteOf, roomFor, storeRoom, stored, willing, yardStored, fish, STAGES, dues, jobs, making as makingNow, products, staffed } from './sim/settlement';
 import { compactMoney, currency, days, esc, gameDate, money, setEraFormat, startYear, tons } from './ui/format';
 import { mapIconPath, shipFamily, shipSideView } from './ui/art';
 import { applyCheck, changedSinceSync, checkCloud, clearConfig, CloudError, defaultDeviceName, findOrCreateGist, loadConfig, saveConfig, type Check, type CloudGame, type SyncedSlot } from './cloud';
@@ -1505,15 +1505,12 @@ class App {
     const lots = [...(ship.settlers ? [{ good: 'settlers', label: `${ship.settlers} settlers`, fits: true }] : []),
       ...aboard.map((l) => ({ good: l.good, label: `${tons(l.tons)} ${world.goods[l.good].name.toLowerCase()}`, fits: roomFor(s, l.good) > 0.05 }))];
     // A full yard: land timber or tools by taking the other aboard in their place, ton for ton.
-    // A full store: land food by taking what the workshops made aboard in its place.
-    const swapBtns = aboard.filter((l) => SETTLEMENT_TUNING.yardGoods.includes(l.good) || l.good === 'rice' || l.good === 'grain').map((l) => {
+    const swapBtns = aboard.filter((l) => SETTLEMENT_TUNING.yardGoods.includes(l.good)).map((l) => {
       const room = roomFor(s, l.good);
-      const yardGood = SETTLEMENT_TUNING.yardGoods.includes(l.good);
-      const pool = yardGood ? SETTLEMENT_TUNING.yardGoods.filter((x) => x !== l.good) : storeGoods(s);
-      const other = pool.reduce((a, x) => a + (s.stores[x] ?? 0), 0);
+      const other = SETTLEMENT_TUNING.yardGoods.filter((x) => x !== l.good).reduce((a, x) => a + (s.stores[x] ?? 0), 0);
       if (l.tons - room < 0.5 || other < 0.5) return '';
       const landed = Math.min(l.tons, room + other);
-      const what = yardGood ? (l.good === 'tools' ? 'timber' : 'iron and tools') : pool.map((x) => world.goods[x].name.toLowerCase()).slice(0, 2).join(' and ');
+      const what = l.good === 'tools' ? 'timber' : 'iron and tools';
       return `<button class="btn small primary" data-action="swap-settlement" data-good="${l.good}">Land ${tons(landed)} ${esc(world.goods[l.good].name.toLowerCase())}, take ${tons(landed - room)} ${esc(what)} aboard</button>`;
     }).join('');
     const swaps = swapBtns ? `<p class="hint">No room ashore. Exchange ton for ton: what comes aboard is yours to sell anywhere.</p><div class="btn-row">${swapBtns}</div>` : '';
@@ -1525,6 +1522,11 @@ class App {
     const gauge = (label: string, value: string, share: number, cls: string) =>
       `<div class="sg ${cls}"><span>${label}</span><b>${value}</b><i><em style="width:${Math.round(Math.max(0, Math.min(1, share)) * 100)}%"></em></i></div>`;
     const foodShare = days === Infinity ? 1 : Math.min(1, days / 90);
+    // The warehouse: what the workshops made, and where it sells best by the latest news.
+    const wares = storeGoods(s).map((k) => {
+      const best = bestKnownMarkets(world, g, k, s.site).slice(0, 2);
+      return `<li class="bring-row"><strong>${esc(world.goods[k].name)} · ${tons(s.stores[k] ?? 0)}</strong><span>${best.length ? `sells best in ${best.map((b) => `${esc(world.ports[b.port].name)} ${money(b.price)}/t`).join(' · ')}` : 'no buyer you know of yet'}</span></li>`;
+    }).join('');
     const bring = bringList(s, g.day);
     const bringName: Record<string, string> = { food: site.crop === 'grain' ? 'Rice or grain' : 'Rice', timber: 'Timber', tools: 'Iron and tools', settlers: 'Settlers' };
     const bringRows = bring.map((b) => `<li class="bring-row"><strong>${bringName[b.good] ?? esc(b.good)} · ${b.good === 'settlers' ? `up to ${b.tons}` : tons(b.tons)}</strong><span>${esc(b.why)}</span></li>`).join('');
@@ -1532,17 +1534,19 @@ class App {
     const latest = s.news.slice(0, 2).map((n) => `<li class="${n.kind}"><span class="sub">${gameDate(n.day)}</span> ${esc(n.text)}</li>`).join('');
     return `<div class="ship-head"><div class="sh-name"><h2>${esc(name)}</h2><span>${STAGE_NAMES[s.stage].toLowerCase()} · ${Math.floor(s.people)} people · ${esc(world.ports[s.site].country)}</span></div>
       <div class="sh-gauges two">
-        ${gauge('Food (rice, grain)', `${daysText} · ${tons(foodStock(s))}`, foodShare, s.people >= 1 && days < 15 ? 'bad' : s.people >= 1 && days < 45 ? 'warn' : 'ok')}
+        ${gauge('Food', daysText, foodShare, s.people >= 1 && days < 15 ? 'bad' : s.people >= 1 && days < 45 ? 'warn' : 'ok')}
         ${gauge('People', `${Math.floor(s.people)} · room ${housing(s)}`, s.people / Math.max(1, housing(s)), s.people > housing(s) ? 'warn' : 'ok')}
-        ${gauge('Store (food and goods)', `${tons(stored(s))} / ${storeRoom(s)} t`, stored(s) / Math.max(1, storeRoom(s)), 'hold')}
-        ${gauge('Yard', `${tons(yardStored(s))} / ${SETTLEMENT_TUNING.yard} t`, yardStored(s) / SETTLEMENT_TUNING.yard, 'hold')}
+        ${gauge('Granary (rice, grain)', `${tons(stored(s))} / ${storeRoom(s)} t`, stored(s) / Math.max(1, storeRoom(s)), 'hold')}
+        ${gauge('Yard (timber, tools)', `${tons(yardStored(s))} / ${SETTLEMENT_TUNING.yard} t`, yardStored(s) / SETTLEMENT_TUNING.yard, 'hold')}
+        ${warehouseRoom(s) ? gauge('Warehouse (goods)', `${tons(warehoused(s))} / ${warehouseRoom(s)} t`, warehoused(s) / warehouseRoom(s), warehoused(s) >= warehouseRoom(s) - 0.5 ? 'warn' : 'hold') : ''}
       </div></div>
       ${s.hungry ? `<div class="ask warn"><strong>${esc(name)} has no food:</strong> people are leaving. Bring rice${site.crop === 'grain' ? ' or grain' : ''}.</div>` : s.people >= 1 && days < 15 ? `<div class="ask warn"><strong>Food for only ${Math.floor(days)} days.</strong> They eat ${tons(eats(s))} a day.</div>` : ''}
-      ${workshopsResting(s) ? `<div class="ask quiet">The store is nearly full: the workshops are resting, to keep room for the harvest and your rice. Ship their goods out and sell them.</div>` : ''}
+      ${workshopsResting(s) ? `<div class="ask warn"><strong>The warehouse is full:</strong> the workshops are resting. Ship their goods out and sell them.</div>` : ''}
       ${sawmillResting(s) ? `<div class="ask quiet">The yard is nearly full: the sawmill is resting. It keeps ${Math.round(SETTLEMENT_TUNING.yard * SETTLEMENT_TUNING.sawmillReserve)} t free for tools from your ships.</div>` : ''}
       ${portLine}
       ${loadBox}
       ${unload}
+      ${wares ? `<div class="sec-h"><h3>Warehouse</h3><span>ship it out and sell</span></div><ul class="bring-list">${wares}</ul>` : ''}
       ${bringRows ? `<div class="sec-h"><h3>Bring on the next run</h3><span>buy them on your own account</span></div><ul class="bring-list">${bringRows}</ul>` : ''}
       ${project}
       ${need ? `<div class="sec-h"><h3>To become ${stageWord}</h3><span>${need.needs.filter((n) => n.done).length} of ${need.needs.length}</span></div><ul class="needs">${need.needs.map((n) => `<li class="${n.done ? 'done' : ''}">${n.done ? '✓' : '○'} ${esc(n.text)}</li>`).join('')}</ul>` : ''}

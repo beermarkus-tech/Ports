@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { foundSettlement, newGame, swapAtSettlement } from '../src/sim/game';
-import { SETTLEMENT_TUNING, foodStock, sawmillResting, settlementDay, storeRoom, stored, workshopsResting, yardStored } from '../src/sim/settlement';
+import { foundSettlement, newGame, swapAtSettlement, unloadAtSettlement } from '../src/sim/game';
+import { SETTLEMENT_TUNING, foodStock, sawmillResting, settlementDay, stored, warehouseRoom, warehoused, workshopsResting, yardStored } from '../src/sim/settlement';
 import type { GameState } from '../src/sim/types';
 import { getWorld, setEra } from '../src/sim/world';
 
@@ -33,30 +33,28 @@ describe('the yard', () => {
     expect(sawmillResting(s)).toBe(true);
   });
 
-  it('the workshops rest once the store is four-fifths full, keeping room for food', () => {
+  it('the workshops fill their own warehouse and rest when it is full; the granary is apart', () => {
     setEra('sail', 'chinese');
     const g = foundSettlement(charter(newGame(63)), 'tamsui');
     const s = g.settlement!;
-    s.people = 200; s.stage = 'village'; s.buildings = { saltpans: 2, houses: 10 };
-    s.stores = { rice: 100, salt: storeRoom(s) * 0.8 - 100 };
+    s.people = 200; s.stage = 'village'; s.buildings = { saltpans: 1, houses: 10, storehouse: 1 };
+    expect(warehouseRoom(s)).toBe(SETTLEMENT_TUNING.perWorkshop);
+    s.stores = { rice: 300, salt: warehouseRoom(s) - 4 };
+    for (let d = 0; d < 5; d++) settlementDay(getWorld(), g, d, () => {});
+    expect(warehoused(s)).toBeCloseTo(warehouseRoom(s), 3);
     expect(workshopsResting(s)).toBe(true);
-    // They eat the rice; the salt pans only make up the room down to four-fifths, never past it.
-    for (let d = 0; d < 10; d++) {
-      settlementDay(getWorld(), g, d, () => {});
-      expect(stored(s)).toBeLessThanOrEqual(storeRoom(s) * 0.8 + 0.01);
-    }
+    expect(stored(s)).toBe(foodStock(s));                     // the granary holds only food
   });
 
-  it('a full store: the rice goes ashore, the salt comes aboard ton for ton', () => {
+  it('a full warehouse never keeps the rice out of the granary', () => {
     setEra('sail', 'chinese');
     let g = foundSettlement(charter(newGame(64)), 'tamsui');
-    const room = storeRoom(g.settlement!);
-    g.settlement!.stores = { rice: 50, salt: room - 50 };            // a camp's store: full
+    g.settlement!.buildings = { saltpans: 1 };
+    g.settlement!.stores = { rice: 50, salt: warehouseRoom(g.settlement!) };
     g.fleet[0].location = 'tamsui';
     g.fleet[0].goods = [{ good: 'rice', tons: 60, cost: 6_000, from: 'amoy' }];
-    g = swapAtSettlement(g, g.fleet[0].id, 'rice');
+    g = unloadAtSettlement(g, g.fleet[0].id, 'rice');
     expect(foodStock(g.settlement!)).toBe(110);
-    expect(stored(g.settlement!)).toBe(room);
-    expect(g.fleet[0].goods).toEqual([{ good: 'salt', tons: 60, cost: 0, from: 'tamsui' }]);
+    expect(g.fleet[0].goods).toBeUndefined();
   });
 });
