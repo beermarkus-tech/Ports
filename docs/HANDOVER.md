@@ -6,7 +6,7 @@ build log and move items in "Now and next" as work lands.
 
 ## 0. Now and next (read this first)
 
-**State at build 83** (harbour life 75; settlement view 76; live settlement tab 77; weather pace and blending 79; the lighter side panel 80; the harbour lives on while paused 81; Orders reordered, news ticker 82; slim voyage plan card 83). The owner wants Orders decluttered further: ask what next. Live at https://beermarkus-tech.github.io/Ports/. 136 tests pass. Working
+**State at build 84** (harbour life 75; settlement view 76; live settlement tab 77; weather pace and blending 79; the lighter side panel 80; the harbour lives on while paused 81; Orders reordered, news ticker 82; slim voyage plan card 83; the map fills its box on wide screens 84). The owner wants Orders decluttered further: ask what next. Live at https://beermarkus-tech.github.io/Ports/. 136 tests pass. Working
 branch of the last chat: `ccr-e09247f0-shm8l1`; everything is merged into `main` (main deploys).
 The owner plays the 1650 game (mostly the Chinese house) on an Android device.
 
@@ -570,6 +570,7 @@ Check `vite-plugin-pwa` precache size limits after adding it.
 | 81 | The harbour goes on while the clock is stopped: the light (and the map's sun, clouds, waves) moves at the 1× pace and the weather by its own clock; harbour life already ran in real time |
 | 82 | Orders reordered (owner's order): ship stats → Where to (with the voyage plan) → Cargo that fits → In the hold → Best buys → the rest → Under your command last; no "needs orders" card; the section you tap in stays put on screen across the redraw (`anchor`, data-anchor sections); hold/victuals/condition removed from the strip under the map (bigger map); world news as a one-line ticker above the map (#news-ticker, cycles every 7 s, tap for all) |
 | 83 | The voyage plan card slimmed (owner): title, the four boxes (nm, days, victuals, ready), "Worth a call on the way" folded, the cast-off button (with the estimate only when the leg loses money), then the other ports for what's aboard; the ledger, victuals line and goods outlook are gone; only a late delivery, a strike there or a closed canal still shows, as one red line |
+| 84 | On a wide screen the map fills its whole box, as the harbour view does: map-gl.ts scale fits the whole world (s0 = min(w/W, h/H)), the box in map units is vw × vh, clampView centres an axis that is smaller than the box and clamps one that is bigger, pointer units are px / s0; the first view zooms in to fill the box ("World" or − shows it all); CSS `.map-stack` drops its fixed aspect above 900 px (phones unchanged) |
 
 ## 10. Proposals and artifacts (claude.ai, owner's account)
 

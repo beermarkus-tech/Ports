@@ -506,6 +506,11 @@ export class GlMapView {
   private dot = 1;
   private cssW = W;
   private cssH = H;
+  /** The map box in unzoomed map units (wider or taller than W × H when the box has another shape). */
+  private vw = W;
+  private vh = H;
+  /** Zoomed in once to fill a box of another shape (the first time it is shown). */
+  private filled = false;
 
   // Scene.
   private worldLayer = new Container();
@@ -1132,7 +1137,17 @@ export class GlMapView {
     if (w < 2 || h < 2) return;
     this.cssW = w; this.cssH = h;
     this.app.renderer.resize(w, h);
-    this.s0 = w / W;
+    // The whole world fits the box at zoom 1; a box of another shape has room around it.
+    this.s0 = Math.min(w / W, h / H);
+    this.vw = w / this.s0; this.vh = h / this.s0;
+    const cover = Math.max(this.vw / W, this.vh / H);
+    if (!this.filled && cover > 1.05) {
+      // Start filling the box (as big as the harbour view); "World" or zooming out shows it all.
+      this.filled = true;
+      this.k = Math.min(MAX_ZOOM, cover);
+      this.tx = (this.vw - W * this.k) / 2; this.ty = (this.vh - H * this.k) / 2;
+    }
+    this.clampView();
     // Ports, names and ships: their design size on a big screen, a little smaller on a phone,
     // never so small they can't be read (the names make way for each other instead).
     const ui = Math.max(0.8, Math.min(1.15, this.s0));
@@ -1153,7 +1168,7 @@ export class GlMapView {
   /** Map point under a pointer, in unzoomed screen units, before zoom. */
   private toUnits(clientX: number, clientY: number): [number, number] {
     const r = this.stack.getBoundingClientRect();
-    return [((clientX - r.left) / r.width) * W, ((clientY - r.top) / r.height) * H];
+    return [(clientX - r.left) / this.s0, (clientY - r.top) / this.s0];
   }
 
   private setupInput(): void {
@@ -1171,9 +1186,9 @@ export class GlMapView {
         else if (z === 'world') this.glideGlobe({ ...this.gv, zoom: 1 });
         return;
       }
-      if (z === 'in') this.glideZoom(W / 2, H / 2, 2);
-      else if (z === 'out') this.glideZoom(W / 2, H / 2, 0.5);
-      else if (z === 'world') this.glideZoom(0, 0, 1 / this.k);
+      if (z === 'in') this.glideZoom(this.vw / 2, this.vh / 2, 2);
+      else if (z === 'out') this.glideZoom(this.vw / 2, this.vh / 2, 0.5);
+      else if (z === 'world') this.glideZoom(this.vw / 2, this.vh / 2, 1 / this.k);
     });
     this.stack.appendChild(tools);
   }
@@ -1208,11 +1223,11 @@ export class GlMapView {
         return;
       }
       const now = { x: ev.clientX, y: ev.clientY };
-      const u = W / this.cssW; // unzoomed units per CSS pixel
+      const u = 1 / this.s0; // unzoomed units per CSS pixel
       if (pts.size === 1) {
         moved += Math.hypot(now.x - prev.x, now.y - prev.y);
         if (moved > 6 && this.globeMode) this.rotateBy(now.x - prev.x, now.y - prev.y);
-        else if (moved > 6 && this.k > 1) this.panBy((now.x - prev.x) * u, (now.y - prev.y) * u);
+        else if (moved > 6 && this.canPan()) this.panBy((now.x - prev.x) * u, (now.y - prev.y) * u);
         track.push({ t: ev.timeStamp, x: now.x, y: now.y });
         if (track.length > 8) track.shift();
       } else if (pts.size === 2) {
@@ -1247,8 +1262,8 @@ export class GlMapView {
         const first = track.find((p) => last && last.t - p.t < 90);
         if (last && first && last.t > first.t && ev.timeStamp - last.t < 60 && this.globeMode) {
           this.spin = { vx: (last.x - first.x) / (last.t - first.t), vy: (last.y - first.y) / (last.t - first.t) };
-        } else if (last && first && last.t > first.t && ev.timeStamp - last.t < 60 && this.k > 1) {
-          const u = W / this.cssW;
+        } else if (last && first && last.t > first.t && ev.timeStamp - last.t < 60 && this.canPan()) {
+          const u = 1 / this.s0;
           this.inertia = { vx: ((last.x - first.x) / (last.t - first.t)) * u, vy: ((last.y - first.y) / (last.t - first.t)) * u, t: performance.now() };
         }
         return;
@@ -1327,7 +1342,7 @@ export class GlMapView {
       // Face the middle of what the flat map shows, at about the same zoom; from the whole world,
       // face the selected ship (or home).
       const sel = this.shipMarkers.find((m) => m.selected)?.at ?? this.portPosition(this.world.era.start.port);
-      const mid = this.k > 1.05 ? this.projection.invert?.([(W / 2 - this.tx) / this.k, (H / 2 - this.ty) / this.k]) : sel;
+      const mid = this.k > 1.05 ? this.projection.invert?.([(this.vw / 2 - this.tx) / this.k, (this.vh / 2 - this.ty) / this.k]) : sel;
       if (mid) this.gv = { lon: mid[0], lat: Math.max(-60, Math.min(60, mid[1] * 0.8)), zoom: this.k };
     } else {
       const xy = this.projection([this.gv.lon, this.gv.lat]);
@@ -1411,7 +1426,7 @@ export class GlMapView {
   private hoverAt(clientX: number, clientY: number): void {
     const h = this.hit(clientX, clientY);
     const cv = this.app?.canvas as HTMLCanvasElement | undefined;
-    if (cv) cv.style.cursor = h.ship !== undefined || h.port ? 'pointer' : this.k > 1.01 || this.globeMode ? 'grab' : '';
+    if (cv) cv.style.cursor = h.ship !== undefined || h.port ? 'pointer' : this.canPan() || this.globeMode ? 'grab' : '';
     this.setHover(h.port ?? null);
   }
 
@@ -1439,10 +1454,17 @@ export class GlMapView {
     this.clampView();
   }
 
+  /** Can the map be dragged: is it bigger than the box one way or the other? */
+  private canPan(): boolean {
+    return W * this.k > this.vw + 0.5 || H * this.k > this.vh + 0.5;
+  }
+
   private clampView(): void {
     const k = this.k;
-    this.tx = Math.min(0, Math.max(W * (1 - k), this.tx));
-    this.ty = Math.min(0, Math.max(H * (1 - k), this.ty));
+    // Each way: centred while the map is smaller than the box, otherwise kept from showing beyond its edge.
+    const axis = (t: number, size: number, box: number) => (size * k <= box ? (box - size * k) / 2 : Math.min(0, Math.max(box - size * k, t)));
+    this.tx = axis(this.tx, W, this.vw);
+    this.ty = axis(this.ty, H, this.vh);
     this.dirty = true;
     this.labelsDirty = true;
   }
