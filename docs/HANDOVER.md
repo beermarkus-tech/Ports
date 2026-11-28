@@ -6,7 +6,7 @@ build log and move items in "Now and next" as work lands.
 
 ## 0. Now and next (read this first)
 
-**State at build 89** (harbour life 75; settlement view 76; live settlement tab 77; weather pace and blending 79; the lighter side panel 80; the harbour lives on while paused 81; Orders reordered, news ticker 82; slim voyage plan card 83; the map fills its box on wide screens 84; the full-yard swap and resting sawmill 85; food shown apart 86; granary, yard and warehouse, salt buyers in Asia 87; best buys for the whole load 88, simpler 89). The owner wants Orders decluttered further: ask what next. Live at https://beermarkus-tech.github.io/Ports/. 136 tests pass. Working
+**State at build 90** (harbour life 75; settlement view 76; live settlement tab 77; weather pace and blending 79; the lighter side panel 80; the harbour lives on while paused 81; Orders reordered, news ticker 82; slim voyage plan card 83; the map fills its box on wide screens 84; the full-yard swap and resting sawmill 85; food shown apart 86; granary, yard and warehouse, salt buyers in Asia 87; best buys for the whole load 88, simpler 89, labelled 90). The owner wants Orders decluttered further: ask what next. Live at https://beermarkus-tech.github.io/Ports/. 136 tests pass. Working
 branch of the last chat: `ccr-e09247f0-shm8l1`; everything is merged into `main` (main deploys).
 The owner plays the 1650 game (mostly the Chinese house) on an Android device.
 
@@ -576,6 +576,7 @@ Check `vite-plugin-pwa` precache size limits after adding it.
 | 87 | Three stores at the settlement: the granary (rice, grain; storehouses add to it), the yard (timber, tools), and a new warehouse for what the workshops make (200 t per workshop, SETTLEMENT_TUNING.perWorkshop; the workshops rest while it's full; inGranary/warehouseRoom/warehoused in settlement.ts; the 80% workshop rule and the food swap from build 86 are gone). A Warehouse list in the settlement tab with the two best known buyers per good. Data: salt had buyers only in the Baltic and America, so Asian and Indian Ocean salt pans (Tamsui, Mauritius) had none: salt demand added at Manila, Hoi An, Malacca, Batavia, Macassar, Banda, Mozambique, Zanzibar, the Cape; salt producers at Surat, Ayutthaya, Amoy (else the price counted from Portugal: ƒ1,450/t); cured fish (St Helena) also sells at Bahia, Recife, Elmina, the Cape; tobacco at Elmina. tests/buyers.test.ts: every site's workshop goods sell within 4,500 nm or at home |
 | 88 | Best buys count the actual load (the room left): what it costs in all and on average (the price rises as you buy, goodsBuyQuote), what it fetches in all and on average at the two best known buyers (the price falls as you sell, saleFactor), and the estimated profit, which also ranks them |
 | 89 | Best buys simpler (owner): the profit for the full load in thousands (+ƒ318k), and one line "Sells ≈ ƒ360k in Batavia (ƒ4,504/t) · ƒ352k in Surat (ƒ4,400/t)"; the cost line is gone |
+| 90 | Best buys labelled: "profit for 80 t" under the green figure, "costs ƒ42k" on the buy buttons (the owner read the profit and the price as a discrepancy) |
 
 ## 10. Proposals and artifacts (claude.ai, owner's account)
 

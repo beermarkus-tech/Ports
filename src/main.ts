@@ -2032,7 +2032,7 @@ class App {
     const buyBtn = (good: string, n: number | 'max', label: string) => {
       const t = n === 'max' ? room : Math.min(n, room);
       const q = t > 0 ? goodsBuyQuote(world, g, port.id, good, t) : null;
-      return `<button class="btn small" data-action="buy-goods" data-good="${good}" data-tons="${n}" ${!q || q.total > g.cash ? 'disabled' : ''}>${label}<span>${q ? compactMoney(q.total) : '—'}</span></button>`;
+      return `<button class="btn small" data-action="buy-goods" data-good="${good}" data-tons="${n}" ${!q || q.total > g.cash ? 'disabled' : ''}>${label}<span>${q ? `costs ${compactMoney(q.total)}` : '—'}</span></button>`;
     };
     // Everything for the load she'd actually take (the room left): the price rises as you buy and falls as you sell.
     const lot = room >= 1 ? Math.floor(room) : 10;
@@ -2050,7 +2050,7 @@ class App {
     const per = (total: number) => money(Math.round(total / lot));
     const rows = goods.slice(0, 3).map((x) => `<li class="buy-row">
         <div class="br-main">${goodIcon(x.good, 24)}<strong>${esc(world.goods[x.good].name)}</strong> <span class="sub">${money(x.price)}/t here</span></div>
-        <div class="br-gain"><b class="${x.profit < 0 ? 'neg' : ''}">${x.profit < 0 ? '−' : '+'}${compactMoney(Math.abs(x.profit))}</b><span>for ${tons(lot)}</span></div>
+        <div class="br-gain"><b class="${x.profit < 0 ? 'neg' : ''}">${x.profit < 0 ? '−' : '+'}${compactMoney(Math.abs(x.profit))}</b><span>profit for ${tons(lot)}</span></div>
         <div class="br-calc">Sells ≈ ${x.sales.map((sl) => `${compactMoney(sl.total)} in ${esc(world.ports[sl.port].name)} (${per(sl.total)}/t)`).join(' · ')}</div>
         <div class="btn-row">${room > 10 ? buyBtn(x.good, 10, '+10 t') : ''}${buyBtn(x.good, 'max', room > 0 ? `Fill ${tons(room)}` : 'Hold full')}</div>
       </li>`).join('');
