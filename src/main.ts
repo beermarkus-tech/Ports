@@ -168,6 +168,9 @@ class App {
   /** Real seconds the clock has been running: drives the cosmetic day/night and weather. */
   private sceneTime = 0;
   private lastWeather = 0;
+  /** The panel section a tap came from and where it was on screen: kept in place across the redraw. */
+  private anchor: { key: string; top: number } | null = null;
+  private tickerOpen = false;
   private storms: { id: string; at: LonLat; from: number; until: number; seed: number }[] = [];
   private shownCash: number | null = null;
   private cashAnim = 0;
@@ -201,7 +204,11 @@ class App {
     document.addEventListener('click', (ev) => {
       const t = (ev.target as HTMLElement).closest<HTMLElement>('[data-action]');
       // Dropdowns act on 'change' (below); handling their click would redraw the panel and close them.
-      if (t && t.tagName !== 'SELECT' && !t.hasAttribute('disabled')) this.handle(t.dataset.action!, t.dataset);
+      if (t && t.tagName !== 'SELECT' && !t.hasAttribute('disabled')) {
+        const sec = t.closest<HTMLElement>('#panel-body [data-anchor]');
+        this.anchor = sec ? { key: sec.dataset.anchor!, top: sec.getBoundingClientRect().top } : null;
+        try { this.handle(t.dataset.action!, t.dataset); } finally { this.anchor = null; }
+      }
     });
     document.addEventListener('change', (ev) => {
       const t = ev.target as HTMLSelectElement;
@@ -467,7 +474,7 @@ class App {
     if (this.paused || !$('#modal').hidden || this.dockingGame || this.g.gameOver) {
       // The harbour goes on while the clock waits: the light moves at the 1× pace, the weather by its own clock.
       if (!this.g.gameOver && $('#modal').hidden) { this.sceneTime += TICK_MS / 1000; this.renderScenery(); }
-      if (this.portScene.visible && $('#modal').hidden && performance.now() - this.lastWeather > 1000) { this.lastWeather = performance.now(); this.renderView(); }
+      if ($('#modal').hidden && performance.now() - this.lastWeather > 1000) { this.lastWeather = performance.now(); if (this.portScene.visible) this.renderView(); this.renderTicker(); }
       return;
     }
     // Nothing moves while a ship is waiting for orders.
@@ -822,6 +829,10 @@ class App {
           else this.afterDecision();
         }
         break;
+      case 'news-toggle':
+        this.tickerOpen = !this.tickerOpen;
+        this.renderTicker();
+        return;
       case 'contract-sort':
         this.contractSort = this.contractSort === 'perDay' ? 'pay' : this.contractSort === 'pay' ? 'dest' : 'perDay';
         try { localStorage.setItem(SORT_KEY, this.contractSort); } catch { /* not saved, still works */ }
@@ -1086,6 +1097,7 @@ class App {
   /** The parts that change every tick: date, money, fleet strip, ships on the map. */
   private renderLive(): void {
     this.renderView();
+    this.renderTicker();
     this.renderHeader();
     if (!this.pointerDown) this.renderFleet();
     this.renderShips();
@@ -1266,7 +1278,6 @@ class App {
   private renderFleet(): void {
     const g = this.g;
     const ship = this.ship();
-    const type = typeOf(ship);
     const chips = g.fleet.map((s) => {
       const st = this.shipStatus(s);
       return `<button class="ship-chip ${st.state} ${s.id === ship.id ? 'selected' : ''}" data-action="select-ship" data-id="${s.id}">
@@ -1276,17 +1287,8 @@ class App {
         ${st.progress !== undefined ? `<span class="sc-bar"><span style="width:${(st.progress * 100).toFixed(1)}%"></span></span>` : '<span class="sc-bar placeholder"></span>'}
       </button>`;
     }).join('');
-    const load = cargoTons(ship);
-    const fuel = ship.voyage ? ship.voyage.startFuel - (ship.voyage.startFuel - ship.voyage.fuelAtArrival) * voyageProgress(g, ship) : ship.fuel;
-    const cond = ship.condition;
-    $('#ship-strip').innerHTML = `
-      <div class="fleet">${chips}</div>
-      <div class="active-ship">
-        <div class="ship-name"><strong>${esc(ship.name)}</strong><span>${esc(type.name)} · ${Math.floor(ship.age)} yrs</span></div>
-        ${gauge(FUEL(), fuel / type.bunkerCapacity, `${Math.round(fuel)} / ${fuelAmt(type.bunkerCapacity)}`, 'fuel')}
-        ${gauge('Hold', load / type.capacity, `${tons(load)} / ${tons(type.capacity)}`, 'hold')}
-        ${gauge('Condition', cond / 100, `${Math.round(cond)}%`, cond < 45 ? 'cond bad' : cond < 65 ? 'cond warn' : 'cond')}
-      </div>`;
+    // The selected ship's hold, victuals and condition are at the top of the Orders tab.
+    $('#ship-strip').innerHTML = `<div class="fleet">${chips}</div>`;
   }
 
   private renderShips(): void {
@@ -1406,6 +1408,14 @@ class App {
       this.renderedShip = ship.id;
     } else {
       body.scrollTop = scroll;
+      // What grew or shrank above the section you tapped in (Where to, as cargo is loaded) mustn't move it.
+      const el = this.anchor && body.querySelector<HTMLElement>(`[data-anchor="${this.anchor.key}"]`);
+      if (el && this.anchor) {
+        const delta = el.getBoundingClientRect().top - this.anchor.top;
+        const scrolls = body.scrollHeight > body.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(body).overflowY);
+        if (Math.abs(delta) > 1) { if (scrolls) body.scrollTop += delta; else window.scrollBy(0, delta); }
+        this.anchor = null;
+      }
     }
     this.renderPorts();
     this.renderRoutes();
@@ -1905,7 +1915,7 @@ class App {
     const hold = ship.cargo.length ? `<div class="sec-h"><h3>In the hold</h3><span>${tons(cargoTons(ship))}</span></div><ul class="contracts">${ship.cargo.map((c) => this.contractRow(c, 'hold')).join('')}</ul>` : '';
     const shipFold = (open: boolean) => this.fold('ship', `${isSail() ? 'Victuals, careening' : 'Bunkers, dry dock'}, the ship`, this.shipTab('ship'), open);
     if (!isReady(g, ship) || onOrders(ship)) {
-      return head + this.newsCard() + (isReady(g, ship) ? '' : this.busyCard()) + this.captainCard() + hold + this.ownGoods(ship) + shipFold(false);
+      return head + (isReady(g, ship) ? '' : this.busyCard()) + hold + this.ownGoods(ship) + shipFold(false) + this.captainCard();
     }
     const port = world.ports[ship.location];
     const board = g.ports[port.id].board;
@@ -1923,20 +1933,20 @@ class App {
       ${head}
       ${this.plannedBanner(ship)}
       ${this.attention(ship)}
-      ${this.newsCard()}
-      ${this.dest ? this.planCard(planVoyage(g, ship.id, this.dest)!) : ''}
+      ${this.whereTo(ship)}
+      <section data-anchor="cargo">
       <div class="sec-h"><h3>Cargo that fits</h3>${board.length > 1 ? sortBtn : ''}</div>
       <p class="sec-sub">${tons(free)} free · port fee ${money(portFee(g, ship, port.id))}</p>
       ${fits.length ? `<ul class="contracts">${fits.slice(0, 5).map((c) => this.contractRow(c, 'board', c.id === best)).join('')}</ul>`
         : `<p class="empty">${free < 1 ? 'The hold is full.' : board.length ? 'Nothing on offer that this ship can take.' : 'No cargo on offer right now.'} New offers come as days pass.</p>`}
       ${fits.length > 5 ? this.fold('fits', `${fits.length - 5} more that fit`, `<ul class="contracts">${fits.slice(5).map((c) => this.contractRow(c, 'board')).join('')}</ul>`) : ''}
       ${rest.length ? this.fold('cant', `${rest.length} more ${rest.length === 1 ? 'needs' : 'need'} another ship`, `<ul class="contracts">${rest.map((c) => this.contractRow(c, 'board')).join('')}</ul>`) : ''}
-      ${this.priceHints(port.id)}
       ${this.chilledHint(ship, port.id)}
-      ${hold}
-      ${this.bestBuys(ship)}
+      </section>
+      <section data-anchor="hold">${hold}</section>
+      <section data-anchor="buys">${this.bestBuys(ship)}</section>
+      ${this.priceHints(port.id)}
       ${this.chartsCard(port.id)}
-      ${this.whereTo(ship)}
       ${this.waitControls()}
       ${shipFold(condLow)}
       ${this.captainCard()}`;
@@ -1985,8 +1995,6 @@ class App {
     if (isWaiting(g, ship)) {
       const until = ship.waitUntil! >= LAID_UP ? 'laid up until further notice' : `waiting until ${gameDate(ship.waitUntil!)}`;
       out.push(`<div class="ask quiet"><span>The ${esc(ship.name)} is ${until}. You can still load her and cast off any time.</span> <button class="btn small" data-action="stop-wait">Stop waiting</button></div>`);
-    } else if (needsDecision(g, ship)) {
-      out.push(`<div class="ask"><strong>${esc(ship.name)} needs orders.</strong> Load, buy, then pick where to go below or on the map.</div>`);
     }
     if (ship.condition < 60) out.push(`<div class="ask warn"><strong>Condition ${Math.round(ship.condition)}%.</strong> ${isSail() ? 'Careen her soon: a worn hull leaks and sails slow.' : 'Dry-dock her soon: a worn ship breaks down.'} See "${isSail() ? 'Victuals, careening' : 'Bunkers, dry dock'}" below.</div>`);
     return out.join('');
@@ -2045,9 +2053,10 @@ class App {
         <span class="ds-pay">${d.pay ? compactMoney(d.pay) : ''}<em>${plan ? days(Math.round(plan.seaDays)) : ''}</em></span>
         <span class="ds-what">${what}</span></li>`;
     }).join('');
-    return `<div class="sec-h"><h3>Where to</h3><span>${items ? 'for what\'s aboard' : 'tap a port on the map'}</span></div>
-      ${items ? `<ul class="dest-list">${items}</ul>` : `<p class="sec-sub">Load something first, or pick any port below or on the map.</p>`}
-      ${this.fold('dests', 'Any other port, nearest first', `<p class="hint">"Exports for you" lists what each port ships that your ${esc(typeOf(ship).name.toLowerCase())} can carry.</p><ul class="dests">${this.destList(ship)}</ul>`)}`;
+    return `<section data-anchor="where"><div class="sec-h"><h3>Where to</h3><span>${items ? 'for what\'s aboard' : 'tap a port on the map'}</span></div>
+      ${this.dest ? this.planCard(planVoyage(g, ship.id, this.dest)!) : ''}
+      ${items ? `<ul class="dest-list">${items}</ul>` : this.dest ? '' : `<p class="sec-sub">Load cargo below, or pick any port on the map.</p>`}
+      ${this.fold('dests', 'Any other port, nearest first', `<p class="hint">"Exports for you" lists what each port ships that your ${esc(typeOf(ship).name.toLowerCase())} can carry.</p><ul class="dests">${this.destList(ship)}</ul>`)}</section>`;
   }
 
   /** Waiting instead of sailing: a day, five, or laid up. */
@@ -2152,14 +2161,20 @@ class App {
   }
 
   /** Active world events. */
-  private newsCard(): string {
+  /** World news as a one-line ticker above the map: one item at a time; a tap shows them all. */
+  private renderTicker(): void {
+    const el = document.getElementById('news-ticker');
+    if (!el) return;
     const active = activeEvents(this.g);
-    if (!active.length) return '';
-    return `<section class="card news">
-      <h3>World news</h3>
-      <ul>${active.map((e) => `<li><span class="n-kind ${e.kind}">${{ strike: isSail() ? 'Plague' : 'Strike', harvest: 'Harvest', boom: 'Boom', canal: 'Canal', oilShock: 'Oil' }[e.kind]}</span>
-        <span>${esc(e.headline)} <em>Until about ${gameDate(e.endDay)}.</em></span></li>`).join('')}</ul>
-    </section>`;
+    const kind = (k: string) => ({ strike: isSail() ? 'Plague' : 'Strike', harvest: 'Harvest', boom: 'Boom', canal: 'Canal', oilShock: 'Oil' } as Record<string, string>)[k] ?? 'News';
+    const item = (e: (typeof active)[number]) => `<span class="n-kind ${e.kind}">${kind(e.kind)}</span><span class="nt-text">${esc(e.headline)} <em>Until about ${gameDate(e.endDay)}.</em></span>`;
+    const i = active.length ? Math.floor(Date.now() / 7000) % active.length : 0;
+    const html = !active.length ? '' : this.tickerOpen
+      ? `<ul>${active.map((e) => `<li>${item(e)}</li>`).join('')}</ul>`
+      : `<div class="nt-one">${item(active[i])}${active.length > 1 ? `<span class="nt-count">${i + 1}/${active.length}</span>` : ''}</div>`;
+    el.hidden = !active.length;
+    el.classList.toggle('open', this.tickerOpen);
+    if (el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; }
   }
 
   /** The world oil price index with a one-year sparkline. */
@@ -2852,11 +2867,6 @@ function statBoxes(s: ShipSpec, base?: ShipSpec): string {
     const cls = same ? 'same' : (d > 0) === r.higherIsBetter ? 'up' : 'down';
     return `<div><span>${r.label}</span><strong>${r.val}</strong><em class="${cls}">${same ? 'same' : r.diff(d)}</em></div>`;
   }).join('')}</div>`;
-}
-
-function gauge(label: string, frac: number, text: string, cls: string): string {
-  const f = Math.max(0, Math.min(1, frac));
-  return `<div class="gauge ${cls}"><div class="g-head"><span>${label}</span><span>${text}</span></div><div class="g-track"><div class="g-fill" style="width:${f * 100}%"></div></div></div>`;
 }
 
 $('#build').textContent = `Build ${BUILD.number}`;

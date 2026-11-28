@@ -1059,3 +1059,13 @@ details.fold[open] > summary::before { content: '▾ '; }
 .sale-table th { text-align: left; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--line); padding: 4px; }
 .sale-table td { border-bottom: 1px solid var(--line); padding: 5px 4px; white-space: nowrap; }
 .sale-table td.why { color: var(--bad); font-size: 12px; }
+
+/* World news: one line over the map, cycling; tap for the whole list (build 82). */
+.news-ticker { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 5px 10px; font-size: 13px; cursor: pointer; flex: none; }
+.news-ticker .nt-one { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.news-ticker .nt-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.news-ticker em { color: var(--muted); font-style: normal; }
+.news-ticker .nt-count { color: var(--muted); font-size: 12px; flex: none; }
+.news-ticker ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.news-ticker li { display: flex; gap: 8px; align-items: baseline; }
+.news-ticker.open .nt-text { white-space: normal; }

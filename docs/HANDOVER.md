@@ -6,7 +6,7 @@ build log and move items in "Now and next" as work lands.
 
 ## 0. Now and next (read this first)
 
-**State at build 81** (harbour life 75; settlement view 76; live settlement tab 77; weather pace and blending 79; the lighter side panel 80; the harbour lives on while paused 81). Live at https://beermarkus-tech.github.io/Ports/. 136 tests pass. Working
+**State at build 82** (harbour life 75; settlement view 76; live settlement tab 77; weather pace and blending 79; the lighter side panel 80; the harbour lives on while paused 81; Orders reordered, news ticker 82). The owner wants Orders decluttered further: ask what next. Live at https://beermarkus-tech.github.io/Ports/. 136 tests pass. Working
 branch of the last chat: `ccr-e09247f0-shm8l1`; everything is merged into `main` (main deploys).
 The owner plays the 1650 game (mostly the Chinese house) on an Android device.
 
@@ -568,6 +568,7 @@ Check `vite-plugin-pwa` precache size limits after adding it.
 | 79 | Harbour weather keeps its own pace: spells follow a real-time clock (WEATHER_SECONDS_PER_DAY = 4 in main.ts, so about 12 s a spell) whatever the game speed, and go on while the clock waits; the season still follows the game date. Changes of weather or light cross-fade over 4 s (PortScene fadeFrom), rain and snow fade in and out |
 | 80 | The lighter side panel: four tabs (Orders, settlement, Fleet, Company) instead of seven; ranked short lists, folds, three-way cargo sort (pay per day / total / destination), "Bring on the next run" for the settlement |
 | 81 | The harbour goes on while the clock is stopped: the light (and the map's sun, clouds, waves) moves at the 1× pace and the weather by its own clock; harbour life already ran in real time |
+| 82 | Orders reordered (owner's order): ship stats → Where to (with the voyage plan) → Cargo that fits → In the hold → Best buys → the rest → Under your command last; no "needs orders" card; the section you tap in stays put on screen across the redraw (`anchor`, data-anchor sections); hold/victuals/condition removed from the strip under the map (bigger map); world news as a one-line ticker above the map (#news-ticker, cycles every 7 s, tap for all) |
 
 ## 10. Proposals and artifacts (claude.ai, owner's account)
 
