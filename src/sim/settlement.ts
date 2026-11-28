@@ -142,6 +142,8 @@ export const SETTLEMENT_TUNING = {
   yardGoods: ['timber', 'tools'],
   /** Share of the yard the sawmill leaves free, for tools landed from the ships. */
   sawmillReserve: 0.2,
+  /** Share of the store the workshops leave free, for the harvest and food from the ships. */
+  workshopReserve: 0.2,
   yard: 300,
   /** What a settler costs to recruit at home (passage, wages, tools), and the hold room one takes. */
   settlerCost: 300,
@@ -189,6 +191,10 @@ export const yardStored = (s: Settlement): number => Object.entries(s.stores).re
 /** Room left for a good: in the yard for building materials, in the store for the rest. */
 /** The sawmill has stopped: the yard is as full as it fills it (the rest is kept for tools). */
 export const sawmillResting = (s: Settlement): boolean => count(s, 'sawmill') > 0 && yardStored(s) >= T.yard * (1 - T.sawmillReserve) - 0.5;
+/** The workshops have stopped: the store is as full as they fill it (the rest is kept for food). */
+export const workshopsResting = (s: Settlement): boolean => Object.keys(making(s)).length > 0 && stored(s) >= storeRoom(s) * (1 - T.workshopReserve) - 0.5;
+/** Goods in the store that aren't food or the yard's: what the workshops made, to ship out and sell. */
+export const storeGoods = (s: Settlement): string[] => Object.keys(s.stores).filter((k) => !inYard(k) && k !== 'rice' && k !== 'grain' && (s.stores[k] ?? 0) >= 0.5);
 export const roomFor = (s: Settlement, good: string): number => Math.max(0, inYard(good) ? T.yard - yardStored(s) : storeRoom(s) - stored(s));
 export const foodStock = (s: Settlement): number => (s.stores.rice ?? 0) + (s.stores.grain ?? 0);
 export const eats = (s: Settlement): number => s.people * T.food;
@@ -320,7 +326,9 @@ export function settlementDay(world: World, g: GameState, day: number, note: Not
   if (grows(s, day)) store(s, site.crop, grows(s, day));
   // The sawmill rests once the yard is nearly full: room is kept for tools from the ships.
   if (count(s, 'sawmill')) store(s, 'timber', Math.min(site.forest, Math.max(0, T.yard * (1 - T.sawmillReserve) - yardStored(s))));
-  for (const [good, tons] of Object.entries(making(s))) store(s, good, tons);
+  // The workshops rest once the store is nearly full: room is kept for the harvest and food from the ships.
+  let shopRoom = Math.max(0, storeRoom(s) * (1 - T.workshopReserve) - stored(s));
+  for (const [good, tons] of Object.entries(making(s))) shopRoom -= store(s, good, Math.min(tons, shopRoom));
   if (s.people > 0) {
     const short = eat(s, Math.max(0, eats(s) - fish(s)));
     if (short > 0.001) {
@@ -436,7 +444,7 @@ export function bringList(s: Settlement, day: number): { good: string; tons: num
   const out: { good: string; tons: number; why: string }[] = [];
   const up10 = (n: number) => Math.ceil(n / 10) * 10;
   const short = Math.max(0, eats(s) - localFood(s, day));
-  const food = up10(Math.max(0, short * 60 - stored(s)));
+  const food = up10(Math.max(0, short * 60 - foodStock(s)));
   if (food > 0) out.push({ good: 'food', tons: food, why: `two months' food (${fmt(short)} t a day they don't grow)` });
   // Workshops: one more is enough to list (any of them counts).
   let shopListed = false;

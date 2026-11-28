@@ -19,7 +19,7 @@ import {
 import type { Captain, Contract, GameState, PremiumKind, ShipOffer, ShipState, ShipTypeDef, VoyageReport } from './sim/types';
 import { currentEra, currentHouse, getWorld, setEra } from './sim/world';
 import { currentChapter, guideChapters, updateGuide, type GuideChapter } from './sim/guide';
-import { BUILDINGS, SETTLEMENT_TUNING, SITES, STAGE_NAMES, bringList, sawmillResting, stageGoals, buildDays, cannotBuild, count as bcount, eats, foodDays, grows, housing, nextStageNeeds, siteOf, roomFor, storeRoom, stored, willing, yardStored, fish, STAGES, dues, jobs, making as makingNow, products, staffed } from './sim/settlement';
+import { BUILDINGS, SETTLEMENT_TUNING, SITES, STAGE_NAMES, bringList, foodStock, sawmillResting, stageGoals, storeGoods, workshopsResting, buildDays, cannotBuild, count as bcount, eats, foodDays, grows, housing, nextStageNeeds, siteOf, roomFor, storeRoom, stored, willing, yardStored, fish, STAGES, dues, jobs, making as makingNow, products, staffed } from './sim/settlement';
 import { compactMoney, currency, days, esc, gameDate, money, setEraFormat, startYear, tons } from './ui/format';
 import { mapIconPath, shipFamily, shipSideView } from './ui/art';
 import { applyCheck, changedSinceSync, checkCloud, clearConfig, CloudError, defaultDeviceName, findOrCreateGist, loadConfig, saveConfig, type Check, type CloudGame, type SyncedSlot } from './cloud';
@@ -1505,14 +1505,18 @@ class App {
     const lots = [...(ship.settlers ? [{ good: 'settlers', label: `${ship.settlers} settlers`, fits: true }] : []),
       ...aboard.map((l) => ({ good: l.good, label: `${tons(l.tons)} ${world.goods[l.good].name.toLowerCase()}`, fits: roomFor(s, l.good) > 0.05 }))];
     // A full yard: land timber or tools by taking the other aboard in their place, ton for ton.
-    const swapBtns = aboard.filter((l) => SETTLEMENT_TUNING.yardGoods.includes(l.good)).map((l) => {
+    // A full store: land food by taking what the workshops made aboard in its place.
+    const swapBtns = aboard.filter((l) => SETTLEMENT_TUNING.yardGoods.includes(l.good) || l.good === 'rice' || l.good === 'grain').map((l) => {
       const room = roomFor(s, l.good);
-      const other = SETTLEMENT_TUNING.yardGoods.filter((x) => x !== l.good).reduce((a, x) => a + (s.stores[x] ?? 0), 0);
+      const yardGood = SETTLEMENT_TUNING.yardGoods.includes(l.good);
+      const pool = yardGood ? SETTLEMENT_TUNING.yardGoods.filter((x) => x !== l.good) : storeGoods(s);
+      const other = pool.reduce((a, x) => a + (s.stores[x] ?? 0), 0);
       if (l.tons - room < 0.5 || other < 0.5) return '';
       const landed = Math.min(l.tons, room + other);
-      return `<button class="btn small primary" data-action="swap-settlement" data-good="${l.good}">Land ${tons(landed)} ${esc(world.goods[l.good].name.toLowerCase())}, take ${tons(landed - room)} ${l.good === 'tools' ? 'timber' : 'iron and tools'} aboard</button>`;
+      const what = yardGood ? (l.good === 'tools' ? 'timber' : 'iron and tools') : pool.map((x) => world.goods[x].name.toLowerCase()).slice(0, 2).join(' and ');
+      return `<button class="btn small primary" data-action="swap-settlement" data-good="${l.good}">Land ${tons(landed)} ${esc(world.goods[l.good].name.toLowerCase())}, take ${tons(landed - room)} ${esc(what)} aboard</button>`;
     }).join('');
-    const swaps = swapBtns ? `<p class="hint">The yard is full. Exchange ton for ton: what comes aboard is yours to sell anywhere.</p><div class="btn-row">${swapBtns}</div>` : '';
+    const swaps = swapBtns ? `<p class="hint">No room ashore. Exchange ton for ton: what comes aboard is yours to sell anywhere.</p><div class="btn-row">${swapBtns}</div>` : '';
     const unload = isReady(g, ship) && ship.location === s.site && lots.length
       ? `<div class="settler-box"><p><strong>Aboard the ${esc(ship.name)}</strong>: land what you choose. Timber and tools go to the yard, food to the store.</p>
         <div class="btn-row">${lots.map((l) => `<button class="btn small ${l.fits ? 'primary' : 'ghost'}" data-action="unload-settlement" data-good="${l.good}" ${l.fits ? '' : 'disabled title="No room"'}>Land ${esc(l.label)}</button>`).join('')}
@@ -1528,12 +1532,13 @@ class App {
     const latest = s.news.slice(0, 2).map((n) => `<li class="${n.kind}"><span class="sub">${gameDate(n.day)}</span> ${esc(n.text)}</li>`).join('');
     return `<div class="ship-head"><div class="sh-name"><h2>${esc(name)}</h2><span>${STAGE_NAMES[s.stage].toLowerCase()} · ${Math.floor(s.people)} people · ${esc(world.ports[s.site].country)}</span></div>
       <div class="sh-gauges two">
-        ${gauge('Food', daysText, foodShare, s.people >= 1 && days < 15 ? 'bad' : s.people >= 1 && days < 45 ? 'warn' : 'ok')}
+        ${gauge('Food (rice, grain)', `${daysText} · ${tons(foodStock(s))}`, foodShare, s.people >= 1 && days < 15 ? 'bad' : s.people >= 1 && days < 45 ? 'warn' : 'ok')}
         ${gauge('People', `${Math.floor(s.people)} · room ${housing(s)}`, s.people / Math.max(1, housing(s)), s.people > housing(s) ? 'warn' : 'ok')}
-        ${gauge('Store (food)', `${tons(stored(s))} / ${storeRoom(s)} t`, stored(s) / Math.max(1, storeRoom(s)), 'hold')}
+        ${gauge('Store (food and goods)', `${tons(stored(s))} / ${storeRoom(s)} t`, stored(s) / Math.max(1, storeRoom(s)), 'hold')}
         ${gauge('Yard', `${tons(yardStored(s))} / ${SETTLEMENT_TUNING.yard} t`, yardStored(s) / SETTLEMENT_TUNING.yard, 'hold')}
       </div></div>
       ${s.hungry ? `<div class="ask warn"><strong>${esc(name)} has no food:</strong> people are leaving. Bring rice${site.crop === 'grain' ? ' or grain' : ''}.</div>` : s.people >= 1 && days < 15 ? `<div class="ask warn"><strong>Food for only ${Math.floor(days)} days.</strong> They eat ${tons(eats(s))} a day.</div>` : ''}
+      ${workshopsResting(s) ? `<div class="ask quiet">The store is nearly full: the workshops are resting, to keep room for the harvest and your rice. Ship their goods out and sell them.</div>` : ''}
       ${sawmillResting(s) ? `<div class="ask quiet">The yard is nearly full: the sawmill is resting. It keeps ${Math.round(SETTLEMENT_TUNING.yard * SETTLEMENT_TUNING.sawmillReserve)} t free for tools from your ships.</div>` : ''}
       ${portLine}
       ${loadBox}
