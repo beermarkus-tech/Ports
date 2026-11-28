@@ -2050,8 +2050,8 @@ class App {
     const per = (total: number) => money(Math.round(total / lot));
     const rows = goods.slice(0, 3).map((x) => `<li class="buy-row">
         <div class="br-main">${goodIcon(x.good, 24)}<strong>${esc(world.goods[x.good].name)}</strong> <span class="sub">${money(x.price)}/t here</span></div>
-        <div class="br-gain"><b class="${x.profit < 0 ? 'neg' : ''}">${money(x.profit, true)}</b><span>for ${tons(lot)}</span></div>
-        <div class="br-calc">${tons(lot)} cost ${compactMoney(x.cost)} (≈ ${per(x.cost)}/t) → sell ≈ ${x.sales.map((sl) => `${compactMoney(sl.total)} in ${esc(world.ports[sl.port].name)} (≈ ${per(sl.total)}/t)`).join(' · ')}</div>
+        <div class="br-gain"><b class="${x.profit < 0 ? 'neg' : ''}">${x.profit < 0 ? '−' : '+'}${compactMoney(Math.abs(x.profit))}</b><span>for ${tons(lot)}</span></div>
+        <div class="br-calc">Sells ≈ ${x.sales.map((sl) => `${compactMoney(sl.total)} in ${esc(world.ports[sl.port].name)} (${per(sl.total)}/t)`).join(' · ')}</div>
         <div class="btn-row">${room > 10 ? buyBtn(x.good, 10, '+10 t') : ''}${buyBtn(x.good, 'max', room > 0 ? `Fill ${tons(room)}` : 'Hold full')}</div>
       </li>`).join('');
     return `${aboard}
